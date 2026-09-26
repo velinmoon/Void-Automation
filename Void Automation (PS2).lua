@@ -4223,14 +4223,19 @@ for i = 1, 20 do
         y = star.Position.Y.Offset,
         phase = math.random() * math.pi * 2,
         twinkle = 0.7 + math.random() * 2.2,
+        baseX = star.Position.X.Offset,
     }
 end
 
 BH.backA = frame(BH.hero, "BackOrbitA", 0, 0, W, 152, Color3.new(1,1,1), 0)
 BH.backA.BackgroundTransparency = 1
+BH.backA.AnchorPoint = Vector2.new(0.5, 0.5)
+BH.backA.Position = UDim2.fromOffset(W * 0.5, 76)
 BH.backA.ZIndex = 3
 BH.backB = frame(BH.hero, "BackOrbitB", 0, 0, W, 152, Color3.new(1,1,1), 0)
 BH.backB.BackgroundTransparency = 1
+BH.backB.AnchorPoint = Vector2.new(0.5, 0.5)
+BH.backB.Position = UDim2.fromOffset(W * 0.5, 76)
 BH.backB.ZIndex = 3
 
 BH.coreGlow = frame(BH.hero, "CoreGlow", 0, 0, 90, 90, Color3.fromRGB(72,38,150), 45)
@@ -4261,6 +4266,8 @@ BH.purpleStroke = stroke(BH.horizonPurple, Color3.fromRGB(122,63,242), 0.28, 1.2
 
 BH.front = frame(BH.hero, "FrontOrbit", 0, 0, W, 152, Color3.new(1,1,1), 0)
 BH.front.BackgroundTransparency = 1
+BH.front.AnchorPoint = Vector2.new(0.5, 0.5)
+BH.front.Position = UDim2.fromOffset(W * 0.5, 76)
 BH.front.ZIndex = 7
 
 function BH.makeOrbit(group, rx, ry, count, width, z, palette, phaseOffset)
@@ -4317,9 +4324,12 @@ connect(RunService.RenderStepped, function()
     BH.last = now
     local t = now - BH.clock
     local heroWidth = math.max(420, BH.hero.AbsoluteSize.X)
+    -- The HTML reference uses a 300px-wide hero. Keep the orbit field proportional
+    -- to the resized Roblox hero while keeping the fixed-height panel usable.
     local scale = heroWidth / 420
     local cx = heroWidth * 0.5
     local cy = 76
+    local coreScale = math.clamp(0.92 + (heroWidth / 420) * 0.28, 0.92, 1.65)
     BH.core.Position = UDim2.fromOffset(cx, cy)
     BH.coreGlow.Position = UDim2.fromOffset(cx, cy)
     BH.horizonSilver.Position = UDim2.fromOffset(cx, cy)
@@ -4337,10 +4347,21 @@ connect(RunService.RenderStepped, function()
     BH.front.Rotation = (-t * 7.5) % 360
 
     local pulse = (math.sin(t * 1.25) + 1) * 0.5
-    BH.coreGlow.Size = UDim2.fromOffset(82 + math.floor(pulse * 18), 82 + math.floor(pulse * 18))
+    local glowSize = (82 + math.floor(pulse * 18)) * coreScale
+    BH.coreGlow.Size = UDim2.fromOffset(math.floor(glowSize), math.floor(glowSize))
     BH.coreGlow.BackgroundTransparency = 0.94 - pulse * 0.08
+    local horizonSize = math.floor(58 * coreScale)
+    local coreSize = math.floor(56 * coreScale)
+    BH.core.Size = UDim2.fromOffset(coreSize, coreSize)
+    BH.horizonSilver.Size = UDim2.fromOffset(horizonSize, horizonSize)
+    BH.horizonPurple.Size = UDim2.fromOffset(horizonSize, horizonSize)
     BH.silverStroke.Transparency = 0.16 + pulse * 0.18
     BH.purpleStroke.Transparency = 0.28 + (1 - pulse) * 0.20
+
+    for _, orbit in ipairs({BH.backA, BH.backB, BH.front}) do
+        orbit.Size = UDim2.fromOffset(heroWidth, 152)
+        orbit.Position = UDim2.fromOffset(cx, cy)
+    end
 
     for _, ring in ipairs({BH.backRing1, BH.backRing2, BH.frontRing}) do
         for _, seg in ipairs(ring.segments) do
@@ -4360,6 +4381,7 @@ connect(RunService.RenderStepped, function()
         end
     end
 
+    BH.scan.Size = UDim2.fromOffset(heroWidth, 54)
     BH.scan.Position = UDim2.fromOffset(0, -58 + ((t * 34) % 268))
     BH.scanGradient.Offset = Vector2.new(0, ((t * 0.14) % 2) - 1)
 end)
@@ -4789,6 +4811,16 @@ local function applyWindowWidth(width)
     setObjectWidth(voidFX, windowWidth)
     if System.theme == "Blackhole" then
         BH.hero.Size = UDim2.fromOffset(windowWidth, 152)
+        BH.backA.Size = UDim2.fromOffset(windowWidth, 152)
+        BH.backB.Size = UDim2.fromOffset(windowWidth, 152)
+        BH.front.Size = UDim2.fromOffset(windowWidth, 152)
+        BH.backA.Position = UDim2.fromOffset(windowWidth * 0.5, 76)
+        BH.backB.Position = UDim2.fromOffset(windowWidth * 0.5, 76)
+        BH.front.Position = UDim2.fromOffset(windowWidth * 0.5, 76)
+        for _, star in ipairs(BH.stars) do
+            star.x = (star.baseX or star.x) * (windowWidth / W)
+            star.object.Position = UDim2.fromOffset(math.floor(star.x), math.floor(star.y))
+        end
         tabs.Position = UDim2.fromOffset(0, 216)
         content.Position = UDim2.fromOffset(0, 280)
         content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
@@ -5222,316 +5254,288 @@ pcall(function() Theme.apply(System.theme) end)
 do
     local __loaderLayer
     local __loaderOK, __loaderERR = pcall(function()
-
         __loaderLayer = make("Frame", loaderCanvas, {
-        Name = "VoidLoading", Position = UDim2.fromScale(0, 0), Size = UDim2.fromScale(1, 1),
-        BackgroundColor3 = C.black, BackgroundTransparency = 0.08, BorderSizePixel = 0,
-        Active = true, ZIndex = 100,
-    })
+            Name = "VoidLoading", Position = UDim2.fromScale(0, 0), Size = UDim2.fromScale(1, 1),
+            BackgroundColor3 = Color3.fromRGB(1, 1, 4), BackgroundTransparency = 0.06,
+            BorderSizePixel = 0, Active = true, ZIndex = 100,
+        })
         local loadingLayer = __loaderLayer
-    local loadCard = frame(loadingLayer, "LoadingCard", 0, 0, 320, 390, C.deep, 18)
-    loadCard.AnchorPoint = Vector2.new(0.5, 0.5)
-    loadCard.Position = UDim2.fromScale(0.5, 0.5)
-    loadCard.BackgroundTransparency = 0.10
-    loadCard.ZIndex = 101
-    stroke(loadCard, Color3.fromRGB(168, 120, 255), 0.30, 1)
-    local loadScale = make("UIScale", loadCard, {Scale = 0.72})
-    TweenService:Create(loadScale, TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
 
-    local loadTitle = safeText(loadCard, "Title", System.theme == "Blackhole" and "BLACKHOLE V1" or "VOID NEXUS", 0, 14, 320, 22, 17, C.ink, Enum.Font.GothamBold)
-    loadTitle.TextXAlignment = Enum.TextXAlignment.Center
-    loadTitle.ZIndex = 103
-    local loadSub = safeText(loadCard, "Sub", System.theme == "Blackhole" and "REACTOR ONLINE" or "CORE INITIALIZATION", 0, 38, 320, 16, 8, C.dim, Enum.Font.GothamBold)
-    loadSub.TextXAlignment = Enum.TextXAlignment.Center
-    loadSub.ZIndex = 103
+        -- BLACKHOLE / VOID NEXUS loader rebuilt from the supplied animated SVG:
+        -- 220x220 singularity, deep-space bloom, accretion disk, lens arc,
+        -- split photon ring, distant stars and slow breathing/flicker motion.
+        local loadCard = frame(loadingLayer, "LoadingCard", 0, 0, 326, 402, Color3.fromRGB(5, 3, 11), 18)
+        loadCard.AnchorPoint = Vector2.new(0.5, 0.5)
+        loadCard.Position = UDim2.fromScale(0.5, 0.5)
+        loadCard.BackgroundTransparency = 0.08
+        loadCard.ZIndex = 101
+        stroke(loadCard, Color3.fromRGB(104, 63, 160), 0.34, 1)
 
-    local symbol = frame(loadCard, "Symbol", 0, 0, 220, 220, C.black, 110)
-    symbol.AnchorPoint = Vector2.new(0.5, 0.5)
-    symbol.Position = UDim2.new(0.5, 0, 0, 145)
-    symbol.BackgroundTransparency = 1
-    symbol.ZIndex = 102
+        local loadScale = make("UIScale", loadCard, {Scale = 0.88})
+        TweenService:Create(loadScale, TweenInfo.new(0.62, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
 
-    local WHITE = Color3.fromRGB(255, 255, 255)
-    local SKY = Color3.fromRGB(143, 227, 255)
-    local PURPLE = Color3.fromRGB(168, 85, 247)
-    local PINK = Color3.fromRGB(239, 79, 208)
-    local LAV = Color3.fromRGB(201, 182, 255)
+        local loadTitle = safeText(loadCard, "Title", System.theme == "Blackhole" and "BLACKHOLE V1" or "VOID NEXUS", 0, 16, 326, 22, 17, C.ink, Enum.Font.GothamBold)
+        loadTitle.TextXAlignment = Enum.TextXAlignment.Center
+        loadTitle.ZIndex = 103
 
-    local function loaderCircle(parent, name, size, color, transparency, z, thickness, strokeColor)
-        local f = frame(parent, name, 0, 0, size, size, color or C.black, math.floor(size / 2))
-        f.AnchorPoint = Vector2.new(0.5, 0.5)
-        f.Position = UDim2.fromScale(0.5, 0.5)
-        f.BackgroundTransparency = transparency == nil and 1 or transparency
-        f.ZIndex = z or 102
-        if strokeColor then stroke(f, strokeColor, transparency or 0, thickness or 1) end
-        return f
-    end
+        local loadSub = safeText(loadCard, "Sub", System.theme == "Blackhole" and "GALACTIC REACTOR" or "VOID CORE ONLINE", 0, 40, 326, 16, 8, C.dim, Enum.Font.GothamBold)
+        loadSub.TextXAlignment = Enum.TextXAlignment.Center
+        loadSub.ZIndex = 103
 
-    local bloomA = loaderCircle(symbol, "BloomA", 184, Color3.fromRGB(123, 47, 247), 0.92, 102)
-    local bloomB = loaderCircle(symbol, "BloomB", 156, Color3.fromRGB(123, 47, 247), 0.90, 103)
-    local bloomC = loaderCircle(symbol, "BloomC", 128, Color3.fromRGB(168, 85, 247), 0.84, 104)
-    local bloomD = loaderCircle(symbol, "BloomD", 102, Color3.fromRGB(76, 20, 140), 0.70, 105)
+        local symbol = frame(loadCard, "Symbol", 0, 0, 220, 220, C.black, 110)
+        symbol.AnchorPoint = Vector2.new(0.5, 0.5)
+        symbol.Position = UDim2.new(0.5, 0, 0, 156)
+        symbol.BackgroundTransparency = 1
+        symbol.ZIndex = 102
 
-    local shock1 = loaderCircle(symbol, "Shock1", 92, C.black, 1, 106, 2.4, LAV)
-    local shock2 = loaderCircle(symbol, "Shock2", 92, C.black, 1, 106, 1.4, SKY)
-    local shockScale1 = make("UIScale", shock1, {Scale = 0.25})
-    local shockScale2 = make("UIScale", shock2, {Scale = 0.25})
-    local shockStroke1 = shock1:FindFirstChildOfClass("UIStroke")
-    local shockStroke2 = shock2:FindFirstChildOfClass("UIStroke")
+        local WHITE = Color3.fromRGB(255, 243, 214)
+        local STAR = Color3.fromRGB(231, 217, 255)
+        local PURPLE = Color3.fromRGB(123, 47, 247)
+        local PURPLE_DARK = Color3.fromRGB(76, 20, 140)
+        local MAGENTA = Color3.fromRGB(201, 98, 154)
+        local BLACK = Color3.fromRGB(0, 0, 0)
 
-    local spikeGroup = frame(symbol, "Spikes", 0, 0, 220, 220, C.black, 0)
-    spikeGroup.BackgroundTransparency = 1
-    spikeGroup.ZIndex = 107
-    local spikes = {}
-    for i = 0, 7 do
-        local line = frame(spikeGroup, "Spike" .. i, 110, 108.8, 95, 2.2,
-            (i % 3 == 0) and SKY or ((i % 3 == 1) and PURPLE or PINK), 1)
-        line.AnchorPoint = Vector2.new(0, 0.5)
-        line.Rotation = i * 45
-        line.BackgroundTransparency = 0.55
-        line.ZIndex = 107
-        spikes[#spikes + 1] = line
-    end
-
-    local diskA = frame(symbol, "DiskA", 20, 78, 180, 64, C.black, 32)
-    diskA.BackgroundTransparency = 1
-    diskA.Rotation = -18
-    diskA.ZIndex = 108
-    local diskStrokeA = stroke(diskA, PINK, 0.18, 2.8)
-
-    local diskB = frame(symbol, "DiskB", 20, 78, 180, 64, C.black, 32)
-    diskB.BackgroundTransparency = 1
-    diskB.Rotation = 162
-    diskB.ZIndex = 108
-    local diskStrokeB = stroke(diskB, SKY, 0.25, 1.8)
-
-    local diskC = frame(symbol, "DiskC", 35, 86, 150, 48, C.black, 24)
-    diskC.BackgroundTransparency = 1
-    diskC.Rotation = 60
-    diskC.ZIndex = 109
-    local diskStrokeC = stroke(diskC, LAV, 0.34, 1.2)
-
-    local dashGroups = {}
-    local function makeDashGroup(name, radiusX, radiusY, count, color, z, speed)
-        local group = frame(symbol, name, 0, 0, 220, 220, C.black, 0)
-        group.BackgroundTransparency = 1
-        group.ZIndex = z
-        for i = 1, count do
-            local a = (i / count) * math.pi * 2
-            local x = 110 + math.cos(a) * radiusX
-            local y = 110 + math.sin(a) * radiusY
-            local d = frame(group, "Dash" .. i, math.floor(x - 5), math.floor(y - 0.6), 10, 1.2, color, 1)
-            d.AnchorPoint = Vector2.new(0.5, 0.5)
-            d.Rotation = math.deg(a) + 90
-            d.BackgroundTransparency = 0.72
-            d.ZIndex = z
-        end
-        dashGroups[#dashGroups + 1] = {group = group, speed = speed}
-    end
-    makeDashGroup("DashA", 90, 32, 18, PINK, 109, 18)
-    makeDashGroup("DashB", 90, 32, 14, SKY, 109, -13)
-    makeDashGroup("DashC", 75, 24, 12, LAV, 110, 9)
-
-    local ringOuter = loaderCircle(symbol, "RingOuter", 196, C.black, 1, 111, 2.4, PURPLE)
-    local ringDash = loaderCircle(symbol, "RingDashed", 172, C.black, 1, 112, 1, PURPLE)
-    local ringDash2 = loaderCircle(symbol, "RingDashed2", 128, C.black, 1, 112, 0.8, PINK)
-    local ringOuterStroke = ringOuter:FindFirstChildOfClass("UIStroke")
-    local ringDashStroke = ringDash:FindFirstChildOfClass("UIStroke")
-    local ringDash2Stroke = ringDash2:FindFirstChildOfClass("UIStroke")
-
-    local tickGroup = frame(symbol, "Ticks", 0, 0, 220, 220, C.black, 0)
-    tickGroup.BackgroundTransparency = 1
-    tickGroup.ZIndex = 113
-    local tickData = {
-        {110, 4, 110, 20}, {110, 200, 110, 216},
-        {4, 110, 20, 110}, {200, 110, 216, 110},
-    }
-    for i, d in ipairs(tickData) do
-        local t = frame(tickGroup, "Tick" .. i, d[1], d[2], d[3] - d[1] + 2, d[4] - d[2] + 2, LAV, 1)
-        if d[3] == d[1] then
-            t.Size = UDim2.fromOffset(2, d[4] - d[2] + 1)
-        end
-        t.BackgroundTransparency = 0.15
-        t.ZIndex = 113
-    end
-
-    local orbitGroupA = frame(symbol, "OrbitA", 0, 0, 220, 220, C.black, 0)
-    local orbitGroupB = frame(symbol, "OrbitB", 0, 0, 220, 220, C.black, 0)
-    local orbitGroupC = frame(symbol, "OrbitC", 0, 0, 220, 220, C.black, 0)
-    for _, g in ipairs({orbitGroupA, orbitGroupB, orbitGroupC}) do
-        g.BackgroundTransparency = 1
-        g.ZIndex = 114
-    end
-    local satA = frame(orbitGroupA, "Satellite", 106.6, 20.6, 6.8, 6.8, SKY, 3.4)
-    local satATrail1 = frame(orbitGroupA, "Trail1", 107.6, 20.6, 4.8, 4.8, SKY, 2.4)
-    satATrail1.BackgroundTransparency = 0.5
-    local satATrail2 = frame(orbitGroupA, "Trail2", 108.4, 20.6, 3.2, 3.2, SKY, 1.6)
-    satATrail2.BackgroundTransparency = 0.72
-    local satB = frame(orbitGroupB, "Satellite", 181.7, 106.9, 5.6, 5.6, PINK, 2.8)
-    local satBTrail1 = frame(orbitGroupB, "Trail1", 182.6, 107.5, 4, 4, PINK, 2)
-    satBTrail1.BackgroundTransparency = 0.5
-    local satC = frame(orbitGroupC, "Satellite", 108.2, 40.2, 3.6, 3.6, LAV, 1.8)
-    satC.BackgroundTransparency = 0.2
-
-    local lensRing = loaderCircle(symbol, "LensRing", 88, C.black, 1, 116, 1.3, WHITE)
-    local lensStroke = lensRing:FindFirstChildOfClass("UIStroke")
-    local lensUIScale = make("UIScale", lensRing, {Scale = 1})
-
-    local coreGlow1 = loaderCircle(symbol, "CoreGlow1", 76, Color3.fromRGB(76, 20, 140), 0.45, 117)
-    local coreGlow2 = loaderCircle(symbol, "CoreGlow2", 62, Color3.fromRGB(168, 85, 247), 0.38, 118)
-    local coreGlow3 = loaderCircle(symbol, "CoreGlow3", 48, Color3.fromRGB(5, 1, 7), 0.12, 119)
-    local eventPoint = loaderCircle(symbol, "EventPoint", 20, Color3.new(0, 0, 0), 0, 120)
-    local coreScale1 = make("UIScale", coreGlow1, {Scale = 1})
-    local coreScale2 = make("UIScale", coreGlow2, {Scale = 1})
-    local coreScale3 = make("UIScale", coreGlow3, {Scale = 1})
-
-    local loadStatus = safeText(loadCard, "Status", System.theme == "Blackhole" and "ESTABLISHING VOID LINK..." or "ESTABLISHING VOID LINK...", 0, 270, 320, 18, 9, C.cyan, Enum.Font.GothamBold)
-    loadStatus.TextXAlignment = Enum.TextXAlignment.Center
-    loadStatus.ZIndex = 121
-    local loadRail = frame(loadCard, "Rail", 36, 302, 248, 4, Color3.fromRGB(42, 25, 62), 2)
-    loadRail.ZIndex = 121
-    local loadFill = frame(loadRail, "Fill", 0, 0, 0, 4, C.violet2, 2)
-    loadFill.ZIndex = 122
-    local loadPercent = safeText(loadCard, "Percent", "0%", 0, 314, 320, 16, 8, C.dim, Enum.Font.GothamMedium)
-    loadPercent.TextXAlignment = Enum.TextXAlignment.Center
-    loadPercent.ZIndex = 121
-
-    local loadStart = os.clock()
-    local loadDuration = 2.20
-    local loadStages = System.theme == "Blackhole" and {
-        {0.00, "ESTABLISHING VOID LINK..."},
-        {0.23, "CALIBRATING GRAVITY WELL..."},
-        {0.48, "SYNCHRONIZING ORBITAL RINGS..."},
-        {0.72, "LOADING BLACKHOLE MODULES..."},
-        {0.91, "REACTOR ONLINE"},
-    } or {
-        {0.00, "ESTABLISHING VOID LINK..."},
-        {0.23, "CALIBRATING GRAVITY WELL..."},
-        {0.48, "SYNCHRONIZING ORBITAL RINGS..."},
-        {0.72, "LOADING VOID MODULES..."},
-        {0.91, "CORE LINK STABLE"},
-    }
-    local loadAnimConn
-    loadAnimConn = connect(RunService.RenderStepped, function()
-        if not State.alive or not loadingLayer.Parent then
-            if loadAnimConn then loadAnimConn:Disconnect() end
-            return
-        end
-        local elapsed = os.clock() - loadStart
-        local progress = math.clamp(elapsed / loadDuration, 0, 1)
-
-        local bloomPulse = (math.sin(elapsed * math.pi * 2 / 5) + 1) * 0.5
-        bloomA.Size = UDim2.fromOffset(184 + math.floor(bloomPulse * 12), 184 + math.floor(bloomPulse * 12))
-        bloomA.BackgroundTransparency = 0.95 - bloomPulse * 0.07
-        bloomB.BackgroundTransparency = 0.93 - bloomPulse * 0.08
-        bloomC.BackgroundTransparency = 0.88 - bloomPulse * 0.10
-        bloomD.BackgroundTransparency = 0.74 - bloomPulse * 0.12
-
-        local shockPhase1 = (elapsed % 3.6) / 3.6
-        local shockPhase2 = ((elapsed + 1.8) % 3.6) / 3.6
-        shockScale1.Scale = 0.25 + shockPhase1 * 1.75
-        shockScale2.Scale = 0.25 + shockPhase2 * 1.75
-        shockStroke1.Transparency = 0.12 + shockPhase1 * 0.88
-        shockStroke2.Transparency = 0.20 + shockPhase2 * 0.80
-
-        spikeGroup.Rotation = elapsed * 6
-        for i, spike in ipairs(spikes) do
-            local phase = ((i - 1) / #spikes) * math.pi * 2
-            local flare = (math.sin(elapsed * (math.pi * 2 / 2.2) + phase) + 1) * 0.5
-            spike.BackgroundTransparency = math.clamp(0.82 - flare * 0.60, 0.12, 0.82)
-            spike.Size = UDim2.fromOffset(76 + math.floor(flare * 19), 2.2)
+        local function circle(parent, name, diameter, color, transparency, z)
+            local f = frame(parent, name, 0, 0, diameter, diameter, color, math.floor(diameter / 2))
+            f.AnchorPoint = Vector2.new(0.5, 0.5)
+            f.Position = UDim2.fromScale(0.5, 0.5)
+            f.BackgroundTransparency = transparency == nil and 1 or transparency
+            f.ZIndex = z or 102
+            return f
         end
 
-        diskA.Rotation = -18 + elapsed * (360 / 7.5)
-        diskB.Rotation = 162 - elapsed * (360 / 11.5)
-        diskC.Rotation = 60 + elapsed * (360 / 17)
-        diskStrokeA.Transparency = 0.16 + bloomPulse * 0.18
-        diskStrokeB.Transparency = 0.24 + bloomPulse * 0.18
-        diskStrokeC.Transparency = 0.32 + bloomPulse * 0.18
-        for _, dash in ipairs(dashGroups) do
-            dash.group.Rotation = elapsed * dash.speed
+        local function line(parent, name, x, y, w, h, color, transparency, z, rotation)
+            local f = frame(parent, name, x, y, w, h, color, math.floor(math.min(w, h) / 2))
+            f.AnchorPoint = Vector2.new(0.5, 0.5)
+            f.BackgroundTransparency = transparency == nil and 0 or transparency
+            f.ZIndex = z or 105
+            f.Rotation = rotation or 0
+            return f
         end
 
-        ringOuter.Rotation = elapsed * 2
-        ringDash.Rotation = -elapsed * 12
-        ringDash2.Rotation = elapsed * 7.8
-        ringOuterStroke.Transparency = 0.05 + (1 - bloomPulse) * 0.35
-        ringDashStroke.Transparency = 0.42 + (1 - bloomPulse) * 0.30
-        ringDash2Stroke.Transparency = 0.60 + (1 - bloomPulse) * 0.22
+        -- Deep-space bloom behind the system.
+        local bloomOuter = circle(symbol, "BloomOuter", 194, Color3.fromRGB(42, 16, 80), 0.94, 102)
+        local bloomMid = circle(symbol, "BloomMid", 164, Color3.fromRGB(21, 7, 48), 0.84, 103)
+        local bloomInner = circle(symbol, "BloomInner", 132, Color3.fromRGB(20, 8, 38), 0.72, 104)
 
-        tickGroup.Rotation = math.sin(elapsed * math.pi * 2 / 12) * 2
+        -- Four distant stars from the SVG.
+        local stars = {}
+        local starData = {
+            {30, 46, 2.2, 0.2}, {190, 34, 2.6, 1.1},
+            {26, 176, 2.0, 1.8}, {196, 182, 2.4, 0.7},
+        }
+        for i, d in ipairs(starData) do
+            local star = circle(symbol, "Star" .. i, d[3], STAR, 0.25, 106)
+            star.Position = UDim2.fromOffset(d[1], d[2])
+            stars[#stars + 1] = {object = star, phase = d[4]}
+        end
 
-        orbitGroupA.Rotation = elapsed * 72
-        orbitGroupB.Rotation = -elapsed * (360 / 8.5)
-        orbitGroupC.Rotation = elapsed * (360 / 13)
+        -- Everything below this point belongs to the breathing SVG "system" group.
+        local system = frame(symbol, "System", 0, 0, 220, 220, BLACK, 0)
+        system.BackgroundTransparency = 1
+        system.ZIndex = 107
+        local systemScale = make("UIScale", system, {Scale = 1})
 
-        local lensPulse = (math.sin(elapsed * math.pi * 2 / 3) + 1) * 0.5
-        lensStroke.Transparency = 0.58 - lensPulse * 0.48
-        lensUIScale.Scale = 1 + lensPulse * 0.08
-
-        local corePulse = (math.sin(elapsed * math.pi * 2 / 3.2) + 1) * 0.5
-        local coreScale = 1 + corePulse * 0.09
-        coreScale1.Scale = coreScale
-        coreScale2.Scale = coreScale
-        coreScale3.Scale = coreScale
-        coreGlow1.BackgroundTransparency = 0.54 - corePulse * 0.20
-        coreGlow2.BackgroundTransparency = 0.48 - corePulse * 0.18
-        eventPoint.BackgroundTransparency = 0.02 + ((math.sin(elapsed * 2 * math.pi / 1.3) + 1) * 0.5) * 0.16
-
-        loadStatus.Text = loadStages[1][2]
-        for i = #loadStages, 1, -1 do
-            if progress >= loadStages[i][1] then
-                loadStatus.Text = loadStages[i][2]
-                break
+        -- Accretion disk: many small curved dashes approximate the SVG stroke-dasharray.
+        local diskGroup = frame(system, "AccretionDisk", 0, 0, 220, 220, BLACK, 0)
+        diskGroup.BackgroundTransparency = 1
+        diskGroup.ZIndex = 108
+        local diskDashes = {}
+        local diskCount = 34
+        for i = 1, diskCount do
+            local t = ((i - 1) / diskCount) * math.pi * 2
+            local rx, ry = 98, 24
+            local px = 110 + math.cos(t) * rx
+            local py = 110 + math.sin(t) * ry
+            local dx = -rx * math.sin(t)
+            local dy = ry * math.cos(t)
+            local tangent = math.deg(math.atan2(dy, dx))
+            local col
+            local normalized = (math.cos(t) + 1) * 0.5
+            if normalized > 0.70 then
+                col = PURPLE_DARK
+            elseif normalized > 0.43 then
+                col = MAGENTA
+            else
+                col = WHITE
             end
+            local dash = line(diskGroup, "Dash" .. i, px, py, 10 + (i % 3) * 2, 6, col, 0.28, 108, tangent)
+            dash.BackgroundTransparency = 0.34
+            diskDashes[#diskDashes + 1] = dash
         end
-        loadFill.Size = UDim2.new(progress, 0, 1, 0)
-        loadPercent.Text = string.format("%d%%", math.floor(progress * 100 + 0.5))
+        diskGroup.Rotation = -7
 
-        if progress >= 1 then
-            loadAnimConn:Disconnect()
-            loadStatus.Text = System.theme == "Blackhole" and "REACTOR ONLINE" or "CORE LINK STABLE"
-            task.wait(0.10)
-            if not State.alive then return end
+        -- Lensed far-side arc above the horizon.
+        local lensGroup = frame(system, "LensArc", 0, 0, 220, 220, BLACK, 0)
+        lensGroup.BackgroundTransparency = 1
+        lensGroup.ZIndex = 110
+        local lensSegments = {}
+        local lensCount = 22
+        for i = 1, lensCount do
+            local t1 = math.pi + ((i - 1) / lensCount) * math.pi
+            local t2 = math.pi + (i / lensCount) * math.pi
+            local rx, ry = 46, 15
+            local x1, y1 = 110 + math.cos(t1) * rx, 78 + math.sin(t1) * ry
+            local x2, y2 = 110 + math.cos(t2) * rx, 78 + math.sin(t2) * ry
+            local dx, dy = x2 - x1, y2 - y1
+            local len = math.sqrt(dx * dx + dy * dy)
+            local angle = math.deg(math.atan2(dy, dx))
+            local mix = i / lensCount
+            local col = mix < 0.5 and WHITE or PURPLE
+            local seg = line(lensGroup, "Lens" .. i, (x1 + x2) * 0.5, (y1 + y2) * 0.5, len + 1, 2.6, col, 0.30 + mix * 0.25, 110, angle)
+            lensSegments[#lensSegments + 1] = seg
+        end
 
-            TweenService:Create(loadScale, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.58}):Play()
-            TweenService:Create(loadingLayer, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
+        -- True black event horizon.
+        local eventHorizon = circle(system, "EventHorizon", 100, BLACK, 0, 112)
 
-            task.delay(0.32, function()
+        -- Photon ring: bright cream/white approaching side and purple receding side.
+        local photonGroup = frame(system, "PhotonRing", 0, 0, 220, 220, BLACK, 0)
+        photonGroup.BackgroundTransparency = 1
+        photonGroup.ZIndex = 113
+        local photonSegments = {}
+        local photonCount = 44
+        for i = 1, photonCount do
+            local t = ((i - 1) / photonCount) * math.pi * 2
+            local r = 51
+            local px = 110 + math.cos(t) * r
+            local py = 110 + math.sin(t) * r
+            local tangent = math.deg(t + math.pi * 0.5)
+            local col = math.sin(t) < 0 and WHITE or PURPLE
+            local seg = line(photonGroup, "Photon" .. i, px, py, 4.4, 1.8, col, math.sin(t) < 0 and 0.04 or 0.32, 113, tangent)
+            photonSegments[#photonSegments + 1] = seg
+        end
+
+        -- Small moving glow at the singularity.
+        local coreBloom = circle(system, "CoreBloom", 78, Color3.fromRGB(42, 16, 80), 0.72, 114)
+        local coreBloom2 = circle(system, "CoreBloom2", 66, Color3.fromRGB(123, 47, 247), 0.82, 115)
+        local core = circle(system, "Core", 100, BLACK, 0, 116)
+
+        local loadStatus = safeText(loadCard, "Status", "OPENING THE VOID...", 0, 286, 326, 18, 9, C.bright, Enum.Font.GothamBold)
+        loadStatus.TextXAlignment = Enum.TextXAlignment.Center
+        loadStatus.ZIndex = 121
+
+        local loadRail = frame(loadCard, "Rail", 39, 318, 248, 4, Color3.fromRGB(27, 16, 44), 2)
+        loadRail.ZIndex = 121
+        local loadFill = frame(loadRail, "Fill", 0, 0, 0, 4, Color3.fromRGB(123, 47, 247), 2)
+        loadFill.ZIndex = 122
+        local loadPercent = safeText(loadCard, "Percent", "0%", 0, 330, 326, 16, 8, C.dim, Enum.Font.GothamMedium)
+        loadPercent.TextXAlignment = Enum.TextXAlignment.Center
+        loadPercent.ZIndex = 121
+
+        local loadHint = safeText(loadCard, "Hint", "VOID NEXUS // GALACTIC LINK", 0, 365, 326, 14, 7, C.dim, Enum.Font.GothamMedium)
+        loadHint.TextXAlignment = Enum.TextXAlignment.Center
+        loadHint.ZIndex = 121
+
+        local loadStart = os.clock()
+        local loadDuration = 2.65
+        local loadStages = {
+            {0.00, "OPENING THE VOID..."},
+            {0.18, "LOCATING SINGULARITY..."},
+            {0.37, "IGNITING ACCRETION DISK..."},
+            {0.56, "BENDING SPACETIME..."},
+            {0.75, "SYNCHRONIZING ORBITAL RINGS..."},
+            {0.90, System.theme == "Blackhole" and "BLACKHOLE V1 ONLINE" or "VOID NEXUS ONLINE"},
+        }
+
+        local loadAnimConn
+        loadAnimConn = connect(RunService.RenderStepped, function()
+            if not State.alive or not loadingLayer.Parent then
+                if loadAnimConn then loadAnimConn:Disconnect() end
+                return
+            end
+
+            local elapsed = os.clock() - loadStart
+            local progress = math.clamp(elapsed / loadDuration, 0, 1)
+
+            -- SVG .system breathe animation.
+            local breathe = (math.sin(elapsed * math.pi * 2 / 6.5) + 1) * 0.5
+            systemScale.Scale = 1 + breathe * 0.025
+
+            -- SVG bloomPulse animation.
+            local bloomPulse = (math.sin(elapsed * math.pi * 2 / 7) + 1) * 0.5
+            bloomOuter.BackgroundTransparency = 0.95 - bloomPulse * 0.08
+            bloomMid.BackgroundTransparency = 0.88 - bloomPulse * 0.08
+            bloomInner.BackgroundTransparency = 0.76 - bloomPulse * 0.08
+
+            -- SVG twinkle animation, with the original delays preserved.
+            for _, info in ipairs(stars) do
+                local pulse = (math.sin((elapsed + info.phase) * math.pi * 2 / 3) + 1) * 0.5
+                info.object.BackgroundTransparency = 0.88 - pulse * 0.68
+            end
+
+            -- SVG flow approximation: the dashed accretion disk slowly advances around the horizon.
+            diskGroup.Rotation = -7 + elapsed * (360 / 5.5)
+            for i, dash in ipairs(diskDashes) do
+                local phase = ((i - 1) / diskCount) * math.pi * 2
+                local pulse = (math.sin(elapsed * 2.0 + phase) + 1) * 0.5
+                dash.BackgroundTransparency = math.clamp(0.62 - pulse * 0.30, 0.22, 0.68)
+            end
+
+            -- Lens arc shimmer.
+            local arcPulse = (math.sin(elapsed * math.pi * 2 / 4.2) + 1) * 0.5
+            for i, seg in ipairs(lensSegments) do
+                local p = (i - 1) / math.max(1, #lensSegments - 1)
+                seg.BackgroundTransparency = math.clamp(0.52 - arcPulse * 0.30 + p * 0.12, 0.14, 0.68)
+            end
+
+            -- Photon-ring flicker/shimmer.
+            local ringPulse = (math.sin(elapsed * math.pi * 2 / 3.4) + 1) * 0.5
+            for i, seg in ipairs(photonSegments) do
+                local p = (i - 1) / photonCount
+                local wave = (math.sin(elapsed * 3.0 + p * math.pi * 4) + 1) * 0.5
+                seg.BackgroundTransparency = math.clamp(0.38 - ringPulse * 0.28 - wave * 0.12, 0.03, 0.58)
+            end
+
+            -- Soft singularity breathing.
+            local corePulse = (math.sin(elapsed * math.pi * 2 / 3.8) + 1) * 0.5
+            coreBloom.BackgroundTransparency = 0.82 - corePulse * 0.16
+            coreBloom2.BackgroundTransparency = 0.88 - corePulse * 0.16
+
+            -- Loading text / progress.
+            loadStatus.Text = loadStages[1][2]
+            for i = #loadStages, 1, -1 do
+                if progress >= loadStages[i][1] then
+                    loadStatus.Text = loadStages[i][2]
+                    break
+                end
+            end
+            loadFill.Size = UDim2.new(progress, 0, 1, 0)
+            loadPercent.Text = string.format("%d%%", math.floor(progress * 100 + 0.5))
+
+            if progress >= 1 then
+                loadAnimConn:Disconnect()
+                loadStatus.Text = System.theme == "Blackhole" and "BLACKHOLE V1 ONLINE" or "VOID NEXUS ONLINE"
+                task.wait(0.10)
                 if not State.alive then return end
-                if loaderRoot and loaderRoot.Parent then
-                    loaderRoot.Enabled = false
-                end
-                if loadingLayer and loadingLayer.Parent then
-                    loadingLayer:Destroy()
-                end
 
-                holder.Visible = true
-                root.Enabled = true
+                TweenService:Create(loadScale, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.78}):Play()
+                TweenService:Create(loadingLayer, TweenInfo.new(0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
 
-                local bootScale = make("UIScale", holder, {Scale = 0.94})
-                local bootStroke = panel:FindFirstChildOfClass("UIStroke")
-                TweenService:Create(bootScale, TweenInfo.new(0.48, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Scale = 1}):Play()
-                if bootStroke then
-                    bootStroke.Transparency = 1
-                    TweenService:Create(bootStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 0.28}):Play()
-                end
+                task.delay(0.36, function()
+                    if not State.alive then return end
+                    if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled = false end
+                    if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end
 
-                if loaderRoot and loaderRoot.Parent then
-                    loaderRoot:Destroy()
-                end
-            end)
-        end
+                    holder.Visible = true
+                    root.Enabled = true
+
+                    local bootScale = make("UIScale", holder, {Scale = 0.94})
+                    local bootStroke = panel:FindFirstChildOfClass("UIStroke")
+                    TweenService:Create(bootScale, TweenInfo.new(0.48, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Scale = 1}):Play()
+                    if bootStroke then
+                        bootStroke.Transparency = 1
+                        TweenService:Create(bootStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 0.28}):Play()
+                    end
+                    if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end
+                end)
+            end
+        end)
     end)
 
-    end)
     if not __loaderOK then
-        if __loaderLayer and __loaderLayer.Parent then
-            __loaderLayer:Destroy()
-        end
-        if loaderRoot and loaderRoot.Parent then
-            loaderRoot:Destroy()
-        end
+        if __loaderLayer and __loaderLayer.Parent then __loaderLayer:Destroy() end
+        if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end
         holder.Visible = true
         root.Enabled = true
         warn("AutoSkills VOID loader failed safely: " .. tostring(__loaderERR))

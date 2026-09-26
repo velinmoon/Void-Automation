@@ -860,6 +860,28 @@ do
     local ids, nextID = setmetatable({}, {__mode = "k"}), 0
     local collisionState, farmCharacter, origin = {}, nil, nil
     local rotationState, expanded
+    local combatPose = nil
+
+    -- Keep the avatar reliably laid flat beneath the boss.  Humanoid physics can
+    -- occasionally try to stand the character back up between farm updates, so
+    -- the pose is maintained separately at the physics boundary.
+    local function makeCombatPose(character, humanoid, rootPart, targetRoot)
+        if not character or not humanoid or not rootPart or not targetRoot then return end
+        if not character.Parent or not targetRoot.Parent then return end
+        humanoid.AutoRotate = false
+        local depth = math.clamp(Settings.FarmDepth, 6, 7)
+        local destination = targetRoot.Position - Vector3.new(0, depth, 0)
+        local flat = Vector3.new(targetRoot.Position.X - destination.X, 0, targetRoot.Position.Z - destination.Z)
+        local yaw = 0
+        if flat.Magnitude > 0.05 then
+            yaw = math.atan2(-flat.X, -flat.Z)
+        end
+        -- 90° pitch puts the avatar on its back with its face toward the boss.
+        local desired = CFrame.new(destination) * CFrame.Angles(math.rad(90), yaw, 0)
+        rootPart.CFrame = desired
+        rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+    end
     -- Boss-combat performance cache: collision state is prepared once per
     -- farming character instead of walking Character:GetDescendants() every
     -- physics frame while attacking.
@@ -1478,7 +1500,7 @@ do
     end
     local function beginLoot(position)
         if not Settings.FarmEnabled or not Settings.FarmAutoLoot or not State.alive or loot then return end
-        Farm.stopM1(); Farm.restoreHitbox(); State.farming = false; releaseOrPause()
+        Farm.stopM1(); Farm.restoreHitbox(); State.farming = false; combatPose = nil; releaseOrPause()
 
         loot = {
             center = position,
@@ -1885,6 +1907,7 @@ do
     end
     function Farm.release(returnToStart)
         State.farming = false
+        combatPose = nil
         Farm.travelKey, Farm.travelAt = nil, nil
         Farm.stopM1(); Farm.clearLoot()
         Farm.restoreHitbox()
@@ -2089,6 +2112,7 @@ do
                 -- from making Auto Boss abandon a boss that was already successfully engaged.
                 Farm.stopM1()
                 Farm.restoreHitbox()
+                combatPose = nil
                 Farm.status = "AUTO BOSS ENGAGED"
                 Farm.detail = "Boss already took damage; skip timer disabled until it dies."
             elseif not Farm.autoRespawnResume
@@ -2103,6 +2127,7 @@ do
         if not hp or hp <= 0 or not targetRoot or not attackHealthAllowed(maximum) then
             Farm.stopM1()
             Farm.restoreHitbox()
+            combatPose = nil
             Farm.selected = nil
             local nearest = math.huge
             for _, record in ipairs(Farm.records) do
@@ -2126,13 +2151,8 @@ do
         end
         humanoid.AutoRotate = false
         expandHitbox(targetRoot)
-        local destination = targetRoot.Position - Vector3.new(0, math.clamp(Settings.FarmDepth, 6, 7), 0)
-        character:PivotTo(character:GetPivot() + (destination - rootPart.Position))
-        -- Forward points at the NPC above. A horizontal up vector avoids the
-        -- lookAt singularity when the target is exactly vertical.
-        rootPart.CFrame = CFrame.lookAt(rootPart.Position, targetRoot.Position, Vector3.new(0, 0, 1))
-        rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-        rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        combatPose = {character = character, humanoid = humanoid, rootPart = rootPart, targetRoot = targetRoot}
+        makeCombatPose(character, humanoid, rootPart, targetRoot)
         State.farming = true
         watchTarget(Farm.selected, targetRoot)
         if Settings.AutoBoss then
@@ -2193,6 +2213,29 @@ do
     end
     local runOK, Run = pcall(function() return game:GetService("RunService") end)
     if runOK then
+        -- Re-apply only the lightweight combat pose at the physics boundary.
+        -- This prevents the Humanoid from standing back up without restoring the
+        -- old expensive full farm update on every frame.
+        connect(Run.Stepped, function()
+            local pose = combatPose
+            if not State.alive or not State.farming or not pose then return end
+            if pose.character and pose.character.Parent and pose.rootPart and pose.rootPart.Parent
+                and pose.targetRoot and pose.targetRoot.Parent then
+                -- Only repair the pose when physics actually pulls it upright or
+                -- the boss moved enough to make the saved position stale. This
+                -- keeps the fix lightweight while preventing the standing bug.
+                local depth = math.clamp(Settings.FarmDepth, 6, 7)
+                local desiredPosition = pose.targetRoot.Position - Vector3.new(0, depth, 0)
+                local upright = math.abs(pose.rootPart.CFrame.UpVector.Y) > 0.55
+                local displaced = (pose.rootPart.Position - desiredPosition).Magnitude > 0.45
+                if upright or displaced then
+                    makeCombatPose(pose.character, pose.humanoid, pose.rootPart, pose.targetRoot)
+                end
+            else
+                combatPose = nil
+            end
+        end)
+
         -- Farm logic does not need to execute every physics frame. Movement/NoClip
         -- still runs every frame separately; this keeps boss combat responsive
         -- while removing the expensive repeated farm update from the render/physics cadence.
@@ -3542,7 +3585,7 @@ local C = {
 local uiScale = make("UIScale", canvas, {Scale = 1})
 local holder = make("Frame", canvas, {
     Name = "Window", Size = UDim2.fromOffset(W, H), Position = UDim2.fromOffset(0, 0),
-    BackgroundTransparency = 1, BorderSizePixel = 0, Active = true,
+    BackgroundTransparency = 1, BorderSizePixel = 0, Active = true, Visible = false,
 })
 local shadow = frame(holder, "Shadow", -6, 8, W + 12, H + 12, Color3.new(0, 0, 0), 15)
 shadow.BackgroundTransparency = 0.58
@@ -4665,17 +4708,125 @@ connect(canvas:GetPropertyChangedSignal("AbsoluteSize"), function() fitWindow(fa
 fitWindow(true)
 render()
 
--- Boot animation: the panel softly materializes like a small void portal.
-local bootScale = make("UIScale", holder, {Scale = 0.94})
-local bootStroke = panel:FindFirstChildOfClass("UIStroke")
-local bootTween = TweenService:Create(bootScale, TweenInfo.new(0.48, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Scale = 1})
-bootTween:Play()
-if bootStroke then
-    bootStroke.Transparency = 1
-    local strokeTween = TweenService:Create(bootStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 0.28})
-    strokeTween:Play()
-    tweens[bootStroke] = strokeTween
+-- VOID NEXUS loading sequence ------------------------------------------------
+-- The supplied symbol is used as the visual reference. Roblox cannot directly
+-- consume the uploaded PNG from this script, so the loader recreates the symbol
+-- procedurally with rings, a singularity core and four-point energy markers.
+local loadingLayer = make("Frame", canvas, {
+    Name = "VoidLoading", Position = UDim2.fromScale(0, 0), Size = UDim2.fromScale(1, 1),
+    BackgroundColor3 = C.black, BackgroundTransparency = 0.08, BorderSizePixel = 0,
+    Active = true, ZIndex = 100,
+})
+local loadCard = frame(loadingLayer, "LoadingCard", 0, 0, 280, 270, C.deep, 18)
+loadCard.AnchorPoint = Vector2.new(0.5, 0.5)
+loadCard.Position = UDim2.fromScale(0.5, 0.5)
+loadCard.BackgroundTransparency = 0.10
+loadCard.ZIndex = 101
+stroke(loadCard, Color3.fromRGB(168, 120, 255), 0.30, 1)
+local loadScale = make("UIScale", loadCard, {Scale = 0.72})
+local loadTitle = safeText(loadCard, "Title", "VOID NEXUS", 0, 18, 280, 22, 17, C.ink, Enum.Font.GothamBold)
+loadTitle.TextXAlignment = Enum.TextXAlignment.Center
+loadTitle.ZIndex = 103
+local loadSub = safeText(loadCard, "Sub", "CORE INITIALIZATION", 0, 42, 280, 16, 8, C.dim, Enum.Font.GothamBold)
+loadSub.TextXAlignment = Enum.TextXAlignment.Center
+loadSub.ZIndex = 103
+
+local symbol = frame(loadCard, "Symbol", 0, 70, 118, 118, C.black, 59)
+symbol.AnchorPoint = Vector2.new(0.5, 0.5)
+symbol.Position = UDim2.new(0.5, 0, 0, 122)
+symbol.BackgroundTransparency = 1
+symbol.ZIndex = 102
+local symbolOuter = frame(symbol, "Outer", 6, 6, 106, 106, C.black, 53)
+symbolOuter.BackgroundTransparency = 1
+symbolOuter.ZIndex = 102
+stroke(symbolOuter, C.violet2, 0.24, 2)
+local symbolInner = frame(symbol, "Inner", 22, 22, 74, 74, C.black, 37)
+symbolInner.BackgroundTransparency = 0.04
+symbolInner.ZIndex = 103
+stroke(symbolInner, C.cyan, 0.20, 2)
+local symbolCore = frame(symbol, "Core", 42, 42, 34, 34, C.black, 17)
+symbolCore.ZIndex = 104
+stroke(symbolCore, C.magenta, 0.25, 2)
+local symbolCoreDot = frame(symbol, "CoreDot", 52, 52, 14, 14, C.black, 7)
+symbolCoreDot.ZIndex = 105
+local symbolCrossH = frame(symbol, "CrossH", 0, 57, 118, 2, C.cyan, 1)
+symbolCrossH.ZIndex = 104
+local symbolCrossV = frame(symbol, "CrossV", 58, 0, 2, 118, C.cyan, 1)
+symbolCrossV.ZIndex = 104
+local symbolRings = {}
+for i, size in ipairs({92, 108}) do
+    local r = frame(symbol, "Ring" .. i, math.floor((118 - size) / 2), math.floor((118 - size) / 2), size, size, C.black, math.floor(size / 2))
+    r.BackgroundTransparency = 1
+    r.ZIndex = 103
+    stroke(r, i == 1 and C.magenta or C.violet2, i == 1 and 0.38 or 0.55, 1)
+    symbolRings[#symbolRings + 1] = r
 end
+
+local loadStatus = safeText(loadCard, "Status", "ESTABLISHING VOID LINK...", 0, 195, 280, 18, 9, C.cyan, Enum.Font.GothamBold)
+loadStatus.TextXAlignment = Enum.TextXAlignment.Center
+loadStatus.ZIndex = 103
+local loadRail = frame(loadCard, "Rail", 36, 226, 208, 4, Color3.fromRGB(42, 25, 62), 2)
+loadRail.ZIndex = 103
+local loadFill = frame(loadRail, "Fill", 0, 0, 0, 4, C.violet2, 2)
+loadFill.ZIndex = 104
+local loadPercent = safeText(loadCard, "Percent", "0%", 0, 238, 280, 16, 8, C.dim, Enum.Font.GothamMedium)
+loadPercent.TextXAlignment = Enum.TextXAlignment.Center
+loadPercent.ZIndex = 103
+
+local loadStart = os.clock()
+local loadDuration = 1.55
+local loadSpin = 0
+local loadStages = {
+    {0.00, "ESTABLISHING VOID LINK..."},
+    {0.27, "CALIBRATING CORE..."},
+    {0.52, "LOADING MODULES..."},
+    {0.76, "SYNCHRONIZING SYSTEMS..."},
+    {0.91, "CORE LINK STABLE"},
+}
+local loadAnimConn
+loadAnimConn = connect(RunService.RenderStepped, function()
+    if not State.alive or not loadingLayer.Parent then
+        if loadAnimConn then loadAnimConn:Disconnect() end
+        return
+    end
+    local elapsed = os.clock() - loadStart
+    local progress = math.clamp(elapsed / loadDuration, 0, 1)
+    local pulse = (math.sin(elapsed * 6) + 1) * 0.5
+    loadSpin = loadSpin + 90 * math.min(0.033, 1/60)
+    symbolOuter.Rotation = loadSpin * 0.42
+    symbolInner.Rotation = -loadSpin * 0.72
+    symbolCore.Rotation = loadSpin * 1.25
+    if symbolRings[1] then symbolRings[1].Rotation = -loadSpin * 0.55 end
+    if symbolRings[2] then symbolRings[2].Rotation = loadSpin * 0.30 end
+    symbolCoreDot.Size = UDim2.fromOffset(14 + math.floor(pulse * 4), 14 + math.floor(pulse * 4))
+    symbolCoreDot.Position = UDim2.fromOffset(52 - math.floor(pulse * 2), 52 - math.floor(pulse * 2))
+    symbolInner.BackgroundTransparency = 0.04 + pulse * 0.10
+    symbolCore.BackgroundTransparency = 0.02 + pulse * 0.08
+    local stage = loadStages[1][2]
+    for i = #loadStages, 1, -1 do
+        if progress >= loadStages[i][1] then stage = loadStages[i][2]; break end
+    end
+    loadStatus.Text = stage
+    loadFill.Size = UDim2.new(progress, 0, 1, 0)
+    loadPercent.Text = string.format("%d%%", math.floor(progress * 100 + 0.5))
+    if progress >= 1 then
+        loadAnimConn:Disconnect()
+        loadStatus.Text = "CORE LINK STABLE"
+        task.wait(0.10)
+        if not State.alive then return end
+        holder.Visible = true
+        local bootScale = make("UIScale", holder, {Scale = 0.94})
+        local bootStroke = panel:FindFirstChildOfClass("UIStroke")
+        TweenService:Create(bootScale, TweenInfo.new(0.48, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Scale = 1}):Play()
+        if bootStroke then
+            bootStroke.Transparency = 1
+            TweenService:Create(bootStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 0.28}):Play()
+        end
+        TweenService:Create(loadScale, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.58}):Play()
+        TweenService:Create(loadingLayer, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
+        task.delay(0.30, function() if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end end)
+    end
+end)
 
 -- Global controls: F6 toggles skills, F7 fully unloads, Right Shift only
 -- hides/shows the panel while every automation task continues running.

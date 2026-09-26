@@ -3504,6 +3504,7 @@ local canvas = make("Frame", root, {
 -- the HTML/SVG directly, so this recreates the same geometry, spacing, palette,
 -- typography hierarchy, toggles, sliders, navigation and resize behavior.
 local W, H = 420, 560
+local windowWidth = W
 local C = {
     black = Color3.fromRGB(2, 1, 5),
     deep = Color3.fromRGB(11, 6, 22),
@@ -3560,30 +3561,30 @@ make("UIGradient", panel, {
 -- almost black, but let a dedicated effect layer show through the empty areas
 -- of the panel.  The effect layer never receives input and stays below every
 -- real control.
-panel.BackgroundTransparency = 0.12
+panel.BackgroundTransparency = 0.40
 local panelBackdrop = make("Frame", panel, {
     Name = "VoidBackdrop", Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(W, H),
-    BackgroundColor3 = C.black, BackgroundTransparency = 0.18, BorderSizePixel = 0,
+    BackgroundColor3 = C.black, BackgroundTransparency = 0.48, BorderSizePixel = 0,
     Active = false, ZIndex = 1,
 })
 
 local voidFX = make("Frame", panel, {
     Name = "VoidFX", Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(W, H),
-    BackgroundTransparency = 1, BorderSizePixel = 0, Active = false, ZIndex = 2,
+    BackgroundTransparency = 1, BorderSizePixel = 0, Active = false, ZIndex = 3,
 })
 local voidRings, voidStars, voidDust, voidShots = {}, {}, {}, {}
 
 -- Soft central singularity.
 local voidCore = frame(voidFX, "Core", 166, 214, 88, 88, C.black, 44)
-voidCore.BackgroundTransparency = 0.08
+voidCore.BackgroundTransparency = 0.18
 voidCore.ZIndex = 2
 stroke(voidCore, C.violet2, 0.68, 1)
 local coreGlow = frame(voidFX, "CoreGlow", 145, 193, 130, 130, C.violet, 65)
-coreGlow.BackgroundTransparency = 0.985
+coreGlow.BackgroundTransparency = 0.92
 coreGlow.ZIndex = 2
 stroke(coreGlow, C.violet2, 0.90, 1)
 local coreGlow2 = frame(voidFX, "CoreGlow2", 125, 173, 170, 170, C.magenta, 85)
-coreGlow2.BackgroundTransparency = 0.995
+coreGlow2.BackgroundTransparency = 0.96
 coreGlow2.ZIndex = 2
 stroke(coreGlow2, C.magenta, 0.96, 1)
 
@@ -3605,7 +3606,7 @@ for i, size in ipairs({180, 290, 390}) do
 end
 
 -- Tiny floating void dust, separate from the brighter falling stars.
-for i = 1, 24 do
+for i = 1, 34 do
     local size = math.random(1, 2)
     local dust = frame(voidFX, "Dust" .. i,
         math.random(5, math.max(6, W - 8)), math.random(70, math.max(71, H - 8)),
@@ -3624,24 +3625,24 @@ end
 -- Falling stars: each has a bright core + soft halo and drifts diagonally
 -- downward.  When one leaves the bottom it wraps back to the top, creating a
 -- continuous void-rain effect instead of a static star field.
-for i = 1, 42 do
+for i = 1, 64 do
     local size = math.random(1, 2)
     local x = math.random(8, math.max(9, W - 12))
     local y = math.random(68, math.max(69, H - 10))
-    local glowSize = size == 1 and 7 or 9
+    local glowSize = size == 1 and 9 or 12
     local glow = frame(voidFX, "StarGlow" .. i,
         x - math.floor(glowSize / 2), y - math.floor(glowSize / 2),
         glowSize, glowSize, (i % 5 == 0) and C.magenta or C.cyan, math.floor(glowSize / 2))
-    glow.BackgroundTransparency = math.random(86, 94) / 100
+    glow.BackgroundTransparency = math.random(72, 88) / 100
     glow.ZIndex = 2
     local star = frame(voidFX, "Star" .. i, x, y, size, size,
         (i % 5 == 0) and C.magenta or C.cyan, size / 2)
-    star.BackgroundTransparency = math.random(18, 62) / 100
+    star.BackgroundTransparency = math.random(8, 42) / 100
     star.ZIndex = 3
     voidStars[#voidStars + 1] = {
         object = star, glow = glow,
         x = x, y = y,
-        speed = 13 + math.random() * 30,
+        speed = 22 + math.random() * 52,
         drift = -5 + math.random() * 10,
         phase = math.random() * math.pi * 2,
         twinkle = 1.2 + math.random() * 3.2,
@@ -3650,7 +3651,7 @@ end
 
 -- A few occasional long streaks make the field feel like falling energy,
 -- rather than ordinary UI particles.
-for i = 1, 4 do
+for i = 1, 10 do
     local streak = frame(voidFX, "VoidStreak" .. i, 0, 0, 2, 34,
         i % 2 == 0 and C.cyan or C.magenta, 1)
     streak.BackgroundTransparency = 1
@@ -3665,6 +3666,21 @@ for i = 1, 4 do
         speed = 115 + math.random() * 75,
         wait = math.random() * 4,
         phase = math.random() * math.pi * 2,
+    }
+end
+
+-- Long, faint energy wisps sweep sideways behind the controls.
+local voidWisps = {}
+for i = 1, 7 do
+    local length = 70 + math.random(30, 120)
+    local wisp = frame(voidFX, "VoidWisp" .. i, math.random(-length, W), math.random(75, math.max(80, H - 30)), length, 1,
+        i % 2 == 0 and C.cyan or C.magenta, 1)
+    wisp.BackgroundTransparency = 0.82
+    wisp.ZIndex = 3
+    voidWisps[#voidWisps + 1] = {
+        object = wisp, x = wisp.Position.X.Offset, y = wisp.Position.Y.Offset,
+        length = length, speed = 7 + math.random() * 13,
+        phase = math.random() * math.pi * 2, pulse = 0.7 + math.random() * 1.5,
     }
 end
 
@@ -3688,12 +3704,12 @@ connect(RunService.RenderStepped, function()
             end
             if star.x < 4 then star.x = W - 5 elseif star.x > W - 4 then star.x = 5 end
             local pulse = (math.sin(t * star.twinkle + star.phase) + 1) * 0.5
-            local alpha = math.clamp(0.58 - pulse * 0.42, 0.10, 0.82)
+            local alpha = math.clamp(0.38 - pulse * 0.30, 0.04, 0.72)
             star.object.Position = UDim2.fromOffset(math.floor(star.x), math.floor(star.y))
             star.object.BackgroundTransparency = alpha
             if star.glow.Parent then
                 star.glow.Position = UDim2.fromOffset(math.floor(star.x - star.glow.AbsoluteSize.X / 2), math.floor(star.y - star.glow.AbsoluteSize.Y / 2))
-                star.glow.BackgroundTransparency = math.clamp(0.96 - pulse * 0.24, 0.64, 0.96)
+                star.glow.BackgroundTransparency = math.clamp(0.88 - pulse * 0.34, 0.40, 0.90)
             end
         end
     end
@@ -3714,23 +3730,37 @@ connect(RunService.RenderStepped, function()
     -- Repeating shooting streaks with a short fade-in/fade-out cycle.
     for _, shot in ipairs(voidShots) do
         if shot.object.Parent then
-            local cycle = (t + shot.wait) % 5.5
-            local active = cycle < 0.75
+            local cycle = (t + shot.wait) % 3.4
+            local active = cycle < 1.05
             if active then
                 shot.y = shot.y + shot.speed * dt
                 if shot.y > H + 60 then
                     shot.y = math.random(72, 150)
                     shot.x = math.random(20, W - 20)
                 end
-                local fade = cycle < 0.12 and cycle / 0.12 or (cycle > 0.58 and (0.75 - cycle) / 0.17 or 1)
+                local fade = cycle < 0.16 and cycle / 0.16 or (cycle > 0.78 and (1.05 - cycle) / 0.27 or 1)
                 shot.object.Position = UDim2.fromOffset(math.floor(shot.x), math.floor(shot.y))
                 shot.glow.Position = UDim2.fromOffset(math.floor(shot.x - 1), math.floor(shot.y - 4))
-                shot.object.BackgroundTransparency = 1 - math.clamp(fade, 0, 1) * 0.82
-                shot.glow.BackgroundTransparency = 0.96 - math.clamp(fade, 0, 1) * 0.20
+                shot.object.BackgroundTransparency = 1 - math.clamp(fade, 0, 1) * 0.94
+                shot.glow.BackgroundTransparency = 0.90 - math.clamp(fade, 0, 1) * 0.38
             else
                 shot.object.BackgroundTransparency = 1
                 shot.glow.BackgroundTransparency = 1
             end
+        end
+    end
+
+    -- Extra void ambience: slow horizontal energy wisps and stronger glow breathing.
+    for _, wisp in ipairs(voidWisps or {}) do
+        if wisp.object.Parent then
+            wisp.x = wisp.x + wisp.speed * dt
+            if wisp.x > W + wisp.length then
+                wisp.x = -wisp.length
+                wisp.y = math.random(72, math.max(74, H - 30))
+            end
+            local wp = (math.sin(t * wisp.pulse + wisp.phase) + 1) * 0.5
+            wisp.object.Position = UDim2.fromOffset(math.floor(wisp.x), math.floor(wisp.y))
+            wisp.object.BackgroundTransparency = 0.78 - wp * 0.22
         end
     end
 
@@ -3835,10 +3865,41 @@ local tickerText = safeText(tickerClip, "Text",
     0, 0, W * 2, 24, 10, C.faint, Enum.Font.Code)
 tickerText.ZIndex = 7
 local tickerStart = os.clock()
+local uiAnimStart = os.clock()
+local panelStroke = panel:FindFirstChildOfClass("UIStroke")
+local edgeSheen = frame(panel, "EdgeSheen", -120, 0, 120, H, C.cyan, 0)
+edgeSheen.BackgroundTransparency = 0.96
+edgeSheen.ZIndex = 4
+local edgeSheenGradient = make("UIGradient", edgeSheen, {
+    Rotation = 90,
+    Color = ColorSequence.new(C.cyan, C.magenta),
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.15), NumberSequenceKeypoint.new(1, 1),
+    }),
+})
 connect(RunService.RenderStepped, function()
     if not State.alive or not tickerText.Parent then return end
-    local phase = ((os.clock() - tickerStart) * 34) % math.max(windowWidth, W)
+    local now = os.clock()
+    local phase = ((now - tickerStart) * 34) % math.max(windowWidth, W)
     tickerText.Position = UDim2.fromOffset(W - phase, 0)
+
+    -- Subtle UI life: rotating mark, breathing status, moving header sheen and border pulse.
+    local t = now - uiAnimStart
+    brandmark.Rotation = (t * 7) % 360
+    edgeSheen.Position = UDim2.fromOffset(((t * 42) % (windowWidth + 240)) - 120, 0)
+    edgeSheen.BackgroundTransparency = 0.94 + math.sin(t * 1.1) * 0.02
+    edgeSheenGradient.Offset = Vector2.new(0, ((t * 0.12) % 2) - 1)
+    local beat = (math.sin(t * 2.2) + 1) * 0.5
+    statusDot.Size = UDim2.fromOffset(5 + math.floor(beat * 3), 5 + math.floor(beat * 3))
+    statusDot.Position = UDim2.fromOffset(windowWidth - 84 - math.floor(beat * 1.5), 27 - math.floor(beat * 1.5))
+    statusDot.BackgroundTransparency = 0.08 + beat * 0.30
+    if panelStroke then panelStroke.Transparency = 0.18 + beat * 0.20 end
+    headerLine.BackgroundTransparency = 0.28 + beat * 0.30
+    local selectedBar = UI.navBars and UI.navBars[State.tab]
+    if selectedBar then
+        selectedBar.BackgroundTransparency = 0.10 + (1 - beat) * 0.30
+        selectedBar.Size = UDim2.fromOffset(math.max(12, selectedBar.AbsoluteSize.X), 2)
+    end
 end)
 
 -- Navigation -----------------------------------------------------------
@@ -4132,8 +4193,14 @@ local function showPage(key)
     local page = pageMap[key]
     if page then
         page.CanvasPosition = Vector2.new(0, 0)
-        page.Position = UDim2.fromOffset(0, 3)
+        page.Position = UDim2.fromOffset(8, pageBaseY)
+        page.BackgroundTransparency = 1
         animate(page, {Position = UDim2.fromOffset(0, pageBaseY)}, false)
+        task.delay(0.01, function()
+            if State.alive and page.Parent and State.tab == key then
+                page.BackgroundTransparency = 1
+            end
+        end)
     end
 end
 
@@ -4175,7 +4242,6 @@ end
 -- which was the reason the previous resize grip silently failed.
 local resizeGrip
 local windowPlaced = false
-local windowWidth = W
 local MIN_WINDOW_WIDTH = W
 
 -- Resize grip, matching the HTML bottom-right handle.
@@ -4434,6 +4500,18 @@ connect(canvas:GetPropertyChangedSignal("AbsoluteSize"), function() fitWindow(fa
 fitWindow(true)
 render()
 
+-- Boot animation: the panel softly materializes like a small void portal.
+local bootScale = make("UIScale", holder, {Scale = 0.94})
+local bootStroke = panel:FindFirstChildOfClass("UIStroke")
+local bootTween = TweenService:Create(bootScale, TweenInfo.new(0.48, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Scale = 1})
+bootTween:Play()
+if bootStroke then
+    bootStroke.Transparency = 1
+    local strokeTween = TweenService:Create(bootStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 0.28})
+    strokeTween:Play()
+    tweens[bootStroke] = strokeTween
+end
+
 -- Global controls: F6 toggles skills, F7 fully unloads, Right Shift only
 -- hides/shows the panel while every automation task continues running.
 connect(Input.InputBegan, function(input, gameProcessed)
@@ -4447,7 +4525,18 @@ connect(Input.InputBegan, function(input, gameProcessed)
     elseif input.KeyCode == Settings.VisibilityKey then
         State.minimized = not State.minimized
         if root then
-            root.Enabled = not State.minimized
+            if State.minimized then
+                local hideScale = holder:FindFirstChildOfClass("UIScale") or make("UIScale", holder, {Scale = 1})
+                local tween = TweenService:Create(hideScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.90})
+                tween:Play()
+                task.delay(0.18, function() if State.alive and State.minimized then root.Enabled = false end end)
+            else
+                root.Enabled = true
+                local showScale = holder:FindFirstChildOfClass("UIScale") or make("UIScale", holder, {Scale = 0.90})
+                showScale.Scale = 0.90
+                local tween = TweenService:Create(showScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1})
+                tween:Play()
+            end
         end
         return
     end

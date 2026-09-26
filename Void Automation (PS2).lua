@@ -3547,6 +3547,7 @@ end
 root = make("ScreenGui", playerGui, {
     Name = "AutoSkillsVoidUI", ResetOnSpawn = false, IgnoreGuiInset = true,
     DisplayOrder = 100, ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+    Enabled = true,
 })
 local canvas = make("Frame", root, {
     Name = "Canvas", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
@@ -3586,7 +3587,7 @@ local C = {
 local uiScale = make("UIScale", canvas, {Scale = 1})
 local holder = make("Frame", canvas, {
     Name = "Window", Size = UDim2.fromOffset(W, H), Position = UDim2.fromOffset(0, 0),
-    BackgroundTransparency = 1, BorderSizePixel = 0, Active = true, Visible = false,
+    BackgroundTransparency = 1, BorderSizePixel = 0, Active = true, Visible = true,
 })
 local shadow = frame(holder, "Shadow", -6, 8, W + 12, H + 12, Color3.new(0, 0, 0), 15)
 shadow.BackgroundTransparency = 0.58
@@ -4710,297 +4711,317 @@ fitWindow(true)
 render()
 
 -- VOID NEXUS loading sequence ------------------------------------------------
--- Source: the uploaded animated VOID NEXUS SVG. Roblox cannot execute SVG/SMIL
--- directly, so its layers and animation timings are translated into GUI primitives.
-local loadingLayer = make("Frame", canvas, {
-    Name = "VoidLoading", Position = UDim2.fromScale(0, 0), Size = UDim2.fromScale(1, 1),
-    BackgroundColor3 = C.black, BackgroundTransparency = 0.08, BorderSizePixel = 0,
-    Active = true, ZIndex = 100,
-})
-local loadCard = frame(loadingLayer, "LoadingCard", 0, 0, 320, 390, C.deep, 18)
-loadCard.AnchorPoint = Vector2.new(0.5, 0.5)
-loadCard.Position = UDim2.fromScale(0.5, 0.5)
-loadCard.BackgroundTransparency = 0.10
-loadCard.ZIndex = 101
-stroke(loadCard, Color3.fromRGB(168, 120, 255), 0.30, 1)
-local loadScale = make("UIScale", loadCard, {Scale = 0.72})
-TweenService:Create(loadScale, TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
+-- The SVG animation is translated to Roblox GUI primitives. The entire loader
+-- is fail-open: if a runner rejects any optional visual primitive, the real UI
+-- remains visible instead of the whole script disappearing.
+do
+    local __loaderLayer
+    local __loaderOK, __loaderERR = pcall(function()
+    -- VOID NEXUS loading sequence ------------------------------------------------
+    -- Source: the uploaded animated VOID NEXUS SVG. Roblox cannot execute SVG/SMIL
+    -- directly, so its layers and animation timings are translated into GUI primitives.
+        __loaderLayer = make("Frame", canvas, {
+        Name = "VoidLoading", Position = UDim2.fromScale(0, 0), Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = C.black, BackgroundTransparency = 0.08, BorderSizePixel = 0,
+        Active = true, ZIndex = 100,
+    })
+        local loadingLayer = __loaderLayer
+    local loadCard = frame(loadingLayer, "LoadingCard", 0, 0, 320, 390, C.deep, 18)
+    loadCard.AnchorPoint = Vector2.new(0.5, 0.5)
+    loadCard.Position = UDim2.fromScale(0.5, 0.5)
+    loadCard.BackgroundTransparency = 0.10
+    loadCard.ZIndex = 101
+    stroke(loadCard, Color3.fromRGB(168, 120, 255), 0.30, 1)
+    local loadScale = make("UIScale", loadCard, {Scale = 0.72})
+    TweenService:Create(loadScale, TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
 
-local loadTitle = safeText(loadCard, "Title", "VOID NEXUS", 0, 14, 320, 22, 17, C.ink, Enum.Font.GothamBold)
-loadTitle.TextXAlignment = Enum.TextXAlignment.Center
-loadTitle.ZIndex = 103
-local loadSub = safeText(loadCard, "Sub", "CORE INITIALIZATION", 0, 38, 320, 16, 8, C.dim, Enum.Font.GothamBold)
-loadSub.TextXAlignment = Enum.TextXAlignment.Center
-loadSub.ZIndex = 103
+    local loadTitle = safeText(loadCard, "Title", "VOID NEXUS", 0, 14, 320, 22, 17, C.ink, Enum.Font.GothamBold)
+    loadTitle.TextXAlignment = Enum.TextXAlignment.Center
+    loadTitle.ZIndex = 103
+    local loadSub = safeText(loadCard, "Sub", "CORE INITIALIZATION", 0, 38, 320, 16, 8, C.dim, Enum.Font.GothamBold)
+    loadSub.TextXAlignment = Enum.TextXAlignment.Center
+    loadSub.ZIndex = 103
 
--- The SVG is a 220x220 viewBox. Keep that coordinate system here so the
--- translated animation preserves the original proportions.
-local symbol = frame(loadCard, "Symbol", 0, 0, 220, 220, C.black, 110)
-symbol.AnchorPoint = Vector2.new(0.5, 0.5)
-symbol.Position = UDim2.new(0.5, 0, 0, 145)
-symbol.BackgroundTransparency = 1
-symbol.ZIndex = 102
+    -- The SVG is a 220x220 viewBox. Keep that coordinate system here so the
+    -- translated animation preserves the original proportions.
+    local symbol = frame(loadCard, "Symbol", 0, 0, 220, 220, C.black, 110)
+    symbol.AnchorPoint = Vector2.new(0.5, 0.5)
+    symbol.Position = UDim2.new(0.5, 0, 0, 145)
+    symbol.BackgroundTransparency = 1
+    symbol.ZIndex = 102
 
-local WHITE = Color3.fromRGB(255, 255, 255)
-local SKY = Color3.fromRGB(143, 227, 255)
-local PURPLE = Color3.fromRGB(168, 85, 247)
-local PINK = Color3.fromRGB(239, 79, 208)
-local LAV = Color3.fromRGB(201, 182, 255)
+    local WHITE = Color3.fromRGB(255, 255, 255)
+    local SKY = Color3.fromRGB(143, 227, 255)
+    local PURPLE = Color3.fromRGB(168, 85, 247)
+    local PINK = Color3.fromRGB(239, 79, 208)
+    local LAV = Color3.fromRGB(201, 182, 255)
 
-local function loaderCircle(parent, name, size, color, transparency, z, thickness, strokeColor)
-    local f = frame(parent, name, 0, 0, size, size, color or C.black, math.floor(size / 2))
-    f.AnchorPoint = Vector2.new(0.5, 0.5)
-    f.Position = UDim2.fromScale(0.5, 0.5)
-    f.BackgroundTransparency = transparency == nil and 1 or transparency
-    f.ZIndex = z or 102
-    if strokeColor then stroke(f, strokeColor, transparency or 0, thickness or 1) end
-    return f
-end
-
--- Animated atmospheric bloom from the SVG's bloomBreath.
-local bloomA = loaderCircle(symbol, "BloomA", 184, Color3.fromRGB(123, 47, 247), 0.92, 102)
-local bloomB = loaderCircle(symbol, "BloomB", 156, Color3.fromRGB(123, 47, 247), 0.90, 103)
-local bloomC = loaderCircle(symbol, "BloomC", 128, Color3.fromRGB(168, 85, 247), 0.84, 104)
-local bloomD = loaderCircle(symbol, "BloomD", 102, Color3.fromRGB(76, 20, 140), 0.70, 105)
-
--- SVG shockwave pulses: 3.6s period, second ring offset by 1.8s.
-local shock1 = loaderCircle(symbol, "Shock1", 92, C.black, 1, 106, 2.4, LAV)
-local shock2 = loaderCircle(symbol, "Shock2", 92, C.black, 1, 106, 1.4, SKY)
-local shockScale1 = make("UIScale", shock1, {Scale = 0.25})
-local shockScale2 = make("UIScale", shock2, {Scale = 0.25})
-local shockStroke1 = shock1:FindFirstChildOfClass("UIStroke")
-local shockStroke2 = shock2:FindFirstChildOfClass("UIStroke")
-
--- Eight rotating corona spikes from the SVG.
-local spikeGroup = frame(symbol, "Spikes", 0, 0, 220, 220, C.black, 0)
-spikeGroup.BackgroundTransparency = 1
-spikeGroup.ZIndex = 107
-local spikes = {}
-for i = 0, 7 do
-    local line = frame(spikeGroup, "Spike" .. i, 110, 108.8, 95, 2.2,
-        (i % 3 == 0) and SKY or ((i % 3 == 1) and PURPLE or PINK), 1)
-    line.AnchorPoint = Vector2.new(0, 0.5)
-    line.Rotation = i * 45
-    line.BackgroundTransparency = 0.55
-    line.ZIndex = 107
-    spikes[#spikes + 1] = line
-end
-
--- Three tilted accretion disks. Their rotation rates mirror 7.5s / 11.5s / 17s.
-local diskA = frame(symbol, "DiskA", 20, 78, 180, 64, C.black, 32)
-diskA.BackgroundTransparency = 1
-diskA.Rotation = -18
-diskA.ZIndex = 108
-local diskStrokeA = stroke(diskA, PINK, 0.18, 2.8)
-
-local diskB = frame(symbol, "DiskB", 20, 78, 180, 64, C.black, 32)
-diskB.BackgroundTransparency = 1
-diskB.Rotation = 162
-diskB.ZIndex = 108
-local diskStrokeB = stroke(diskB, SKY, 0.25, 1.8)
-
-local diskC = frame(symbol, "DiskC", 35, 86, 150, 48, C.black, 24)
-diskC.BackgroundTransparency = 1
-diskC.Rotation = 60
-diskC.ZIndex = 109
-local diskStrokeC = stroke(diskC, LAV, 0.34, 1.2)
-
--- Dashed accents approximate the SVG stroke-dasharray animation.
-local dashGroups = {}
-local function makeDashGroup(name, radiusX, radiusY, count, color, z, speed)
-    local group = frame(symbol, name, 0, 0, 220, 220, C.black, 0)
-    group.BackgroundTransparency = 1
-    group.ZIndex = z
-    for i = 1, count do
-        local a = (i / count) * math.pi * 2
-        local x = 110 + math.cos(a) * radiusX
-        local y = 110 + math.sin(a) * radiusY
-        local d = frame(group, "Dash" .. i, math.floor(x - 5), math.floor(y - 0.6), 10, 1.2, color, 1)
-        d.AnchorPoint = Vector2.new(0.5, 0.5)
-        d.Rotation = math.deg(a) + 90
-        d.BackgroundTransparency = 0.72
-        d.ZIndex = z
-    end
-    dashGroups[#dashGroups + 1] = {group = group, speed = speed}
-end
-makeDashGroup("DashA", 90, 32, 18, PINK, 109, 18)
-makeDashGroup("DashB", 90, 32, 14, SKY, 109, -13)
-makeDashGroup("DashC", 75, 24, 12, LAV, 110, 9)
-
--- Structural rings.
-local ringOuter = loaderCircle(symbol, "RingOuter", 196, C.black, 1, 111, 2.4, PURPLE)
-local ringDash = loaderCircle(symbol, "RingDashed", 172, C.black, 1, 112, 1, PURPLE)
-local ringDash2 = loaderCircle(symbol, "RingDashed2", 128, C.black, 1, 112, 0.8, PINK)
-local ringOuterStroke = ringOuter:FindFirstChildOfClass("UIStroke")
-local ringDashStroke = ringDash:FindFirstChildOfClass("UIStroke")
-local ringDash2Stroke = ringDash2:FindFirstChildOfClass("UIStroke")
-
--- Cardinal reticle ticks.
-local tickGroup = frame(symbol, "Ticks", 0, 0, 220, 220, C.black, 0)
-tickGroup.BackgroundTransparency = 1
-tickGroup.ZIndex = 113
-local tickData = {
-    {110, 4, 110, 20}, {110, 200, 110, 216},
-    {4, 110, 20, 110}, {200, 110, 216, 110},
-}
-for i, d in ipairs(tickData) do
-    local t = frame(tickGroup, "Tick" .. i, d[1], d[2], d[3] - d[1] + 2, d[4] - d[2] + 2, LAV, 1)
-    if d[3] == d[1] then
-        t.Size = UDim2.fromOffset(2, d[4] - d[2] + 1)
-    end
-    t.BackgroundTransparency = 0.15
-    t.ZIndex = 113
-end
-
--- Orbiting satellites and short trailing echoes.
-local orbitGroupA = frame(symbol, "OrbitA", 0, 0, 220, 220, C.black, 0)
-local orbitGroupB = frame(symbol, "OrbitB", 0, 0, 220, 220, C.black, 0)
-local orbitGroupC = frame(symbol, "OrbitC", 0, 0, 220, 220, C.black, 0)
-for _, g in ipairs({orbitGroupA, orbitGroupB, orbitGroupC}) do
-    g.BackgroundTransparency = 1
-    g.ZIndex = 114
-end
-local satA = frame(orbitGroupA, "Satellite", 106.6, 20.6, 6.8, 6.8, SKY, 3.4)
-local satATrail1 = frame(orbitGroupA, "Trail1", 107.6, 20.6, 4.8, 4.8, SKY, 2.4)
-satATrail1.BackgroundTransparency = 0.5
-local satATrail2 = frame(orbitGroupA, "Trail2", 108.4, 20.6, 3.2, 3.2, SKY, 1.6)
-satATrail2.BackgroundTransparency = 0.72
-local satB = frame(orbitGroupB, "Satellite", 181.7, 106.9, 5.6, 5.6, PINK, 2.8)
-local satBTrail1 = frame(orbitGroupB, "Trail1", 182.6, 107.5, 4, 4, PINK, 2)
-satBTrail1.BackgroundTransparency = 0.5
-local satC = frame(orbitGroupC, "Satellite", 108.2, 40.2, 3.6, 3.6, LAV, 1.8)
-satC.BackgroundTransparency = 0.2
-
--- White gravitational lensing ring.
-local lensRing = loaderCircle(symbol, "LensRing", 88, C.black, 1, 116, 1.3, WHITE)
-local lensStroke = lensRing:FindFirstChildOfClass("UIStroke")
-local lensUIScale = make("UIScale", lensRing, {Scale = 1})
-
--- Void core / event horizon. Nested circles approximate the SVG radialGradient.
-local coreGlow1 = loaderCircle(symbol, "CoreGlow1", 76, Color3.fromRGB(76, 20, 140), 0.45, 117)
-local coreGlow2 = loaderCircle(symbol, "CoreGlow2", 62, Color3.fromRGB(168, 85, 247), 0.38, 118)
-local coreGlow3 = loaderCircle(symbol, "CoreGlow3", 48, Color3.fromRGB(5, 1, 7), 0.12, 119)
-local eventPoint = loaderCircle(symbol, "EventPoint", 20, Color3.new(0, 0, 0), 0, 120)
-local coreScale1 = make("UIScale", coreGlow1, {Scale = 1})
-local coreScale2 = make("UIScale", coreGlow2, {Scale = 1})
-local coreScale3 = make("UIScale", coreGlow3, {Scale = 1})
-
-local loadStatus = safeText(loadCard, "Status", "ESTABLISHING VOID LINK...", 0, 270, 320, 18, 9, C.cyan, Enum.Font.GothamBold)
-loadStatus.TextXAlignment = Enum.TextXAlignment.Center
-loadStatus.ZIndex = 121
-local loadRail = frame(loadCard, "Rail", 36, 302, 248, 4, Color3.fromRGB(42, 25, 62), 2)
-loadRail.ZIndex = 121
-local loadFill = frame(loadRail, "Fill", 0, 0, 0, 4, C.violet2, 2)
-loadFill.ZIndex = 122
-local loadPercent = safeText(loadCard, "Percent", "0%", 0, 314, 320, 16, 8, C.dim, Enum.Font.GothamMedium)
-loadPercent.TextXAlignment = Enum.TextXAlignment.Center
-loadPercent.ZIndex = 121
-
-local loadStart = os.clock()
-local loadDuration = 2.20
-local loadStages = {
-    {0.00, "ESTABLISHING VOID LINK..."},
-    {0.23, "CALIBRATING GRAVITY WELL..."},
-    {0.48, "SYNCHRONIZING ORBITAL RINGS..."},
-    {0.72, "LOADING VOID MODULES..."},
-    {0.91, "CORE LINK STABLE"},
-}
-local loadAnimConn
-loadAnimConn = connect(RunService.RenderStepped, function()
-    if not State.alive or not loadingLayer.Parent then
-        if loadAnimConn then loadAnimConn:Disconnect() end
-        return
-    end
-    local elapsed = os.clock() - loadStart
-    local progress = math.clamp(elapsed / loadDuration, 0, 1)
-
-    -- SVG animation timing translations.
-    local bloomPulse = (math.sin(elapsed * math.pi * 2 / 5) + 1) * 0.5
-    bloomA.Size = UDim2.fromOffset(184 + math.floor(bloomPulse * 12), 184 + math.floor(bloomPulse * 12))
-    bloomA.BackgroundTransparency = 0.95 - bloomPulse * 0.07
-    bloomB.BackgroundTransparency = 0.93 - bloomPulse * 0.08
-    bloomC.BackgroundTransparency = 0.88 - bloomPulse * 0.10
-    bloomD.BackgroundTransparency = 0.74 - bloomPulse * 0.12
-
-    local shockPhase1 = (elapsed % 3.6) / 3.6
-    local shockPhase2 = ((elapsed + 1.8) % 3.6) / 3.6
-    shockScale1.Scale = 0.25 + shockPhase1 * 1.75
-    shockScale2.Scale = 0.25 + shockPhase2 * 1.75
-    shockStroke1.Transparency = 0.12 + shockPhase1 * 0.88
-    shockStroke2.Transparency = 0.20 + shockPhase2 * 0.80
-
-    spikeGroup.Rotation = elapsed * 6
-    for i, spike in ipairs(spikes) do
-        local phase = ((i - 1) / #spikes) * math.pi * 2
-        local flare = (math.sin(elapsed * (math.pi * 2 / 2.2) + phase) + 1) * 0.5
-        spike.BackgroundTransparency = math.clamp(0.82 - flare * 0.60, 0.12, 0.82)
-        spike.Size = UDim2.fromOffset(76 + math.floor(flare * 19), 2.2)
+    local function loaderCircle(parent, name, size, color, transparency, z, thickness, strokeColor)
+        local f = frame(parent, name, 0, 0, size, size, color or C.black, math.floor(size / 2))
+        f.AnchorPoint = Vector2.new(0.5, 0.5)
+        f.Position = UDim2.fromScale(0.5, 0.5)
+        f.BackgroundTransparency = transparency == nil and 1 or transparency
+        f.ZIndex = z or 102
+        if strokeColor then stroke(f, strokeColor, transparency or 0, thickness or 1) end
+        return f
     end
 
-    diskA.Rotation = -18 + elapsed * (360 / 7.5)
-    diskB.Rotation = 162 - elapsed * (360 / 11.5)
-    diskC.Rotation = 60 + elapsed * (360 / 17)
-    diskStrokeA.Transparency = 0.16 + bloomPulse * 0.18
-    diskStrokeB.Transparency = 0.24 + bloomPulse * 0.18
-    diskStrokeC.Transparency = 0.32 + bloomPulse * 0.18
-    for _, dash in ipairs(dashGroups) do
-        dash.group.Rotation = elapsed * dash.speed
+    -- Animated atmospheric bloom from the SVG's bloomBreath.
+    local bloomA = loaderCircle(symbol, "BloomA", 184, Color3.fromRGB(123, 47, 247), 0.92, 102)
+    local bloomB = loaderCircle(symbol, "BloomB", 156, Color3.fromRGB(123, 47, 247), 0.90, 103)
+    local bloomC = loaderCircle(symbol, "BloomC", 128, Color3.fromRGB(168, 85, 247), 0.84, 104)
+    local bloomD = loaderCircle(symbol, "BloomD", 102, Color3.fromRGB(76, 20, 140), 0.70, 105)
+
+    -- SVG shockwave pulses: 3.6s period, second ring offset by 1.8s.
+    local shock1 = loaderCircle(symbol, "Shock1", 92, C.black, 1, 106, 2.4, LAV)
+    local shock2 = loaderCircle(symbol, "Shock2", 92, C.black, 1, 106, 1.4, SKY)
+    local shockScale1 = make("UIScale", shock1, {Scale = 0.25})
+    local shockScale2 = make("UIScale", shock2, {Scale = 0.25})
+    local shockStroke1 = shock1:FindFirstChildOfClass("UIStroke")
+    local shockStroke2 = shock2:FindFirstChildOfClass("UIStroke")
+
+    -- Eight rotating corona spikes from the SVG.
+    local spikeGroup = frame(symbol, "Spikes", 0, 0, 220, 220, C.black, 0)
+    spikeGroup.BackgroundTransparency = 1
+    spikeGroup.ZIndex = 107
+    local spikes = {}
+    for i = 0, 7 do
+        local line = frame(spikeGroup, "Spike" .. i, 110, 108.8, 95, 2.2,
+            (i % 3 == 0) and SKY or ((i % 3 == 1) and PURPLE or PINK), 1)
+        line.AnchorPoint = Vector2.new(0, 0.5)
+        line.Rotation = i * 45
+        line.BackgroundTransparency = 0.55
+        line.ZIndex = 107
+        spikes[#spikes + 1] = line
     end
 
-    ringOuter.Rotation = elapsed * 2
-    ringDash.Rotation = -elapsed * 12
-    ringDash2.Rotation = elapsed * 7.8
-    ringOuterStroke.Transparency = 0.05 + (1 - bloomPulse) * 0.35
-    ringDashStroke.Transparency = 0.42 + (1 - bloomPulse) * 0.30
-    ringDash2Stroke.Transparency = 0.60 + (1 - bloomPulse) * 0.22
+    -- Three tilted accretion disks. Their rotation rates mirror 7.5s / 11.5s / 17s.
+    local diskA = frame(symbol, "DiskA", 20, 78, 180, 64, C.black, 32)
+    diskA.BackgroundTransparency = 1
+    diskA.Rotation = -18
+    diskA.ZIndex = 108
+    local diskStrokeA = stroke(diskA, PINK, 0.18, 2.8)
 
-    tickGroup.Rotation = math.sin(elapsed * math.pi * 2 / 12) * 2
+    local diskB = frame(symbol, "DiskB", 20, 78, 180, 64, C.black, 32)
+    diskB.BackgroundTransparency = 1
+    diskB.Rotation = 162
+    diskB.ZIndex = 108
+    local diskStrokeB = stroke(diskB, SKY, 0.25, 1.8)
 
-    orbitGroupA.Rotation = elapsed * 72
-    orbitGroupB.Rotation = -elapsed * (360 / 8.5)
-    orbitGroupC.Rotation = elapsed * (360 / 13)
+    local diskC = frame(symbol, "DiskC", 35, 86, 150, 48, C.black, 24)
+    diskC.BackgroundTransparency = 1
+    diskC.Rotation = 60
+    diskC.ZIndex = 109
+    local diskStrokeC = stroke(diskC, LAV, 0.34, 1.2)
 
-    local lensPulse = (math.sin(elapsed * math.pi * 2 / 3) + 1) * 0.5
-    lensStroke.Transparency = 0.58 - lensPulse * 0.48
-    lensUIScale.Scale = 1 + lensPulse * 0.08
-
-    local corePulse = (math.sin(elapsed * math.pi * 2 / 3.2) + 1) * 0.5
-    local coreScale = 1 + corePulse * 0.09
-    coreScale1.Scale = coreScale
-    coreScale2.Scale = coreScale
-    coreScale3.Scale = coreScale
-    coreGlow1.BackgroundTransparency = 0.54 - corePulse * 0.20
-    coreGlow2.BackgroundTransparency = 0.48 - corePulse * 0.18
-    eventPoint.BackgroundTransparency = 0.02 + ((math.sin(elapsed * 2 * math.pi / 1.3) + 1) * 0.5) * 0.16
-
-    loadStatus.Text = loadStages[1][2]
-    for i = #loadStages, 1, -1 do
-        if progress >= loadStages[i][1] then
-            loadStatus.Text = loadStages[i][2]
-            break
+    -- Dashed accents approximate the SVG stroke-dasharray animation.
+    local dashGroups = {}
+    local function makeDashGroup(name, radiusX, radiusY, count, color, z, speed)
+        local group = frame(symbol, name, 0, 0, 220, 220, C.black, 0)
+        group.BackgroundTransparency = 1
+        group.ZIndex = z
+        for i = 1, count do
+            local a = (i / count) * math.pi * 2
+            local x = 110 + math.cos(a) * radiusX
+            local y = 110 + math.sin(a) * radiusY
+            local d = frame(group, "Dash" .. i, math.floor(x - 5), math.floor(y - 0.6), 10, 1.2, color, 1)
+            d.AnchorPoint = Vector2.new(0.5, 0.5)
+            d.Rotation = math.deg(a) + 90
+            d.BackgroundTransparency = 0.72
+            d.ZIndex = z
         end
+        dashGroups[#dashGroups + 1] = {group = group, speed = speed}
     end
-    loadFill.Size = UDim2.new(progress, 0, 1, 0)
-    loadPercent.Text = string.format("%d%%", math.floor(progress * 100 + 0.5))
+    makeDashGroup("DashA", 90, 32, 18, PINK, 109, 18)
+    makeDashGroup("DashB", 90, 32, 14, SKY, 109, -13)
+    makeDashGroup("DashC", 75, 24, 12, LAV, 110, 9)
 
-    if progress >= 1 then
-        loadAnimConn:Disconnect()
-        loadStatus.Text = "CORE LINK STABLE"
-        task.wait(0.10)
-        if not State.alive then return end
+    -- Structural rings.
+    local ringOuter = loaderCircle(symbol, "RingOuter", 196, C.black, 1, 111, 2.4, PURPLE)
+    local ringDash = loaderCircle(symbol, "RingDashed", 172, C.black, 1, 112, 1, PURPLE)
+    local ringDash2 = loaderCircle(symbol, "RingDashed2", 128, C.black, 1, 112, 0.8, PINK)
+    local ringOuterStroke = ringOuter:FindFirstChildOfClass("UIStroke")
+    local ringDashStroke = ringDash:FindFirstChildOfClass("UIStroke")
+    local ringDash2Stroke = ringDash2:FindFirstChildOfClass("UIStroke")
+
+    -- Cardinal reticle ticks.
+    local tickGroup = frame(symbol, "Ticks", 0, 0, 220, 220, C.black, 0)
+    tickGroup.BackgroundTransparency = 1
+    tickGroup.ZIndex = 113
+    local tickData = {
+        {110, 4, 110, 20}, {110, 200, 110, 216},
+        {4, 110, 20, 110}, {200, 110, 216, 110},
+    }
+    for i, d in ipairs(tickData) do
+        local t = frame(tickGroup, "Tick" .. i, d[1], d[2], d[3] - d[1] + 2, d[4] - d[2] + 2, LAV, 1)
+        if d[3] == d[1] then
+            t.Size = UDim2.fromOffset(2, d[4] - d[2] + 1)
+        end
+        t.BackgroundTransparency = 0.15
+        t.ZIndex = 113
+    end
+
+    -- Orbiting satellites and short trailing echoes.
+    local orbitGroupA = frame(symbol, "OrbitA", 0, 0, 220, 220, C.black, 0)
+    local orbitGroupB = frame(symbol, "OrbitB", 0, 0, 220, 220, C.black, 0)
+    local orbitGroupC = frame(symbol, "OrbitC", 0, 0, 220, 220, C.black, 0)
+    for _, g in ipairs({orbitGroupA, orbitGroupB, orbitGroupC}) do
+        g.BackgroundTransparency = 1
+        g.ZIndex = 114
+    end
+    local satA = frame(orbitGroupA, "Satellite", 106.6, 20.6, 6.8, 6.8, SKY, 3.4)
+    local satATrail1 = frame(orbitGroupA, "Trail1", 107.6, 20.6, 4.8, 4.8, SKY, 2.4)
+    satATrail1.BackgroundTransparency = 0.5
+    local satATrail2 = frame(orbitGroupA, "Trail2", 108.4, 20.6, 3.2, 3.2, SKY, 1.6)
+    satATrail2.BackgroundTransparency = 0.72
+    local satB = frame(orbitGroupB, "Satellite", 181.7, 106.9, 5.6, 5.6, PINK, 2.8)
+    local satBTrail1 = frame(orbitGroupB, "Trail1", 182.6, 107.5, 4, 4, PINK, 2)
+    satBTrail1.BackgroundTransparency = 0.5
+    local satC = frame(orbitGroupC, "Satellite", 108.2, 40.2, 3.6, 3.6, LAV, 1.8)
+    satC.BackgroundTransparency = 0.2
+
+    -- White gravitational lensing ring.
+    local lensRing = loaderCircle(symbol, "LensRing", 88, C.black, 1, 116, 1.3, WHITE)
+    local lensStroke = lensRing:FindFirstChildOfClass("UIStroke")
+    local lensUIScale = make("UIScale", lensRing, {Scale = 1})
+
+    -- Void core / event horizon. Nested circles approximate the SVG radialGradient.
+    local coreGlow1 = loaderCircle(symbol, "CoreGlow1", 76, Color3.fromRGB(76, 20, 140), 0.45, 117)
+    local coreGlow2 = loaderCircle(symbol, "CoreGlow2", 62, Color3.fromRGB(168, 85, 247), 0.38, 118)
+    local coreGlow3 = loaderCircle(symbol, "CoreGlow3", 48, Color3.fromRGB(5, 1, 7), 0.12, 119)
+    local eventPoint = loaderCircle(symbol, "EventPoint", 20, Color3.new(0, 0, 0), 0, 120)
+    local coreScale1 = make("UIScale", coreGlow1, {Scale = 1})
+    local coreScale2 = make("UIScale", coreGlow2, {Scale = 1})
+    local coreScale3 = make("UIScale", coreGlow3, {Scale = 1})
+
+    local loadStatus = safeText(loadCard, "Status", "ESTABLISHING VOID LINK...", 0, 270, 320, 18, 9, C.cyan, Enum.Font.GothamBold)
+    loadStatus.TextXAlignment = Enum.TextXAlignment.Center
+    loadStatus.ZIndex = 121
+    local loadRail = frame(loadCard, "Rail", 36, 302, 248, 4, Color3.fromRGB(42, 25, 62), 2)
+    loadRail.ZIndex = 121
+    local loadFill = frame(loadRail, "Fill", 0, 0, 0, 4, C.violet2, 2)
+    loadFill.ZIndex = 122
+    local loadPercent = safeText(loadCard, "Percent", "0%", 0, 314, 320, 16, 8, C.dim, Enum.Font.GothamMedium)
+    loadPercent.TextXAlignment = Enum.TextXAlignment.Center
+    loadPercent.ZIndex = 121
+
+    local loadStart = os.clock()
+    local loadDuration = 2.20
+    local loadStages = {
+        {0.00, "ESTABLISHING VOID LINK..."},
+        {0.23, "CALIBRATING GRAVITY WELL..."},
+        {0.48, "SYNCHRONIZING ORBITAL RINGS..."},
+        {0.72, "LOADING VOID MODULES..."},
+        {0.91, "CORE LINK STABLE"},
+    }
+    local loadAnimConn
+    loadAnimConn = connect(RunService.RenderStepped, function()
+        if not State.alive or not loadingLayer.Parent then
+            if loadAnimConn then loadAnimConn:Disconnect() end
+            return
+        end
+        local elapsed = os.clock() - loadStart
+        local progress = math.clamp(elapsed / loadDuration, 0, 1)
+
+        -- SVG animation timing translations.
+        local bloomPulse = (math.sin(elapsed * math.pi * 2 / 5) + 1) * 0.5
+        bloomA.Size = UDim2.fromOffset(184 + math.floor(bloomPulse * 12), 184 + math.floor(bloomPulse * 12))
+        bloomA.BackgroundTransparency = 0.95 - bloomPulse * 0.07
+        bloomB.BackgroundTransparency = 0.93 - bloomPulse * 0.08
+        bloomC.BackgroundTransparency = 0.88 - bloomPulse * 0.10
+        bloomD.BackgroundTransparency = 0.74 - bloomPulse * 0.12
+
+        local shockPhase1 = (elapsed % 3.6) / 3.6
+        local shockPhase2 = ((elapsed + 1.8) % 3.6) / 3.6
+        shockScale1.Scale = 0.25 + shockPhase1 * 1.75
+        shockScale2.Scale = 0.25 + shockPhase2 * 1.75
+        shockStroke1.Transparency = 0.12 + shockPhase1 * 0.88
+        shockStroke2.Transparency = 0.20 + shockPhase2 * 0.80
+
+        spikeGroup.Rotation = elapsed * 6
+        for i, spike in ipairs(spikes) do
+            local phase = ((i - 1) / #spikes) * math.pi * 2
+            local flare = (math.sin(elapsed * (math.pi * 2 / 2.2) + phase) + 1) * 0.5
+            spike.BackgroundTransparency = math.clamp(0.82 - flare * 0.60, 0.12, 0.82)
+            spike.Size = UDim2.fromOffset(76 + math.floor(flare * 19), 2.2)
+        end
+
+        diskA.Rotation = -18 + elapsed * (360 / 7.5)
+        diskB.Rotation = 162 - elapsed * (360 / 11.5)
+        diskC.Rotation = 60 + elapsed * (360 / 17)
+        diskStrokeA.Transparency = 0.16 + bloomPulse * 0.18
+        diskStrokeB.Transparency = 0.24 + bloomPulse * 0.18
+        diskStrokeC.Transparency = 0.32 + bloomPulse * 0.18
+        for _, dash in ipairs(dashGroups) do
+            dash.group.Rotation = elapsed * dash.speed
+        end
+
+        ringOuter.Rotation = elapsed * 2
+        ringDash.Rotation = -elapsed * 12
+        ringDash2.Rotation = elapsed * 7.8
+        ringOuterStroke.Transparency = 0.05 + (1 - bloomPulse) * 0.35
+        ringDashStroke.Transparency = 0.42 + (1 - bloomPulse) * 0.30
+        ringDash2Stroke.Transparency = 0.60 + (1 - bloomPulse) * 0.22
+
+        tickGroup.Rotation = math.sin(elapsed * math.pi * 2 / 12) * 2
+
+        orbitGroupA.Rotation = elapsed * 72
+        orbitGroupB.Rotation = -elapsed * (360 / 8.5)
+        orbitGroupC.Rotation = elapsed * (360 / 13)
+
+        local lensPulse = (math.sin(elapsed * math.pi * 2 / 3) + 1) * 0.5
+        lensStroke.Transparency = 0.58 - lensPulse * 0.48
+        lensUIScale.Scale = 1 + lensPulse * 0.08
+
+        local corePulse = (math.sin(elapsed * math.pi * 2 / 3.2) + 1) * 0.5
+        local coreScale = 1 + corePulse * 0.09
+        coreScale1.Scale = coreScale
+        coreScale2.Scale = coreScale
+        coreScale3.Scale = coreScale
+        coreGlow1.BackgroundTransparency = 0.54 - corePulse * 0.20
+        coreGlow2.BackgroundTransparency = 0.48 - corePulse * 0.18
+        eventPoint.BackgroundTransparency = 0.02 + ((math.sin(elapsed * 2 * math.pi / 1.3) + 1) * 0.5) * 0.16
+
+        loadStatus.Text = loadStages[1][2]
+        for i = #loadStages, 1, -1 do
+            if progress >= loadStages[i][1] then
+                loadStatus.Text = loadStages[i][2]
+                break
+            end
+        end
+        loadFill.Size = UDim2.new(progress, 0, 1, 0)
+        loadPercent.Text = string.format("%d%%", math.floor(progress * 100 + 0.5))
+
+        if progress >= 1 then
+            loadAnimConn:Disconnect()
+            loadStatus.Text = "CORE LINK STABLE"
+            task.wait(0.10)
+            if not State.alive then return end
+            holder.Visible = true
+            local bootScale = make("UIScale", holder, {Scale = 0.94})
+            local bootStroke = panel:FindFirstChildOfClass("UIStroke")
+            TweenService:Create(bootScale, TweenInfo.new(0.48, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Scale = 1}):Play()
+            if bootStroke then
+                bootStroke.Transparency = 1
+                TweenService:Create(bootStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 0.28}):Play()
+            end
+            TweenService:Create(loadScale, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.58}):Play()
+            TweenService:Create(loadingLayer, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
+            task.delay(0.30, function() if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end end)
+        end
+    end)
+
+
+    end)
+    if not __loaderOK then
+        if __loaderLayer and __loaderLayer.Parent then
+            __loaderLayer:Destroy()
+        end
         holder.Visible = true
-        local bootScale = make("UIScale", holder, {Scale = 0.94})
-        local bootStroke = panel:FindFirstChildOfClass("UIStroke")
-        TweenService:Create(bootScale, TweenInfo.new(0.48, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Scale = 1}):Play()
-        if bootStroke then
-            bootStroke.Transparency = 1
-            TweenService:Create(bootStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 0.28}):Play()
-        end
-        TweenService:Create(loadScale, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.58}):Play()
-        TweenService:Create(loadingLayer, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
-        task.delay(0.30, function() if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end end)
+        root.Enabled = true
+        warn("AutoSkills VOID loader failed safely: " .. tostring(__loaderERR))
     end
-end)
+end
 
 -- Global controls: F6 toggles skills, F7 fully unloads, Right Shift only
 -- hides/shows the panel while every automation task continues running.

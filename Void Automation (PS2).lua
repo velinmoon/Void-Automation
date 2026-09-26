@@ -1,4 +1,14 @@
-loadstring([=====[
+loadstring([==========[
+-- AutoSkills / Slayers 2
+-- OUTER LOBBY BOOTSTRAP V3
+-- Lobby PlaceId: 16205713724
+--
+-- This bootstrap runs BEFORE the large gameplay script.
+-- In the lobby it starts ONLY Auto Join and never executes the gameplay systems.
+-- Outside the lobby it executes the complete working gameplay script.
+
+local LOBBY_PLACE_ID = 16205713724
+local FULL_GAMEPLAY_SOURCE = [========[
 -- AutoSkills / Void bootstrap
 local __AUTOSKILLS_SOURCE = [====[
 -- AUTOSKILLS / VOID EDITION
@@ -551,16 +561,16 @@ end)
 end
 
 local function detectLobbyForStartup()
-    -- The user supplied the real Slayers 2 lobby PlaceId. This is now the
-    -- authoritative check, so executing before the menu finishes loading works.
+    -- Private gameplay wins even if the experience reuses the lobby PlaceId.
+    if tostring(game.PrivateServerId or "") ~= "" then
+        return false
+    end
+
     if tonumber(game.PlaceId) == SLAYERS2_LOBBY_PLACE_ID then
         return true
     end
 
     -- Fallback for alternate lobby places/copies using the same menu.
-    if tostring(game.PrivateServerId or "") ~= "" then
-        return false
-    end
 
     local deadline = os.clock() + 3
     repeat
@@ -5952,4 +5962,547 @@ if not __fn then
 end
 __fn()
 
-]=====])()
+]========]
+
+local Players = game:GetService("Players")
+local GuiService = game:GetService("GuiService")
+local HttpService = game:GetService("HttpService")
+local Workspace = game:GetService("Workspace")
+
+local Player = Players.LocalPlayer
+if not Player then
+    warn("AutoSkills Lobby V3: LocalPlayer unavailable")
+    return
+end
+
+local PlayerGui = Player:WaitForChild("PlayerGui", 15)
+if not PlayerGui then
+    warn("AutoSkills Lobby V3: PlayerGui unavailable")
+    return
+end
+
+local isPrivate = tostring(game.PrivateServerId or "") ~= ""
+local isExactLobby = tonumber(game.PlaceId) == LOBBY_PLACE_ID and not isPrivate
+
+-- In normal/private gameplay, run the complete script immediately.
+if not isExactLobby then
+    local fn, err = loadstring(FULL_GAMEPLAY_SOURCE)
+    if not fn then
+        warn("AutoSkills gameplay compile error: " .. tostring(err))
+        return
+    end
+    fn()
+    return
+end
+
+-- ============================================================
+-- LOBBY ONLY FROM HERE
+-- ============================================================
+
+-- Save full source now so queue_on_teleport can load it after JOIN.
+pcall(function()
+    if type(writefile) == "function" then
+        writefile("AutoSkills_Void_AutoRun.lua", FULL_GAMEPLAY_SOURCE)
+    end
+end)
+
+local queue = type(queue_on_teleport) == "function" and queue_on_teleport
+    or (type(getgenv) == "function" and type(getgenv().queue_on_teleport) == "function"
+        and getgenv().queue_on_teleport)
+    or (type(syn) == "table" and type(syn.queue_on_teleport) == "function"
+        and syn.queue_on_teleport)
+    or nil
+
+if type(queue) == "function" then
+    pcall(queue, [[
+task.wait(1)
+pcall(function()
+    local rf = type(readfile) == "function" and readfile
+    local ff = type(isfile) == "function" and isfile
+    if rf and ff and ff("AutoSkills_Void_AutoRun.lua") then
+        local src = rf("AutoSkills_Void_AutoRun.lua")
+        local fn = loadstring(src)
+        if fn then fn() end
+    end
+end)
+]])
+end
+
+-- ------------------------------------------------------------
+-- Tiny lobby-only status HUD. Created BEFORE any input API checks.
+-- So if this script executes at all, you will see a status box.
+-- ------------------------------------------------------------
+local uiParent = PlayerGui
+pcall(function()
+    if type(gethui) == "function" then
+        local hui = gethui()
+        if hui then uiParent = hui end
+    end
+end)
+
+pcall(function()
+    local old = uiParent:FindFirstChild("AutoSkills_LobbyV3")
+    if old then old:Destroy() end
+end)
+
+local Screen = Instance.new("ScreenGui")
+Screen.Name = "AutoSkills_LobbyV3"
+Screen.ResetOnSpawn = false
+Screen.IgnoreGuiInset = true
+Screen.DisplayOrder = 2147483647
+Screen.Parent = uiParent
+
+local Card = Instance.new("Frame")
+Card.Name = "Card"
+Card.AnchorPoint = Vector2.new(1, 0)
+Card.Position = UDim2.new(1, -18, 0, 18)
+Card.Size = UDim2.fromOffset(390, 72)
+Card.BackgroundColor3 = Color3.fromRGB(6, 17, 27)
+Card.BackgroundTransparency = 0.05
+Card.BorderSizePixel = 0
+Card.Parent = Screen
+
+local Corner = Instance.new("UICorner")
+Corner.CornerRadius = UDim.new(0, 11)
+Corner.Parent = Card
+
+local Stroke = Instance.new("UIStroke")
+Stroke.Color = Color3.fromRGB(25, 207, 255)
+Stroke.Transparency = 0.08
+Stroke.Thickness = 1
+Stroke.Parent = Card
+
+local Dot = Instance.new("Frame")
+Dot.Position = UDim2.fromOffset(15, 17)
+Dot.Size = UDim2.fromOffset(8, 8)
+Dot.BackgroundColor3 = Color3.fromRGB(47, 239, 150)
+Dot.BorderSizePixel = 0
+Dot.Parent = Card
+local DotCorner = Instance.new("UICorner")
+DotCorner.CornerRadius = UDim.new(1, 0)
+DotCorner.Parent = Dot
+
+local Title = Instance.new("TextLabel")
+Title.Position = UDim2.fromOffset(32, 8)
+Title.Size = UDim2.fromOffset(340, 20)
+Title.BackgroundTransparency = 1
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 11
+Title.TextColor3 = Color3.fromRGB(235, 249, 255)
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Text = "SLAYERS 2 • AUTO JOIN ACTIVE"
+Title.Parent = Card
+
+local Status = Instance.new("TextLabel")
+Status.Position = UDim2.fromOffset(15, 31)
+Status.Size = UDim2.fromOffset(360, 31)
+Status.BackgroundTransparency = 1
+Status.Font = Enum.Font.GothamMedium
+Status.TextSize = 10
+Status.TextColor3 = Color3.fromRGB(151, 190, 211)
+Status.TextXAlignment = Enum.TextXAlignment.Left
+Status.TextYAlignment = Enum.TextYAlignment.Top
+Status.TextWrapped = true
+Status.Text = "Place " .. tostring(game.PlaceId) .. " • preparing input..."
+Status.Parent = Card
+
+local function setStatus(message)
+    Status.Text = tostring(message)
+    print("AutoSkills Lobby V3: " .. tostring(message))
+end
+
+-- ------------------------------------------------------------
+-- Input backend.
+-- Prefer Roblox VirtualInputManager, fall back to common executor mouse APIs.
+-- ------------------------------------------------------------
+local vimOK, VIM = pcall(function()
+    return game:GetService("VirtualInputManager")
+end)
+
+local env = type(getgenv) == "function" and getgenv() or _G
+
+local mouseMoveAbs = type(mousemoveabs) == "function" and mousemoveabs
+    or (type(env.mousemoveabs) == "function" and env.mousemoveabs)
+    or nil
+local mouse1Press = type(mouse1press) == "function" and mouse1press
+    or (type(env.mouse1press) == "function" and env.mouse1press)
+    or nil
+local mouse1Release = type(mouse1release) == "function" and mouse1release
+    or (type(env.mouse1release) == "function" and env.mouse1release)
+    or nil
+local mouse1Click = type(mouse1click) == "function" and mouse1click
+    or (type(env.mouse1click) == "function" and env.mouse1click)
+    or nil
+
+local function viewport()
+    local camera = Workspace.CurrentCamera
+    return camera and camera.ViewportSize or Vector2.new(1920, 1080)
+end
+
+local function pointFraction(x, y)
+    local v = viewport()
+    return Vector2.new(
+        math.clamp(v.X * x, 4, v.X - 4),
+        math.clamp(v.Y * y, 4, v.Y - 4)
+    )
+end
+
+local function moveMouse(point)
+    if vimOK and VIM then
+        local ok = pcall(function()
+            VIM:SendMouseMoveEvent(point.X, point.Y, game)
+        end)
+        if ok then return true end
+    end
+
+    if type(mouseMoveAbs) == "function" then
+        return pcall(mouseMoveAbs, point.X, point.Y)
+    end
+    return false
+end
+
+local function clickPoint(point, hold)
+    hold = hold or 0.09
+    moveMouse(point)
+    task.wait(0.035)
+
+    if vimOK and VIM then
+        local ok = pcall(function()
+            VIM:SendMouseButtonEvent(point.X, point.Y, 0, true, game, 0)
+            task.wait(hold)
+            VIM:SendMouseButtonEvent(point.X, point.Y, 0, false, game, 0)
+        end)
+        if ok then return true end
+    end
+
+    if type(mouse1Press) == "function" and type(mouse1Release) == "function" then
+        local ok = pcall(function()
+            mouse1Press()
+            task.wait(hold)
+            mouse1Release()
+        end)
+        if ok then return true end
+    end
+
+    if hold <= 0.2 and type(mouse1Click) == "function" then
+        return pcall(mouse1Click)
+    end
+
+    return false
+end
+
+local function norm(value)
+    return string.lower(tostring(value or "")):gsub("[^%w]", "")
+end
+
+local function visible(object)
+    if not object or not object.Parent then return false end
+    local node = object
+    while node and node ~= PlayerGui do
+        if node:IsA("GuiObject") and not node.Visible then return false end
+        if node:IsA("ScreenGui") and not node.Enabled then return false end
+        node = node.Parent
+    end
+    return true
+end
+
+local function displayed(object)
+    if object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox") then
+        return tostring(object.Text or "")
+    end
+    return ""
+end
+
+local function findText(needles)
+    local wanted = {}
+    for _, value in ipairs(needles) do wanted[norm(value)] = true end
+
+    local best, bestScore
+    for _, object in ipairs(PlayerGui:GetDescendants()) do
+        if object:IsA("GuiObject")
+            and visible(object)
+            and object.AbsoluteSize.X > 2
+            and object.AbsoluteSize.Y > 2 then
+
+            local t = norm(displayed(object))
+            local name = norm(object.Name)
+            local matched = wanted[t] == true
+
+            if not matched then
+                for word in pairs(wanted) do
+                    if #word >= 4 and (t:find(word, 1, true) or name:find(word, 1, true)) then
+                        matched = true
+                        break
+                    end
+                end
+            end
+
+            if matched then
+                local score = object.AbsoluteSize.X * object.AbsoluteSize.Y
+                if object:IsA("GuiButton") then score = score - 100000000 end
+                if t ~= "" then score = score - 50000000 end
+                if not bestScore or score < bestScore then
+                    best, bestScore = object, score
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function findPlay()
+    return findText({"PLAY"})
+end
+
+local function findMap()
+    return findText({"Ouwland", "Ouwigahara"})
+end
+
+local function findJoin()
+    return findText({"JOIN", "Join Server", "Join Private Server"})
+end
+
+local function findOwnerBox()
+    for _, object in ipairs(PlayerGui:GetDescendants()) do
+        if object:IsA("TextBox") and visible(object) then
+            local blob = norm(
+                tostring(object.Name or "") .. " "
+                .. tostring(object.PlaceholderText or "") .. " "
+                .. tostring(object.Text or "")
+            )
+            if blob:find("privateserverowner", 1, true)
+                or (blob:find("private", 1, true) and blob:find("owner", 1, true)) then
+                return object
+            end
+        end
+    end
+end
+
+local function objectPoint(object)
+    if not object or not object.Parent then return nil end
+    return object.AbsolutePosition + object.AbsoluteSize / 2
+end
+
+local function clickObject(object, hold)
+    local point = objectPoint(object)
+    if not point then return false end
+
+    local ok = clickPoint(point, hold)
+
+    -- Also click useful visible ancestors because Slayers 2 can put the text
+    -- inside an input-catching Frame.
+    local node = object.Parent
+    local tried = 0
+    while node and node ~= PlayerGui and tried < 3 do
+        if node:IsA("GuiObject") and visible(node)
+            and node.AbsoluteSize.X >= object.AbsoluteSize.X
+            and node.AbsoluteSize.Y >= object.AbsoluteSize.Y then
+            tried = tried + 1
+            clickPoint(node.AbsolutePosition + node.AbsoluteSize / 2, hold)
+        end
+        node = node.Parent
+    end
+
+    return ok
+end
+
+local function loadOwner()
+    local owner = Player.Name
+
+    local isFile = type(isfile) == "function" and isfile
+        or (type(env.isfile) == "function" and env.isfile)
+        or nil
+    local readFile = type(readfile) == "function" and readfile
+        or (type(env.readfile) == "function" and env.readfile)
+        or nil
+
+    if type(isFile) == "function" and type(readFile) == "function" then
+        local okExists, exists = pcall(isFile, "AutoSkills_System_v1.json")
+        if okExists and exists then
+            local ok, data = pcall(function()
+                return HttpService:JSONDecode(readFile("AutoSkills_System_v1.json"))
+            end)
+            if ok and type(data) == "table"
+                and type(data.PrivateServerOwner) == "string"
+                and data.PrivateServerOwner ~= "" then
+                owner = data.PrivateServerOwner
+            end
+        end
+    end
+
+    return owner
+end
+
+local Owner = loadOwner()
+
+local function fillOwner()
+    local box = findOwnerBox()
+
+    if box then
+        local ok = pcall(function()
+            clickObject(box, 0.05)
+            box:CaptureFocus()
+            task.wait(0.05)
+            box.Text = Owner
+            box.CursorPosition = #Owner + 1
+            task.wait(0.12)
+            box:ReleaseFocus(false)
+        end)
+        if ok then return true end
+    end
+
+    -- Screenshot fallback for the "Private server owner" field.
+    local p = pointFraction(0.615, 0.862)
+    clickPoint(p, 0.06)
+    task.wait(0.06)
+
+    -- Clipboard paste fallback.
+    local setClip = type(setclipboard) == "function" and setclipboard
+        or (type(env.setclipboard) == "function" and env.setclipboard)
+        or nil
+
+    if type(setClip) == "function" and vimOK and VIM then
+        pcall(setClip, Owner)
+        pcall(function()
+            VIM:SendKeyEvent(true, Enum.KeyCode.LeftControl, false, game)
+            VIM:SendKeyEvent(true, Enum.KeyCode.A, false, game)
+            VIM:SendKeyEvent(false, Enum.KeyCode.A, false, game)
+            VIM:SendKeyEvent(true, Enum.KeyCode.V, false, game)
+            VIM:SendKeyEvent(false, Enum.KeyCode.V, false, game)
+            VIM:SendKeyEvent(false, Enum.KeyCode.LeftControl, false, game)
+        end)
+        return true
+    end
+
+    return false
+end
+
+local PLAY_FALLBACK = Vector2.new(0.055, 0.075)
+local MAP_FALLBACK = Vector2.new(0.170, 0.430)
+local JOIN_FALLBACK = Vector2.new(0.615, 0.916)
+
+local function doPlay()
+    local play = findPlay()
+    setStatus("PLAY • " .. (play and "GUI found" or "using screen fallback"))
+
+    if play then clickObject(play, 0.10) end
+    clickPoint(pointFraction(PLAY_FALLBACK.X, PLAY_FALLBACK.Y), 0.10)
+end
+
+local function doMap()
+    local map = findMap()
+    setStatus("OUWLAND • " .. (map and "GUI found" or "using card fallback"))
+
+    if map then clickObject(map, 0.10) end
+    clickPoint(pointFraction(MAP_FALLBACK.X, MAP_FALLBACK.Y), 0.12)
+end
+
+local function doOwner()
+    setStatus("OWNER • entering " .. Owner)
+    return fillOwner()
+end
+
+local function doJoin()
+    local join = findJoin()
+    setStatus("JOIN • holding 3.5 seconds")
+
+    if join then
+        clickObject(join, 3.5)
+    else
+        clickPoint(pointFraction(JOIN_FALLBACK.X, JOIN_FALLBACK.Y), 3.5)
+    end
+end
+
+-- If no input backend exists, the HUD tells you instead of silently doing nothing.
+if not (vimOK and VIM)
+    and not (type(mouse1Press) == "function" and type(mouse1Release) == "function")
+    and type(mouse1Click) ~= "function" then
+    Dot.BackgroundColor3 = Color3.fromRGB(255, 100, 125)
+    setStatus("ERROR • no supported mouse input API in this executor")
+    return
+end
+
+setStatus("LOBBY DETECTED • owner: " .. Owner)
+
+-- ------------------------------------------------------------
+-- Time-assisted stage machine.
+-- It uses GUI detection when available, but does NOT depend on internal UI names.
+-- ------------------------------------------------------------
+task.spawn(function()
+    local stage = "play"
+    local stageAt = os.clock()
+    local lastAction = 0
+
+    while Screen.Parent and tonumber(game.PlaceId) == LOBBY_PLACE_ID
+        and tostring(game.PrivateServerId or "") == "" do
+
+        local map = findMap()
+        local ownerBox = findOwnerBox()
+        local join = findJoin()
+
+        -- Visible UI always overrides the timer.
+        if ownerBox or join then
+            if stage ~= "owner" and stage ~= "join" then
+                stage = "owner"
+                stageAt = os.clock()
+                lastAction = 0
+            end
+        elseif map and stage == "play" then
+            stage = "map"
+            stageAt = os.clock()
+            lastAction = 0
+        end
+
+        if stage == "play" then
+            if os.clock() - lastAction >= 0.9 then
+                lastAction = os.clock()
+                doPlay()
+            end
+
+            -- Even if the UI names are hidden, progress after repeated PLAY clicks.
+            if os.clock() - stageAt >= 4.0 then
+                stage = "map"
+                stageAt = os.clock()
+                lastAction = 0
+            end
+
+        elseif stage == "map" then
+            if os.clock() - lastAction >= 1.0 then
+                lastAction = os.clock()
+                doMap()
+            end
+
+            if ownerBox or join or os.clock() - stageAt >= 4.0 then
+                stage = "owner"
+                stageAt = os.clock()
+                lastAction = 0
+            end
+
+        elseif stage == "owner" then
+            if os.clock() - lastAction >= 1.6 then
+                lastAction = os.clock()
+                doOwner()
+            end
+
+            -- Allow owner validation time before JOIN.
+            if join or os.clock() - stageAt >= 3.0 then
+                stage = "join"
+                stageAt = os.clock()
+                lastAction = 0
+            end
+
+        elseif stage == "join" then
+            if os.clock() - lastAction >= 5.0 then
+                lastAction = os.clock()
+                doJoin()
+                setStatus("JOIN SENT • waiting for teleport")
+            end
+        end
+
+        task.wait(0.10)
+    end
+end)
+
+return
+
+]==========])()

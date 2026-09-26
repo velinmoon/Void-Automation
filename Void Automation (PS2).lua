@@ -2914,20 +2914,77 @@ local function applyNoClip(character, rootPart, humanoid)
     end
 end
 
+local function movementSafeLandingPosition(character, rootPart)
+    if not character or not rootPart or not rootPart.Parent then return nil end
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {character}
+    params.IgnoreWater = false
+
+    -- Search straight down first, then a few small offsets. This keeps the player close
+    -- to the exact place where Auto Farm was stopped without leaving them suspended over empty space.
+    local offsets = {
+        Vector3.new(0, 0, 0),
+        Vector3.new(4, 0, 0),
+        Vector3.new(-4, 0, 0),
+        Vector3.new(0, 0, 4),
+        Vector3.new(0, 0, -4),
+        Vector3.new(7, 0, 7),
+        Vector3.new(-7, 0, 7),
+        Vector3.new(7, 0, -7),
+        Vector3.new(-7, 0, -7),
+    }
+
+    local origin = rootPart.Position
+    for _, offset in ipairs(offsets) do
+        local start = origin + offset + Vector3.new(0, 4, 0)
+        local result = World:Raycast(start, Vector3.new(0, -2500, 0), params)
+        if result and result.Instance and result.Position then
+            local normal = result.Normal
+            if not normal or normal.Y > 0.35 then
+                -- Stand a little above the detected surface.
+                return Vector3.new(start.X, result.Position.Y + 5, start.Z)
+            end
+        end
+    end
+    return nil
+end
+
 function Movement.prepareStopLanding(character, rootPart)
     if not character or not rootPart or not rootPart.Parent then return end
     if not Settings.NoClip then return end
-    Movement.stopLiftToken = Movement.stopLiftToken + 1
-    local pivot = character:GetPivot()
-    local lifted = pivot + Vector3.new(0, Settings.NoClipStopLift, 0)
-    pcall(function() character:PivotTo(lifted) end)
 
-    -- Auto Farm stops with normal collisions restored so the player cannot fall through the map.
+    Movement.stopLiftToken = Movement.stopLiftToken + 1
+    local token = Movement.stopLiftToken
+
+    -- Restore world collision first so the player cannot keep falling through the map.
     Settings.NoClip = false
     Movement.updateTBlock()
     Movement.restoreNoClip(true)
-    pcall(function() rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
-    pcall(function() rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0) end)
+
+    local safePosition = movementSafeLandingPosition(character, rootPart)
+    if safePosition then
+        pcall(function()
+            character:PivotTo(CFrame.new(safePosition))
+            rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        end)
+    else
+        -- If no surface can be raycasted, still lift the player instead of leaving them inside geometry.
+        local pivot = character:GetPivot()
+        pcall(function() character:PivotTo(pivot + Vector3.new(0, Settings.NoClipStopLift, 0)) end)
+        pcall(function() rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
+        pcall(function() rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0) end)
+    end
+
+    -- Give Roblox a couple frames to resolve the restored floor collision.
+    task.spawn(function()
+        task.wait(0.12)
+        if token ~= Movement.stopLiftToken or not character.Parent or not rootPart.Parent then return end
+        pcall(function() rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
+        pcall(function() rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0) end)
+    end)
 end
 
 function Movement.restoreSpeed()

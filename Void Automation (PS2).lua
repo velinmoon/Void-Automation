@@ -1473,20 +1473,54 @@ do
             nextScan = 0,
             tries = {},
             count = 0,
+            changed = true,
+            excludedModels = {},
             fresh = setmetatable({}, {__mode = "k"}),
             message = "Waiting for boss drops near the kill.",
         }
+        for _, record in ipairs(Farm.records) do
+            if record.model then loot.excludedModels[record.model] = true end
+        end
 
-        -- Mark objects that appear AFTER the kill. These are allowed a wider
-        -- horizontal search radius, while old map crates keep the original 60-stud limit.
+        -- Only mark likely loot objects as fresh. The old handler marked up to
+        -- eight ancestors for EVERY new Workspace descendant. Opening a world
+        -- chest can create hundreds of descendants at once, which caused a
+        -- noticeable client hitch.
         loot.spawnConnection = World.DescendantAdded:Connect(function(object)
             if not loot then return end
+
+            local relevant = object:IsA("BasePart")
+                or object:IsA("Model")
+                or object:IsA("Tool")
+                or object:IsA("ProximityPrompt")
+                or object:IsA("ClickDetector")
+
+            if not relevant then return end
+
+            local marked = object:IsA("Tool")
+            if object:GetAttribute("IsLoot") == true or object:GetAttribute("Collectible") == true then
+                marked = true
+            end
+
+            local name = string.lower(object.Name)
+            if name:find("chest", 1, true) or name:find("loot", 1, true)
+                or name:find("drop", 1, true) or name:find("pickup", 1, true)
+                or name:find("collect", 1, true) then
+                marked = true
+            end
+
+            -- Prompts/detectors are always useful candidates. Generic models
+            -- are still picked up by the spatial loot query below.
+            marked = marked or object:IsA("ProximityPrompt") or object:IsA("ClickDetector")
+            if not marked then return end
+
             local node = object
-            for _ = 1, 8 do
+            for _ = 1, 5 do
                 if not node or node == World then break end
                 loot.fresh[node] = true
                 node = node.Parent
             end
+            loot.changed = true
         end)
 
         if deathConnection then deathConnection:Disconnect(); deathConnection = nil end
@@ -1516,7 +1550,7 @@ do
         while node and node ~= World do
             if isPlayer(node) then return nil end
             if node:IsA("Model") and node:FindFirstChildOfClass("Humanoid") then return nil end
-            for _, record in ipairs(Farm.records) do if node == record.model then return nil end end
+            if loot and loot.excludedModels and loot.excludedModels[node] then return nil end
             if not entity and (node:IsA("Model") or node:IsA("Tool")) then entity = node end
             if not part and node:IsA("BasePart") then part = node end
             local name = string.lower(node.Name)
@@ -1564,52 +1598,109 @@ do
             local attempt = loot.tries[object]
             return not attempt or (attempt.count < 3 and os.clock() >= attempt.nextTry)
         end
-        local descendants = World:GetDescendants()
-        for _, object in ipairs(descendants) do
-            if object:IsA("ProximityPrompt") or object:IsA("ClickDetector") then
-                local entity, marked = lootIdentity(object)
-                local allowed = true
-                if object:IsA("ProximityPrompt") then
-                    local pickup; allowed, pickup = allowedPrompt(object)
-                    marked = marked or pickup
-                    allowed = allowed and object.Enabled
-                end
-                if entity and marked then
-                    interactive[entity] = true
-                    local part = lootPart(object.Parent)
-                    if allowed and part and available(object) then
+
+        -- Use Roblox's spatial query instead of scanning every descendant in the
+        -- entire Workspace. The old double GetDescendants() pass was the main
+        -- source of the frame hitch after a chest opened or drops spawned.
+        local queryRadius = math.ceil(math.sqrt(LOOT_NEW_HORIZONTAL_RADIUS * LOOT_NEW_HORIZONTAL_RADIUS
+            + LOOT_VERTICAL_RADIUS * LOOT_VERTICAL_RADIUS))
+        local parts = {}
+        local ok = pcall(function()
+            parts = World:GetPartBoundsInRadius(loot.center, queryRadius)
+        end)
+        if not ok then return nil end
+
+        local function considerInteractive(object, part, entity, marked)
+            if not object or not entity then return end
+            local allowed = true
+            if object:IsA("ProximityPrompt") then
+                local pickup
+                allowed, pickup = allowedPrompt(object)
+                marked = marked or pickup
+                allowed = allowed and object.Enabled
+            end
+            if not marked or not allowed or not available(object) then return end
+
+            interactive[entity] = true
+            local inRange, fresh, horizontal = lootDistanceOK(part, entity)
+            if inRange then
+                candidates[#candidates + 1] = {
+                    object = object, part = part, entity = entity,
+                    fresh = fresh, horizontal = horizontal
+                }
+            end
+        end
+
+        for _, part in ipairs(parts) do
+            if part:IsA("BasePart") and part.CanTouch then
+                -- Cheap distance test BEFORE walking the ancestor chain.
+                local delta = part.Position - loot.center
+                local horizontal0 = Vector3.new(delta.X, 0, delta.Z).Magnitude
+                local vertical0 = math.abs(delta.Y)
+                if horizontal0 <= LOOT_NEW_HORIZONTAL_RADIUS and vertical0 <= LOOT_VERTICAL_RADIUS then
+                    local entity, marked = lootIdentity(part)
+                    if entity and not seen[entity] then
+                        seen[entity] = true
                         local inRange, fresh, horizontal = lootDistanceOK(part, entity)
-                        if inRange then
-                            candidates[#candidates+1] = {
-                                object=object, part=part, entity=entity,
-                                fresh=fresh, horizontal=horizontal
+                        local pendingTouch = nil
+
+                        -- Most game loot puts the prompt/detector directly under
+                        -- the handle/part, so this is cheap and covers chests.
+                        local directPrompt = part:FindFirstChildOfClass("ProximityPrompt")
+                        local directClick = part:FindFirstChildOfClass("ClickDetector")
+                        local direct = directPrompt or directClick
+                        if inRange and direct then
+                            considerInteractive(direct, part, entity, marked)
+                        end
+
+                        -- Generic item models may not have a loot-looking name.
+                        -- Inspect descendants only after the spatial filter has
+                        -- identified a nearby model.
+                        if inRange and not interactive[entity] and entity:IsA("Model") then
+                            local descendantList = entity:GetDescendants()
+                            for _, child in ipairs(descendantList) do
+                                if child:IsA("ProximityPrompt") or child:IsA("ClickDetector") then
+                                    considerInteractive(child, part, entity, marked)
+                                    if interactive[entity] then break end
+                                end
+                            end
+                        end
+
+                        if inRange and marked and not interactive[entity] and available(entity) then
+                            pendingTouch = {
+                                object = entity, part = part, entity = entity, touch = true,
+                                fresh = fresh, horizontal = horizontal
                             }
+                        end
+                        if pendingTouch then
+                            candidates[#candidates + 1] = pendingTouch
                         end
                     end
                 end
             end
         end
-        for _, object in ipairs(descendants) do
-            if object:IsA("BasePart") and object.CanTouch then
-                local entity, marked = lootIdentity(object)
-                if entity and marked and not interactive[entity] and not seen[entity]
-                    and available(entity) then
-                    local inRange, fresh, horizontal = lootDistanceOK(object, entity)
-                    if inRange then
-                        seen[entity] = true
-                        candidates[#candidates+1] = {
-                            object=entity, part=object, entity=entity, touch=true,
-                            fresh=fresh, horizontal=horizontal
-                        }
+
+        -- Fresh interactive objects that have not yet received a nearby BasePart
+        -- query result can still be found through the small fresh set.
+        if loot.changed and loot.fresh then
+            for object in pairs(loot.fresh) do
+                if object and inWorld(object)
+                    and (object:IsA("ProximityPrompt") or object:IsA("ClickDetector")) then
+                    local entity, marked = lootIdentity(object)
+                    local part = lootPart(object.Parent)
+                    if entity and part then
+                        considerInteractive(object, part, entity, marked)
                     end
                 end
             end
         end
+
         table.sort(candidates, function(a,b)
             -- Boss-created objects first, then nearest horizontal distance.
             if a.fresh ~= b.fresh then return a.fresh == true end
             return (a.horizontal or math.huge) < (b.horizontal or math.huge)
         end)
+        loot.changed = false
         return candidates[1]
     end
     local function stepLoot(character, rootPart)
@@ -1622,9 +1713,16 @@ do
             loot.touchUntil = nil; loot.destination = loot.center + Vector3.new(0,2,0)
         end
         if loot.destination then
-            character:PivotTo(character:GetPivot() + (loot.destination - rootPart.Position))
-            rootPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
-            rootPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
+            local delta = loot.destination - rootPart.Position
+            -- Do not repeatedly PivotTo every Render/Stepped tick once we have
+            -- already reached the pickup. This removes the post-kill physics hitch.
+            if delta.Magnitude > 1.5 then
+                character:PivotTo(character:GetPivot() + delta)
+                rootPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                rootPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
+            else
+                loot.destination = nil
+            end
         end
         if loot.holding then
             if not inWorld(loot.holding) or os.clock() >= loot.holdUntil then endPrompt() else return true end
@@ -1636,7 +1734,7 @@ do
             if not inWorld(item.object) or not inWorld(item.part) then return true end
         else
             if os.clock() < loot.nextScan then return true end
-            loot.nextScan = os.clock() + 0.20
+            loot.nextScan = os.clock() + 0.28
             item = findLoot()
             if not item then return true end
             local old = loot.tries[item.object]
@@ -1694,7 +1792,10 @@ do
         local location = autoBossLocation(entry)
         if not location then return nil end
 
-        Farm.scan(true)
+        -- Farm.scan(false) is already called by the main farm loop.
+        -- Forcing a full Workspace:GetDescendants() scan every frame while
+        -- waiting for a boss to stream in causes the post-teleport freeze.
+        Farm.scan(false)
 
         local wantedKey = Farm.bossKey(entry.name)
         local bestSame, bestSameDistance
@@ -1723,7 +1824,9 @@ do
         return bestSame or bestAny
     end
     local function pickAutoBoss(rootPart)
-        Farm.scan(true)
+        -- The main farm loop already performs the throttled scan. Avoid a
+        -- second forced full-workspace scan every time a boss dies.
+        Farm.scan(false)
         local position = rootPart and rootPart.Position
         if not position then return nil end
         local function collect(excludeLast)
@@ -1969,9 +2072,14 @@ do
                         Farm.autoEngaged = false
                     end
                 end
-                character:PivotTo(character:GetPivot() + (Farm.travelDestination - rootPart.Position))
-                rootPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
-                rootPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
+                local travelDelta = Farm.travelDestination - rootPart.Position
+                -- Teleport once per meaningful movement. The old code called
+                -- PivotTo every Stepped frame while waiting for the boss to load.
+                if travelDelta.Magnitude > 2 then
+                    character:PivotTo(character:GetPivot() + travelDelta)
+                    rootPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                    rootPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
+                end
                 if Settings.AutoBoss and not Farm.autoRespawnResume
                     and os.clock() - Farm.autoArrivedAt >= Settings.BossNoAttackTimeout then
                     advanceAutoBoss("No live attack target after 5s; skipped", rootPart, true)

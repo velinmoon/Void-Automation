@@ -132,8 +132,11 @@ if tonumber(game.PlaceId) == SLAYERS2_LOBBY_PLACE_ID
     local lobbyController = {alive = true}
     function lobbyController.Stop()
         lobbyController.alive = false
+        if environment["__AutoSkills_Slayers2_LobbyRecovery"] == lobbyController then
+            environment["__AutoSkills_Slayers2_LobbyRecovery"] = nil
+        end
     end
-    environment[slot] = lobbyController
+    environment["__AutoSkills_Slayers2_LobbyRecovery"] = lobbyController
 
     local function ln(value)
         return string.lower(tostring(value or "")):gsub("[^%w]", "")
@@ -209,28 +212,8 @@ if tonumber(game.PlaceId) == SLAYERS2_LOBBY_PLACE_ID
     local function lmapClickOnce(map)
         if not map then return false end
 
-        local point
-        local node = map
-        for _ = 1, 10 do
-            if not node or node == playerGui then break end
-            if node:IsA("GuiObject") and lv(node) then
-                local size = node.AbsoluteSize
-                if size.X >= 180 and size.X <= 560
-                    and size.Y >= 280 and size.Y <= 850 then
-                    point = node.AbsolutePosition + size / 2
-                    break
-                end
-            end
-            node = node.Parent
-        end
-
-        if not point then
-            local camera = World.CurrentCamera
-            local size = camera and camera.ViewportSize or Vector2.new(1912, 948)
-            point = Vector2.new(size.X * 0.175, size.Y * 0.430)
-        end
-
-        return lclickPoint(point, 0.11)
+        -- One physical click only. Fixed to the user's 1920x1080 screenshot.
+        return lclickPoint(Vector2.new(340, 465), 0.11)
     end
 
     local function lprivateContext()
@@ -368,7 +351,7 @@ end)
 
                     if point then
                         -- EXACTLY ONE normal click on JOIN PRIVATE.
-                        lclickPoint(point, 0.14)
+                        lclickPoint(point, 3.50)
                     end
                 end
             end
@@ -6307,13 +6290,22 @@ local Workspace = game:GetService("Workspace")
 
 local Player = Players.LocalPlayer
 if not Player then
-    warn("AutoSkills Lobby V3: LocalPlayer unavailable")
+    warn("AutoSkills Lobby V15: LocalPlayer unavailable")
     return
 end
 
+local environment = type(getgenv) == "function" and getgenv() or _G
+local slot = "__AutoSkills_ZXCVB"
+pcall(function()
+    local previous = environment[slot]
+    if type(previous) == "table" and type(previous.Stop) == "function" then
+        previous.Stop()
+    end
+end)
+
 local PlayerGui = Player:WaitForChild("PlayerGui", 15)
 if not PlayerGui then
-    warn("AutoSkills Lobby V3: PlayerGui unavailable")
+    warn("AutoSkills Lobby V15: PlayerGui unavailable")
     return
 end
 
@@ -6377,7 +6369,13 @@ pcall(function()
 end)
 
 pcall(function()
+    -- Kill the visible controller HUDs from previous V3/V14 runs.
+    -- Their watcher loops are gated by Screen.Parent and will exit on the next tick.
     local old = uiParent:FindFirstChild("AutoSkills_LobbyV3")
+    if old then old:Destroy() end
+end)
+pcall(function()
+    local old = uiParent:FindFirstChild("AutoSkillsLobbyJoin")
     if old then old:Destroy() end
 end)
 
@@ -6426,7 +6424,7 @@ Title.Font = Enum.Font.GothamBold
 Title.TextSize = 11
 Title.TextColor3 = Color3.fromRGB(235, 249, 255)
 Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Text = "SLAYERS 2 • AUTO JOIN V14"
+Title.Text = "SLAYERS 2 • AUTO JOIN V15"
 Title.Parent = Card
 
 local Status = Instance.new("TextLabel")
@@ -6442,9 +6440,16 @@ Status.TextWrapped = true
 Status.Text = "Place " .. tostring(game.PlaceId) .. " • preparing input..."
 Status.Parent = Card
 
+local lobbyController = {alive = true}
+function lobbyController.Stop()
+    lobbyController.alive = false
+    pcall(function() Screen:Destroy() end)
+end
+environment[slot] = lobbyController
+
 local function setStatus(message)
     Status.Text = tostring(message)
-    print("AutoSkills Lobby V3: " .. tostring(message))
+    print("AutoSkills Lobby V15: " .. tostring(message))
 end
 
 -- ------------------------------------------------------------
@@ -7035,16 +7040,54 @@ local function doPlay()
     end
 end
 
-local function singleMapClick(point)
-    -- Exactly ONE input backend. Never send the same map click through
-    -- both VirtualInputManager and executor mouse APIs.
+local function findClickableAncestor(object)
+    if not object or not object.Parent then return nil end
+
+    if object:IsA("GuiButton") then
+        return object
+    end
+
+    local node = object.Parent
+    local best = nil
+    for _ = 1, 10 do
+        if not node or node == PlayerGui then break end
+        if node:IsA("GuiButton") and visible(node) then
+            best = node
+            break
+        end
+        node = node.Parent
+    end
+    return best
+end
+
+local function fireGuiButtonOnce(object)
+    local button = findClickableAncestor(object)
+    if not button then return false end
+
+    local fire = type(firesignal) == "function" and firesignal
+        or (type(env.firesignal) == "function" and env.firesignal)
+        or nil
+
+    if type(fire) ~= "function" then return false end
+
+    local ok = pcall(function()
+        fire(button.Activated)
+    end)
+
+    return ok
+end
+
+local function singlePhysicalClick(point)
+    if not point then return false end
+
+    -- ONE backend only. This is deliberately not clickObject(), because
+    -- clickObject sends VIM + executor input + ancestor clicks.
     if type(mouseMoveAbs) == "function"
         and type(mouse1Press) == "function"
         and type(mouse1Release) == "function" then
-
         return pcall(function()
             mouseMoveAbs(point.X, point.Y)
-            task.wait(0.04)
+            task.wait(0.05)
             mouse1Press()
             task.wait(0.11)
             mouse1Release()
@@ -7054,7 +7097,7 @@ local function singleMapClick(point)
     if vimOK and VIM then
         return pcall(function()
             VIM:SendMouseMoveEvent(point.X, point.Y, game)
-            task.wait(0.04)
+            task.wait(0.05)
             VIM:SendMouseButtonEvent(point.X, point.Y, 0, true, game, 0)
             task.wait(0.11)
             VIM:SendMouseButtonEvent(point.X, point.Y, 0, false, game, 0)
@@ -7064,7 +7107,7 @@ local function singleMapClick(point)
     if type(mouseMoveAbs) == "function" and type(mouse1Click) == "function" then
         return pcall(function()
             mouseMoveAbs(point.X, point.Y)
-            task.wait(0.04)
+            task.wait(0.05)
             mouse1Click()
         end)
     end
@@ -7072,44 +7115,65 @@ local function singleMapClick(point)
     return false
 end
 
+local function singlePhysicalHold(point, hold)
+    if not point then return false end
+    hold = hold or 3.50
+
+    -- JOIN PRIVATE explicitly says "Hold to join private server".
+    -- One press + one release, with no signal firing and no retry loop inside.
+    if type(mouseMoveAbs) == "function"
+        and type(mouse1Press) == "function"
+        and type(mouse1Release) == "function" then
+        return pcall(function()
+            mouseMoveAbs(point.X, point.Y)
+            task.wait(0.06)
+            mouse1Press()
+            task.wait(hold)
+            mouse1Release()
+        end)
+    end
+
+    if vimOK and VIM then
+        return pcall(function()
+            VIM:SendMouseMoveEvent(point.X, point.Y, game)
+            task.wait(0.06)
+            VIM:SendMouseButtonEvent(point.X, point.Y, 0, true, game, 0)
+            task.wait(hold)
+            VIM:SendMouseButtonEvent(point.X, point.Y, 0, false, game, 0)
+        end)
+    end
+
+    return false
+end
+
+local function mapClickPoint(map)
+    -- User supplied 1920x1080 physical screen. The screenshot places the
+    -- clickable center of Ouwland at approximately x=340, y=465.
+    -- Keep this fixed so GUI AbsolutePosition/viewport insets cannot cause a
+    -- second corrective click at a different coordinate.
+    return Vector2.new(340, 465)
+end
+
+local function joinClickPoint(join)
+    -- User supplied 1920x1080 physical screen and the screenshot shows the
+    -- JOIN PRIVATE button centered at approximately x=825, y=858.
+    -- Use that exact physical point instead of mixing GUI/viewport coordinates.
+    return Vector2.new(825, 858)
+end
+
 local function doMap()
     local map = findMap()
-
     if not map then
         setStatus("OUWLAND • waiting for map card")
         return false
     end
 
-    -- Determine ONE safe click point.
-    local point
-
-    -- Prefer a tall/narrow ancestor matching the visible Ouwland card.
-    local node = map
-    for _ = 1, 10 do
-        if not node or node == PlayerGui then break end
-
-        if node:IsA("GuiObject") and visible(node) then
-            local size = node.AbsoluteSize
-
-            if size.X >= 180 and size.X <= 560
-                and size.Y >= 280 and size.Y <= 850 then
-                point = node.AbsolutePosition + size / 2
-                break
-            end
-        end
-
-        node = node.Parent
-    end
-
-    -- Fallback based on the user's actual 1920x1080 / 1912x948 viewport.
-    -- Approximate card interior: x=18.0%, y=43.0% of Roblox viewport.
-    if not point then
-        local v = viewport()
-        point = Vector2.new(v.X * 0.180, v.Y * 0.430)
-    end
-
-    setStatus("OUWLAND • ONE click")
-    return singleMapClick(point)
+    -- EXACTLY ONE physical click. Do NOT fire GuiButton signals here:
+    -- Slayers 2 uses the real pointer state for map selection, and firing a
+    -- signal plus a physical click can toggle the card twice.
+    local point = mapClickPoint(map)
+    setStatus("OUWLAND • ONE physical click")
+    return singlePhysicalClick(point)
 end
 
 local function doOwner()
@@ -7137,18 +7201,13 @@ local function doJoin()
         return false
     end
 
-    local point = objectPoint(join)
-    if not point then return false end
+    local point = joinClickPoint(join)
+    setStatus("JOIN PRIVATE • holding once for 3.5s")
 
-    setStatus("JOIN PRIVATE • single click")
-
-    -- Exactly ONE physical click, same one-backend routine as map.
-    local ok = singleMapClick(point)
-
+    local ok = singlePhysicalHold(point, 3.50)
     if ok then
-        setStatus("JOIN PRIVATE CLICKED • waiting for teleport")
+        setStatus("JOIN PRIVATE • hold complete • waiting for teleport")
     end
-
     return ok
 end
 
@@ -7174,7 +7233,7 @@ task.spawn(function()
         local mapClicked = false
         local ownerAttempts = 0
 
-        while Screen.Parent and tonumber(game.PlaceId) == LOBBY_PLACE_ID
+        while lobbyController.alive and Screen.Parent and tonumber(game.PlaceId) == LOBBY_PLACE_ID
             and tostring(game.PrivateServerId or "") == "" do
 
             local play = findPlay()
@@ -7280,8 +7339,8 @@ task.spawn(function()
                     stage = "map"
                     lastAction = 0
                     setStatus("PRIVATE panel lost • Ouwland stays locked at 1/1")
-                elseif os.clock() - lastAction >= 1.50 then
-                    -- Retry the exact private-button click until teleport.
+                elseif os.clock() - lastAction >= 6.00 then
+                    -- Retry only after a full join attempt has had time to resolve.
                     lastAction = os.clock()
                     doJoin()
                 end

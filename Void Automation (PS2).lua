@@ -1,24 +1,33 @@
-loadstring([===========[
--- SLAYERS 2 — AUTO JOIN PRIVATE SERVER — FRESH SYSTEM V1
+loadstring([=====[
+-- SLAYERS 2 — AUTO JOIN PRIVATE SERVER — FRESH ZERO V4
 -- Lobby PlaceId: 16205713724
 -- This replaces all previous auto-join implementations.
 
 local LOBBY_PLACE_ID = 16205713724
 local AUTOJOIN_SOURCE = [==========[
--- SLAYERS 2 PRIVATE AUTO JOIN — CLEAN V1
--- One controller. One worker. One mouse backend. No firesignal. No ancestor clicks.
+-- SLAYERS 2 PRIVATE SERVER AUTO JOIN — ZERO V4
+-- Completely independent Auto Join controller.
+-- PLAY -> Ouwland -> owner -> JOIN PRIVATE.
+-- Exactly one action for PLAY, one action for Ouwland, one owner write, one JOIN hold.
+-- Lobby detection is based ONLY on PlaceId; PrivateServerId never disables lobby recovery.
 
 local LOBBY_PLACE_ID = 16205713724
 local env = (type(getgenv) == "function" and getgenv()) or _G
 
--- Kill any previous known lobby workers from older builds.
+-- Stop legacy workers so they cannot generate extra clicks.
 pcall(function()
-    local keys = {
+    for _, key in ipairs({
         "__SLAYERS2_AUTOJOIN_V1",
+        "__SLAYERS2_AUTOJOIN_V2",
+        "__SLAYERS2_AUTOJOIN_ZERO",
+        "__SLAYERS2_AUTOJOIN_V4",
+        "__SLAYERS2_AUTOJOIN_V2",
+        "__SLAYERS2_AUTOJOIN_ZERO",
+        "__SLAYERS2_AUTOJOIN_V4",
         "__AutoSkills_Slayers2_LobbyRecovery",
         "__AutoSkills_LobbyController",
-    }
-    for _, key in ipairs(keys) do
+        "__AutoJoinController",
+    }) do
         local old = env[key]
         if type(old) == "table" and type(old.Stop) == "function" then
             pcall(old.Stop)
@@ -26,25 +35,131 @@ pcall(function()
     end
 end)
 
-local controller = {alive = true}
+env.__SLAYERS2_AUTOJOIN_V4 = {alive = true}
+local controller = env.__SLAYERS2_AUTOJOIN_V4
 function controller.Stop()
     controller.alive = false
     pcall(function()
         if controller.gui then controller.gui:Destroy() end
     end)
 end
-env.__SLAYERS2_AUTOJOIN_V1 = controller
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
-local HttpService = game:GetService("HttpService")
-local TeleportService = game:GetService("TeleportService")
 local Player = Players.LocalPlayer
 if not Player then return end
-
-local PlayerGui = Player:WaitForChild("PlayerGui", 15)
+local PlayerGui = Player:WaitForChild("PlayerGui", 20)
 if not PlayerGui then return end
 
+-- ------------------------------------------------------------
+-- HUD FIRST: execution is immediately visible.
+-- ------------------------------------------------------------
+local guiParent = PlayerGui
+pcall(function()
+    if type(gethui) == "function" and gethui() then guiParent = gethui() end
+end)
+
+pcall(function()
+    for _, name in ipairs({
+        "Slayers2_AutoJoin_V1",
+        "Slayers2_AutoJoin_V2",
+        "Slayers2_AutoJoin_ZERO_V3",
+        "Slayers2_AutoJoin_ZERO_V4",
+    }) do
+        local old = guiParent:FindFirstChild(name)
+        if old then old:Destroy() end
+    end
+end)
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "Slayers2_AutoJoin_ZERO_V4"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.DisplayOrder = 2147483647
+gui.Parent = guiParent
+controller.gui = gui
+
+local card = Instance.new("Frame")
+card.AnchorPoint = Vector2.new(1, 0)
+card.Position = UDim2.new(1, -18, 0, 18)
+card.Size = UDim2.fromOffset(440, 84)
+card.BackgroundColor3 = Color3.fromRGB(5, 16, 25)
+card.BackgroundTransparency = 0.03
+card.BorderSizePixel = 0
+card.Parent = gui
+Instance.new("UICorner", card).CornerRadius = UDim.new(0, 11)
+local stroke = Instance.new("UIStroke", card)
+stroke.Color = Color3.fromRGB(25, 207, 255)
+stroke.Thickness = 1
+
+local dot = Instance.new("Frame")
+dot.Position = UDim2.fromOffset(15, 17)
+dot.Size = UDim2.fromOffset(8, 8)
+dot.BackgroundColor3 = Color3.fromRGB(47, 239, 150)
+dot.BorderSizePixel = 0
+dot.Parent = card
+Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+
+local title = Instance.new("TextLabel")
+title.BackgroundTransparency = 1
+title.Position = UDim2.fromOffset(32, 7)
+title.Size = UDim2.fromOffset(400, 20)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 11
+title.TextColor3 = Color3.fromRGB(235, 249, 255)
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Text = "SLAYERS 2 • AUTO JOIN ZERO V4"
+title.Parent = card
+
+local status = Instance.new("TextLabel")
+status.BackgroundTransparency = 1
+status.Position = UDim2.fromOffset(15, 31)
+status.Size = UDim2.fromOffset(410, 45)
+status.Font = Enum.Font.GothamMedium
+status.TextSize = 10
+status.TextColor3 = Color3.fromRGB(151, 190, 211)
+status.TextXAlignment = Enum.TextXAlignment.Left
+status.TextYAlignment = Enum.TextYAlignment.Top
+status.TextWrapped = true
+status.Parent = card
+
+local function setStatus(msg)
+    msg = tostring(msg)
+    if status and status.Parent then status.Text = msg end
+    print("[Slayers2 AutoJoin ZERO V4] " .. msg)
+end
+
+setStatus("BOOTING • controller alive")
+
+-- ------------------------------------------------------------
+-- ONE INPUT BACKEND
+-- ------------------------------------------------------------
+local VIM
+pcall(function() VIM = game:GetService("VirtualInputManager") end)
+local mouseMove = type(mousemoveabs) == "function" and mousemoveabs or nil
+local mouseDown = type(mouse1press) == "function" and mouse1press or nil
+local mouseUp = type(mouse1release) == "function" and mouse1release or nil
+local mouseClick = type(mouse1click) == "function" and mouse1click or nil
+
+local BACKEND
+if VIM then
+    BACKEND = "VIM"
+elseif mouseMove and mouseDown and mouseUp then
+    BACKEND = "MOUSE_HOLD"
+elseif mouseMove and mouseClick then
+    BACKEND = "MOUSE_CLICK"
+end
+
+if not BACKEND then
+    dot.BackgroundColor3 = Color3.fromRGB(255, 80, 100)
+    setStatus("ERROR • no supported mouse backend")
+    return
+end
+setStatus("BOOTING • input backend: " .. BACKEND)
+
+-- ------------------------------------------------------------
+-- GUI DISCOVERY
+-- ------------------------------------------------------------
 local function norm(v)
     return string.lower(tostring(v or "")):gsub("[^%w]", "")
 end
@@ -67,60 +182,51 @@ local function textOf(o)
     return ""
 end
 
-local function findExact(text)
-    local wanted = norm(text)
-    local best
-    local bestArea
-
+local function guiObjects()
+    local result = {}
     for _, o in ipairs(PlayerGui:GetDescendants()) do
-        if o:IsA("GuiObject") and visible(o) then
-            local t = norm(textOf(o))
-            if t == wanted then
-                local area = o.AbsoluteSize.X * o.AbsoluteSize.Y
+        if o:IsA("GuiObject") then result[#result + 1] = o end
+    end
+    return result
+end
+
+local function findExact(value)
+    local wanted = norm(value)
+    local best, bestArea
+    for _, o in ipairs(guiObjects()) do
+        if visible(o) and norm(textOf(o)) == wanted then
+            local area = math.max(1, o.AbsoluteSize.X * o.AbsoluteSize.Y)
+            if not bestArea or area < bestArea then
+                best, bestArea = o, area
+            end
+        end
+    end
+    return best
+end
+
+local function findNamed(names)
+    local wanted = {}
+    for _, n in ipairs(names) do wanted[norm(n)] = true end
+    for _, o in ipairs(guiObjects()) do
+        if visible(o) and wanted[norm(o.Name)] then return o end
+    end
+end
+
+local function findContains(value)
+    local wanted = norm(value)
+    local best, bestArea
+    for _, o in ipairs(guiObjects()) do
+        if visible(o) then
+            local blob = norm(tostring(o.Name or "") .. " " .. textOf(o) .. " " .. tostring(o.PlaceholderText or ""))
+            if blob:find(wanted, 1, true) then
+                local area = math.max(1, o.AbsoluteSize.X * o.AbsoluteSize.Y)
                 if not bestArea or area < bestArea then
                     best, bestArea = o, area
                 end
             end
         end
     end
-
     return best
-end
-
-local function findByText(text)
-    local exact = findExact(text)
-    if exact then return exact end
-
-    local wanted = norm(text)
-    local best
-    local bestScore
-
-    for _, o in ipairs(PlayerGui:GetDescendants()) do
-        if o:IsA("GuiObject") and visible(o) then
-            local t = norm(textOf(o))
-            local n = norm(o.Name)
-            if t:find(wanted, 1, true) or n:find(wanted, 1, true) then
-                local area = o.AbsoluteSize.X * o.AbsoluteSize.Y
-                if not bestScore or area < bestScore then
-                    best, bestScore = o, area
-                end
-            end
-        end
-    end
-
-    return best
-end
-
-local function findGuiButtonAncestor(o)
-    if not o then return nil end
-    if o:IsA("GuiButton") then return o end
-    local n = o.Parent
-    for _ = 1, 12 do
-        if not n or n == PlayerGui then break end
-        if n:IsA("GuiButton") and visible(n) then return n end
-        n = n.Parent
-    end
-    return nil
 end
 
 local function center(o)
@@ -128,316 +234,221 @@ local function center(o)
     return o.AbsolutePosition + o.AbsoluteSize / 2
 end
 
--- ------------------------------------------------------------
--- ONE input backend only.
--- We never mix VirtualInputManager with mouse1press/mouse1click.
--- ------------------------------------------------------------
-local vim = nil
-pcall(function() vim = game:GetService("VirtualInputManager") end)
-
-local mouseMove = type(mousemoveabs) == "function" and mousemoveabs or nil
-local mouseDown = type(mouse1press) == "function" and mouse1press or nil
-local mouseUp = type(mouse1release) == "function" and mouse1release or nil
-
-local BACKEND
-if vim then
-    BACKEND = "VIM"
-elseif mouseMove and mouseDown and mouseUp then
-    BACKEND = "MOUSE"
+local function findPlay()
+    -- NEVER use fuzzy "play": "Player's name" contains "play".
+    return findExact("PLAY") or findNamed({"PlayButton", "PlayOption", "Play"})
 end
 
-local function physicalClick(point, hold)
-    if not point or not BACKEND then return false end
+local function findMap()
+    return findExact("Ouwland") or findContains("ouwland")
+end
+
+local function privatePanelVisible()
+    return findExact("JOIN PRIVATE") ~= nil
+        or findExact("Hold to join private server") ~= nil
+        or findContains("private server owner") ~= nil
+end
+
+-- ------------------------------------------------------------
+-- SCREEN FALLBACKS FROM THE USER'S 1920x1080 SCREENSHOT.
+-- GUI positions are preferred; these are only used if text discovery finds no object.
+-- ------------------------------------------------------------
+local function screenSize()
+    local ok, gs = pcall(function() return game:GetService("GuiService") end)
+    if ok and gs and type(gs.GetScreenResolution) == "function" then
+        local ok2, v = pcall(function() return gs:GetScreenResolution() end)
+        if ok2 and v and v.X > 0 and v.Y > 0 then return v end
+    end
+    return Vector2.new(1920, 1080)
+end
+
+local function scalePoint(x, y)
+    local s = screenSize()
+    return Vector2.new(math.floor(s.X*x/1920+0.5), math.floor(s.Y*y/1080+0.5))
+end
+
+local PLAY_POINT = scalePoint(56, 405)
+local MAP_POINT = scalePoint(340, 465)
+local OWNER_POINT = scalePoint(825, 811)
+local JOIN_POINT = scalePoint(825, 858)
+
+local function physical(point, hold)
     hold = hold or 0.12
+    if not point then return false end
 
     if BACKEND == "VIM" then
         return pcall(function()
-            vim:SendMouseMoveEvent(point.X, point.Y, game)
-            task.wait(0.05)
-            vim:SendMouseButtonEvent(point.X, point.Y, 0, true, game, 0)
+            VIM:SendMouseMoveEvent(point.X, point.Y, game)
+            task.wait(0.06)
+            VIM:SendMouseButtonEvent(point.X, point.Y, 0, true, game, 0)
             task.wait(hold)
-            vim:SendMouseButtonEvent(point.X, point.Y, 0, false, game, 0)
+            VIM:SendMouseButtonEvent(point.X, point.Y, 0, false, game, 0)
+        end)
+    elseif BACKEND == "MOUSE_HOLD" then
+        return pcall(function()
+            mouseMove(point.X, point.Y)
+            task.wait(0.06)
+            mouseDown()
+            task.wait(hold)
+            mouseUp()
+        end)
+    else
+        return pcall(function()
+            mouseMove(point.X, point.Y)
+            task.wait(0.06)
+            mouseClick()
         end)
     end
-
-    return pcall(function()
-        mouseMove(point.X, point.Y)
-        task.wait(0.05)
-        mouseDown()
-        task.wait(hold)
-        mouseUp()
-    end)
 end
 
-local function viewport()
-    local cam = Workspace.CurrentCamera
-    return cam and cam.ViewportSize or Vector2.new(1912, 948)
-end
-
--- Screenshot-calibrated fallbacks for the user's 1920x1080 setup.
-local function fallbackPlay()
-    local v = viewport()
-    return Vector2.new(v.X * 0.040, v.Y * 0.438)
-end
-
-local function fallbackMap()
-    local v = viewport()
-    return Vector2.new(v.X * 0.1778, v.Y * 0.4905)
-end
-
-local function fallbackJoin()
-    local v = viewport()
-    return Vector2.new(v.X * 0.430, v.Y * 0.905)
+-- ONE physical action. No GuiButton:Activate + physical combination.
+local function oneClick(object, fallback)
+    return physical(center(object) or fallback, 0.12)
 end
 
 -- ------------------------------------------------------------
--- Owner persistence. Default is the owner shown in the user's panel.
+-- OWNER
 -- ------------------------------------------------------------
-local function getOwner()
-    local owner = "thingbelow"
-
+local OWNER = "thingbelow"
+pcall(function()
     local isFile = type(isfile) == "function" and isfile
     local readFile = type(readfile) == "function" and readfile
-
-    if isFile and readFile then
-        pcall(function()
-            if isFile("AutoSkills_PrivateOwner.txt") then
-                local value = tostring(readFile("AutoSkills_PrivateOwner.txt") or "")
-                if value ~= "" then owner = value:gsub("%s+$", "") end
-            elseif isFile("AutoSkills_System_v1.json") then
-                local data = HttpService:JSONDecode(readFile("AutoSkills_System_v1.json"))
-                if type(data) == "table" and type(data.PrivateServerOwner) == "string"
-                    and data.PrivateServerOwner ~= "" then
-                    owner = data.PrivateServerOwner
-                end
-            end
-        end)
+    if isFile and readFile and isFile("AutoSkills_PrivateOwner.txt") then
+        local value = tostring(readFile("AutoSkills_PrivateOwner.txt") or "")
+        value = value:gsub("^%s+", ""):gsub("%s+$", "")
+        if value ~= "" then OWNER = value end
     end
+end)
 
-    return owner
-end
+pcall(function()
+    if type(writefile) == "function" then writefile("AutoSkills_PrivateOwner.txt", OWNER) end
+end)
 
-local OWNER = getOwner()
+local function findOwnerBox()
+    if not privatePanelVisible() then return nil end
 
--- ------------------------------------------------------------
--- Private panel detection.
--- This ONLY recognizes the private panel; public Friend Join is ignored.
--- ------------------------------------------------------------
-local function privatePanel()
-    local join = findExact("JOIN PRIVATE")
-    local instruction = findExact("Hold to join private server")
-    local ownerHint = findByText("Private server owner")
-    return join ~= nil or instruction ~= nil or ownerHint ~= nil
-end
-
-local function ownerBox()
-    if not privatePanel() then return nil end
-
-    local hint = findByText("Private server owner")
-    if hint then
-        local best
-        local bestScore
-        local hc = center(hint)
-        for _, o in ipairs(PlayerGui:GetDescendants()) do
-            if o:IsA("TextBox") and visible(o) then
-                local c = center(o)
-                local dy = c.Y - hc.Y
-                local dx = math.abs(c.X - hc.X)
-                if dy >= -10 and dy <= 130 and dx <= 260 then
-                    local score = math.abs(dy) + dx * 0.3
-                    if not bestScore or score < bestScore then
-                        best, bestScore = o, score
-                    end
-                end
-            end
+    for _, o in ipairs(guiObjects()) do
+        if o:IsA("TextBox") and visible(o) then
+            local blob = norm(tostring(o.Name or "") .. " " .. tostring(o.PlaceholderText or ""))
+            if blob:find("privateserverowner", 1, true) then return o end
         end
-        if best then return best end
     end
 
     local join = findExact("JOIN PRIVATE")
-    if join then
-        local jc = center(join)
-        local best
-        local bestScore
-        for _, o in ipairs(PlayerGui:GetDescendants()) do
+    local jc = center(join)
+    if jc then
+        local best, bestScore
+        for _, o in ipairs(guiObjects()) do
             if o:IsA("TextBox") and visible(o) then
                 local c = center(o)
                 local dy = jc.Y - c.Y
                 local dx = math.abs(jc.X - c.X)
-                if dy > 0 and dy < 220 and dx < 260 then
+                if dy > 0 and dy < 190 and dx < 280 then
                     local score = dy + dx * 0.35
-                    if not bestScore or score < bestScore then
-                        best, bestScore = o, score
-                    end
+                    if not bestScore or score < bestScore then best, bestScore = o, score end
                 end
             end
         end
         if best then return best end
     end
 
-    return nil
+    local best, bestScore
+    for _, o in ipairs(guiObjects()) do
+        if o:IsA("TextBox") and visible(o) then
+            local c = center(o)
+            local dx, dy = c.X - OWNER_POINT.X, c.Y - OWNER_POINT.Y
+            local score = dx*dx + dy*dy
+            if not bestScore or score < bestScore then best, bestScore = o, score end
+        end
+    end
+    return best
 end
 
--- ------------------------------------------------------------
--- Owner entry: NO mouse click. CaptureFocus directly, set Text, verify.
--- This avoids touching the public Friend Join box.
--- ------------------------------------------------------------
-local function enterOwner()
-    local box = ownerBox()
+local KEYMAP = {
+    a=Enum.KeyCode.A,b=Enum.KeyCode.B,c=Enum.KeyCode.C,d=Enum.KeyCode.D,e=Enum.KeyCode.E,
+    f=Enum.KeyCode.F,g=Enum.KeyCode.G,h=Enum.KeyCode.H,i=Enum.KeyCode.I,j=Enum.KeyCode.J,
+    k=Enum.KeyCode.K,l=Enum.KeyCode.L,m=Enum.KeyCode.M,n=Enum.KeyCode.N,o=Enum.KeyCode.O,
+    p=Enum.KeyCode.P,q=Enum.KeyCode.Q,r=Enum.KeyCode.R,s=Enum.KeyCode.S,t=Enum.KeyCode.T,
+    u=Enum.KeyCode.U,v=Enum.KeyCode.V,w=Enum.KeyCode.W,x=Enum.KeyCode.X,y=Enum.KeyCode.Y,z=Enum.KeyCode.Z,
+    ["0"]=Enum.KeyCode.Zero,["1"]=Enum.KeyCode.One,["2"]=Enum.KeyCode.Two,["3"]=Enum.KeyCode.Three,
+    ["4"]=Enum.KeyCode.Four,["5"]=Enum.KeyCode.Five,["6"]=Enum.KeyCode.Six,["7"]=Enum.KeyCode.Seven,
+    ["8"]=Enum.KeyCode.Eight,["9"]=Enum.KeyCode.Nine,
+}
+
+local function writeOwner(box)
     if not box then return false end
 
+    -- Direct TextBox write is the primary path: no mouse click.
     local ok = pcall(function()
+        box.Active = true
+        box.TextEditable = true
         box:CaptureFocus()
         task.wait(0.08)
-        box.Text = ""
         box.Text = OWNER
         box.CursorPosition = #OWNER + 1
         task.wait(0.12)
+        box:ReleaseFocus(true)
     end)
+    if ok and norm(box.Text) == norm(OWNER) then return true end
 
-    if not ok then return false end
-
-    return norm(box.Text) == norm(OWNER)
+    -- Keyboard fallback, still without a second mouse click.
+    local typed = pcall(function()
+        box:CaptureFocus()
+        task.wait(0.08)
+        box.Text = ""
+        if BACKEND == "VIM" then
+            for i = 1, #OWNER do
+                local key = KEYMAP[string.lower(OWNER:sub(i, i))]
+                if key then
+                    VIM:SendKeyEvent(true, key, false, game)
+                    task.wait(0.025)
+                    VIM:SendKeyEvent(false, key, false, game)
+                end
+            end
+        end
+        task.wait(0.12)
+        box:ReleaseFocus(true)
+    end)
+    return typed and norm(box.Text) == norm(OWNER)
 end
 
 -- ------------------------------------------------------------
--- Join: ONLY exact JOIN PRIVATE, ONE physical hold.
--- No firesignal. No GuiButton Activated. No ancestor clicks.
--- ------------------------------------------------------------
-local function joinPrivate()
-    if not privatePanel() then return false end
-
-    local join = findExact("JOIN PRIVATE") or findByText("JOIN PRIVATE")
-    local point = center(findGuiButtonAncestor(join) or join)
-
-    if not point then
-        point = fallbackJoin()
-    end
-
-    return physicalClick(point, 3.50)
-end
-
--- ------------------------------------------------------------
--- Queue this SAME controller on every teleport.
--- In a private server the controller loads gameplay.
--- In the lobby it starts the private-join state machine again.
+-- QUEUE RECOVERY
+-- The queued code does not depend on a saved file existing after teleport.
+-- On lobby: run this controller. Outside lobby: hand off to AutoSkills gameplay file.
 -- ------------------------------------------------------------
 local function queueSelf()
     local queue = type(queue_on_teleport) == "function" and queue_on_teleport
         or (type(env.queue_on_teleport) == "function" and env.queue_on_teleport)
-        or (type(syn) == "table" and type(syn.queue_on_teleport) == "function"
-            and syn.queue_on_teleport)
+        or (type(syn) == "table" and type(syn.queue_on_teleport) == "function" and syn.queue_on_teleport)
         or nil
+    if type(queue) ~= "function" then
+        setStatus("WARNING • queue_on_teleport unavailable")
+        return false
+    end
 
-    if type(queue) ~= "function" then return false end
-
-    local payload = [[
-        task.wait(1)
-        pcall(function()
-            local rf = type(readfile) == "function" and readfile
-            local ff = type(isfile) == "function" and isfile
-            if rf and ff and ff("AutoSkills_Slayers2_AutoJoinV1.lua") then
-                local fn = loadstring(rf("AutoSkills_Slayers2_AutoJoinV1.lua"))
-                if fn then fn() end
-            end
-        end)
-    ]]
+    local payload = "task.wait(1)\npcall(function()\n" ..
+        "if tonumber(game.PlaceId) == " .. tostring(LOBBY_PLACE_ID) .. " then\n" ..
+        "local src = " .. "-- SLAYERS 2 PRIVATE SERVER AUTO JOIN — ZERO V4\n-- Completely independent Auto Join controller.\n-- PLAY -> Ouwland -> owner -> JOIN PRIVATE.\n-- Exactly one action for PLAY, one action for Ouwland, one owner write, one JOIN hold.\n-- Lobby detection is based ONLY on PlaceId; PrivateServerId never disables lobby recovery.\n\nlocal LOBBY_PLACE_ID = 16205713724\nlocal env = (type(getgenv) == \"function\" and getgenv()) or _G\n\n-- Stop legacy workers so they cannot generate extra clicks.\npcall(function()\n    for _, key in ipairs({\n        \"__SLAYERS2_AUTOJOIN_V1\",\n        \"__SLAYERS2_AUTOJOIN_V2\",\n        \"__SLAYERS2_AUTOJOIN_ZERO\",\n        \"__SLAYERS2_AUTOJOIN_V4\",\n        \"__AutoSkills_Slayers2_LobbyRecovery\",\n        \"__AutoSkills_LobbyController\",\n        \"__AutoJoinController\",\n    }) do\n        local old = env[key]\n        if type(old) == \"table\" and type(old.Stop) == \"function\" then\n            pcall(old.Stop)\n        end\n    end\nend)\n\nenv.__SLAYERS2_AUTOJOIN_V4 = {alive = true}\nlocal controller = env.__SLAYERS2_AUTOJOIN_V4\nfunction controller.Stop()\n    controller.alive = false\n    pcall(function()\n        if controller.gui then controller.gui:Destroy() end\n    end)\nend\n\nlocal Players = game:GetService(\"Players\")\nlocal Workspace = game:GetService(\"Workspace\")\nlocal Player = Players.LocalPlayer\nif not Player then return end\nlocal PlayerGui = Player:WaitForChild(\"PlayerGui\", 20)\nif not PlayerGui then return end\n\n-- ------------------------------------------------------------\n-- HUD FIRST: execution is immediately visible.\n-- ------------------------------------------------------------\nlocal guiParent = PlayerGui\npcall(function()\n    if type(gethui) == \"function\" and gethui() then guiParent = gethui() end\nend)\n\npcall(function()\n    for _, name in ipairs({\n        \"Slayers2_AutoJoin_V1\",\n        \"Slayers2_AutoJoin_V2\",\n        \"Slayers2_AutoJoin_ZERO_V3\",\n        \"Slayers2_AutoJoin_ZERO_V4\",\n    }) do\n        local old = guiParent:FindFirstChild(name)\n        if old then old:Destroy() end\n    end\nend)\n\nlocal gui = Instance.new(\"ScreenGui\")\ngui.Name = \"Slayers2_AutoJoin_ZERO_V4\"\ngui.ResetOnSpawn = false\ngui.IgnoreGuiInset = true\ngui.DisplayOrder = 2147483647\ngui.Parent = guiParent\ncontroller.gui = gui\n\nlocal card = Instance.new(\"Frame\")\ncard.AnchorPoint = Vector2.new(1, 0)\ncard.Position = UDim2.new(1, -18, 0, 18)\ncard.Size = UDim2.fromOffset(440, 84)\ncard.BackgroundColor3 = Color3.fromRGB(5, 16, 25)\ncard.BackgroundTransparency = 0.03\ncard.BorderSizePixel = 0\ncard.Parent = gui\nInstance.new(\"UICorner\", card).CornerRadius = UDim.new(0, 11)\nlocal stroke = Instance.new(\"UIStroke\", card)\nstroke.Color = Color3.fromRGB(25, 207, 255)\nstroke.Thickness = 1\n\nlocal dot = Instance.new(\"Frame\")\ndot.Position = UDim2.fromOffset(15, 17)\ndot.Size = UDim2.fromOffset(8, 8)\ndot.BackgroundColor3 = Color3.fromRGB(47, 239, 150)\ndot.BorderSizePixel = 0\ndot.Parent = card\nInstance.new(\"UICorner\", dot).CornerRadius = UDim.new(1, 0)\n\nlocal title = Instance.new(\"TextLabel\")\ntitle.BackgroundTransparency = 1\ntitle.Position = UDim2.fromOffset(32, 7)\ntitle.Size = UDim2.fromOffset(400, 20)\ntitle.Font = Enum.Font.GothamBold\ntitle.TextSize = 11\ntitle.TextColor3 = Color3.fromRGB(235, 249, 255)\ntitle.TextXAlignment = Enum.TextXAlignment.Left\ntitle.Text = \"SLAYERS 2 • AUTO JOIN ZERO V4\"\ntitle.Parent = card\n\nlocal status = Instance.new(\"TextLabel\")\nstatus.BackgroundTransparency = 1\nstatus.Position = UDim2.fromOffset(15, 31)\nstatus.Size = UDim2.fromOffset(410, 45)\nstatus.Font = Enum.Font.GothamMedium\nstatus.TextSize = 10\nstatus.TextColor3 = Color3.fromRGB(151, 190, 211)\nstatus.TextXAlignment = Enum.TextXAlignment.Left\nstatus.TextYAlignment = Enum.TextYAlignment.Top\nstatus.TextWrapped = true\nstatus.Parent = card\n\nlocal function setStatus(msg)\n    msg = tostring(msg)\n    if status and status.Parent then status.Text = msg end\n    print(\"[Slayers2 AutoJoin ZERO V4] \" .. msg)\nend\n\nsetStatus(\"BOOTING • controller alive\")\n\n-- ------------------------------------------------------------\n-- ONE INPUT BACKEND\n-- ------------------------------------------------------------\nlocal VIM\npcall(function() VIM = game:GetService(\"VirtualInputManager\") end)\nlocal mouseMove = type(mousemoveabs) == \"function\" and mousemoveabs or nil\nlocal mouseDown = type(mouse1press) == \"function\" and mouse1press or nil\nlocal mouseUp = type(mouse1release) == \"function\" and mouse1release or nil\nlocal mouseClick = type(mouse1click) == \"function\" and mouse1click or nil\n\nlocal BACKEND\nif VIM then\n    BACKEND = \"VIM\"\nelseif mouseMove and mouseDown and mouseUp then\n    BACKEND = \"MOUSE_HOLD\"\nelseif mouseMove and mouseClick then\n    BACKEND = \"MOUSE_CLICK\"\nend\n\nif not BACKEND then\n    dot.BackgroundColor3 = Color3.fromRGB(255, 80, 100)\n    setStatus(\"ERROR • no supported mouse backend\")\n    return\nend\nsetStatus(\"BOOTING • input backend: \" .. BACKEND)\n\n-- ------------------------------------------------------------\n-- GUI DISCOVERY\n-- ------------------------------------------------------------\nlocal function norm(v)\n    return string.lower(tostring(v or \"\")):gsub(\"[^%w]\", \"\")\nend\n\nlocal function visible(o)\n    if not o or not o.Parent then return false end\n    local n = o\n    while n and n ~= PlayerGui do\n        if n:IsA(\"GuiObject\") and not n.Visible then return false end\n        if n:IsA(\"ScreenGui\") and not n.Enabled then return false end\n        n = n.Parent\n    end\n    return true\nend\n\nlocal function textOf(o)\n    if o:IsA(\"TextLabel\") or o:IsA(\"TextButton\") or o:IsA(\"TextBox\") then\n        return tostring(o.Text or \"\")\n    end\n    return \"\"\nend\n\nlocal function guiObjects()\n    local result = {}\n    for _, o in ipairs(PlayerGui:GetDescendants()) do\n        if o:IsA(\"GuiObject\") then result[#result + 1] = o end\n    end\n    return result\nend\n\nlocal function findExact(value)\n    local wanted = norm(value)\n    local best, bestArea\n    for _, o in ipairs(guiObjects()) do\n        if visible(o) and norm(textOf(o)) == wanted then\n            local area = math.max(1, o.AbsoluteSize.X * o.AbsoluteSize.Y)\n            if not bestArea or area < bestArea then\n                best, bestArea = o, area\n            end\n        end\n    end\n    return best\nend\n\nlocal function findNamed(names)\n    local wanted = {}\n    for _, n in ipairs(names) do wanted[norm(n)] = true end\n    for _, o in ipairs(guiObjects()) do\n        if visible(o) and wanted[norm(o.Name)] then return o end\n    end\nend\n\nlocal function findContains(value)\n    local wanted = norm(value)\n    local best, bestArea\n    for _, o in ipairs(guiObjects()) do\n        if visible(o) then\n            local blob = norm(tostring(o.Name or \"\") .. \" \" .. textOf(o) .. \" \" .. tostring(o.PlaceholderText or \"\"))\n            if blob:find(wanted, 1, true) then\n                local area = math.max(1, o.AbsoluteSize.X * o.AbsoluteSize.Y)\n                if not bestArea or area < bestArea then\n                    best, bestArea = o, area\n                end\n            end\n        end\n    end\n    return best\nend\n\nlocal function center(o)\n    if not o or not o.Parent then return nil end\n    return o.AbsolutePosition + o.AbsoluteSize / 2\nend\n\nlocal function findPlay()\n    -- NEVER use fuzzy \"play\": \"Player's name\" contains \"play\".\n    return findExact(\"PLAY\") or findNamed({\"PlayButton\", \"PlayOption\", \"Play\"})\nend\n\nlocal function findMap()\n    return findExact(\"Ouwland\") or findContains(\"ouwland\")\nend\n\nlocal function privatePanelVisible()\n    return findExact(\"JOIN PRIVATE\") ~= nil\n        or findExact(\"Hold to join private server\") ~= nil\n        or findContains(\"private server owner\") ~= nil\nend\n\n-- ------------------------------------------------------------\n-- SCREEN FALLBACKS FROM THE USER'S 1920x1080 SCREENSHOT.\n-- GUI positions are preferred; these are only used if text discovery finds no object.\n-- ------------------------------------------------------------\nlocal function screenSize()\n    local ok, gs = pcall(function() return game:GetService(\"GuiService\") end)\n    if ok and gs and type(gs.GetScreenResolution) == \"function\" then\n        local ok2, v = pcall(function() return gs:GetScreenResolution() end)\n        if ok2 and v and v.X > 0 and v.Y > 0 then return v end\n    end\n    return Vector2.new(1920, 1080)\nend\n\nlocal function scalePoint(x, y)\n    local s = screenSize()\n    return Vector2.new(math.floor(s.X*x/1920+0.5), math.floor(s.Y*y/1080+0.5))\nend\n\nlocal PLAY_POINT = scalePoint(56, 405)\nlocal MAP_POINT = scalePoint(340, 465)\nlocal OWNER_POINT = scalePoint(825, 811)\nlocal JOIN_POINT = scalePoint(825, 858)\n\nlocal function physical(point, hold)\n    hold = hold or 0.12\n    if not point then return false end\n\n    if BACKEND == \"VIM\" then\n        return pcall(function()\n            VIM:SendMouseMoveEvent(point.X, point.Y, game)\n            task.wait(0.06)\n            VIM:SendMouseButtonEvent(point.X, point.Y, 0, true, game, 0)\n            task.wait(hold)\n            VIM:SendMouseButtonEvent(point.X, point.Y, 0, false, game, 0)\n        end)\n    elseif BACKEND == \"MOUSE_HOLD\" then\n        return pcall(function()\n            mouseMove(point.X, point.Y)\n            task.wait(0.06)\n            mouseDown()\n            task.wait(hold)\n            mouseUp()\n        end)\n    else\n        return pcall(function()\n            mouseMove(point.X, point.Y)\n            task.wait(0.06)\n            mouseClick()\n        end)\n    end\nend\n\n-- ONE physical action. No GuiButton:Activate + physical combination.\nlocal function oneClick(object, fallback)\n    return physical(center(object) or fallback, 0.12)\nend\n\n-- ------------------------------------------------------------\n-- OWNER\n-- ------------------------------------------------------------\nlocal OWNER = \"thingbelow\"\npcall(function()\n    local isFile = type(isfile) == \"function\" and isfile\n    local readFile = type(readfile) == \"function\" and readfile\n    if isFile and readFile and isFile(\"AutoSkills_PrivateOwner.txt\") then\n        local value = tostring(readFile(\"AutoSkills_PrivateOwner.txt\") or \"\")\n        value = value:gsub(\"^%s+\", \"\"):gsub(\"%s+$\", \"\")\n        if value ~= \"\" then OWNER = value end\n    end\nend)\n\npcall(function()\n    if type(writefile) == \"function\" then writefile(\"AutoSkills_PrivateOwner.txt\", OWNER) end\nend)\n\nlocal function findOwnerBox()\n    if not privatePanelVisible() then return nil end\n\n    for _, o in ipairs(guiObjects()) do\n        if o:IsA(\"TextBox\") and visible(o) then\n            local blob = norm(tostring(o.Name or \"\") .. \" \" .. tostring(o.PlaceholderText or \"\"))\n            if blob:find(\"privateserverowner\", 1, true) then return o end\n        end\n    end\n\n    local join = findExact(\"JOIN PRIVATE\")\n    local jc = center(join)\n    if jc then\n        local best, bestScore\n        for _, o in ipairs(guiObjects()) do\n            if o:IsA(\"TextBox\") and visible(o) then\n                local c = center(o)\n                local dy = jc.Y - c.Y\n                local dx = math.abs(jc.X - c.X)\n                if dy > 0 and dy < 190 and dx < 280 then\n                    local score = dy + dx * 0.35\n                    if not bestScore or score < bestScore then best, bestScore = o, score end\n                end\n            end\n        end\n        if best then return best end\n    end\n\n    local best, bestScore\n    for _, o in ipairs(guiObjects()) do\n        if o:IsA(\"TextBox\") and visible(o) then\n            local c = center(o)\n            local dx, dy = c.X - OWNER_POINT.X, c.Y - OWNER_POINT.Y\n            local score = dx*dx + dy*dy\n            if not bestScore or score < bestScore then best, bestScore = o, score end\n        end\n    end\n    return best\nend\n\nlocal KEYMAP = {\n    a=Enum.KeyCode.A,b=Enum.KeyCode.B,c=Enum.KeyCode.C,d=Enum.KeyCode.D,e=Enum.KeyCode.E,\n    f=Enum.KeyCode.F,g=Enum.KeyCode.G,h=Enum.KeyCode.H,i=Enum.KeyCode.I,j=Enum.KeyCode.J,\n    k=Enum.KeyCode.K,l=Enum.KeyCode.L,m=Enum.KeyCode.M,n=Enum.KeyCode.N,o=Enum.KeyCode.O,\n    p=Enum.KeyCode.P,q=Enum.KeyCode.Q,r=Enum.KeyCode.R,s=Enum.KeyCode.S,t=Enum.KeyCode.T,\n    u=Enum.KeyCode.U,v=Enum.KeyCode.V,w=Enum.KeyCode.W,x=Enum.KeyCode.X,y=Enum.KeyCode.Y,z=Enum.KeyCode.Z,\n    [\"0\"]=Enum.KeyCode.Zero,[\"1\"]=Enum.KeyCode.One,[\"2\"]=Enum.KeyCode.Two,[\"3\"]=Enum.KeyCode.Three,\n    [\"4\"]=Enum.KeyCode.Four,[\"5\"]=Enum.KeyCode.Five,[\"6\"]=Enum.KeyCode.Six,[\"7\"]=Enum.KeyCode.Seven,\n    [\"8\"]=Enum.KeyCode.Eight,[\"9\"]=Enum.KeyCode.Nine,\n}\n\nlocal function writeOwner(box)\n    if not box then return false end\n\n    -- Direct TextBox write is the primary path: no mouse click.\n    local ok = pcall(function()\n        box.Active = true\n        box.TextEditable = true\n        box:CaptureFocus()\n        task.wait(0.08)\n        box.Text = OWNER\n        box.CursorPosition = #OWNER + 1\n        task.wait(0.12)\n        box:ReleaseFocus(true)\n    end)\n    if ok and norm(box.Text) == norm(OWNER) then return true end\n\n    -- Keyboard fallback, still without a second mouse click.\n    local typed = pcall(function()\n        box:CaptureFocus()\n        task.wait(0.08)\n        box.Text = \"\"\n        if BACKEND == \"VIM\" then\n            for i = 1, #OWNER do\n                local key = KEYMAP[string.lower(OWNER:sub(i, i))]\n                if key then\n                    VIM:SendKeyEvent(true, key, false, game)\n                    task.wait(0.025)\n                    VIM:SendKeyEvent(false, key, false, game)\n                end\n            end\n        end\n        task.wait(0.12)\n        box:ReleaseFocus(true)\n    end)\n    return typed and norm(box.Text) == norm(OWNER)\nend\n\n-- ------------------------------------------------------------\n-- QUEUE RECOVERY\n-- The queued code does not depend on a saved file existing after teleport.\n-- On lobby: run this controller. Outside lobby: hand off to AutoSkills gameplay file.\n-- ------------------------------------------------------------\nlocal function queueSelf()\n    local queue = type(queue_on_teleport) == \"function\" and queue_on_teleport\n        or (type(env.queue_on_teleport) == \"function\" and env.queue_on_teleport)\n        or (type(syn) == \"table\" and type(syn.queue_on_teleport) == \"function\" and syn.queue_on_teleport)\n        or nil\n    if type(queue) ~= \"function\" then\n        setStatus(\"WARNING • queue_on_teleport unavailable\")\n        return false\n    end\n\n    local payload = \"task.wait(1)\\npcall(function()\\n\" ..\n        \"if tonumber(game.PlaceId) == \" .. tostring(LOBBY_PLACE_ID) .. \" then\\n\" ..\n        \"local src = \" .. string.format(\"%q\", [[__AUTOJOIN_SOURCE_PLACEHOLDER__]]) .. \"\\n\" ..\n        \"local fn = loadstring(src)\\nif fn then fn() end\\n\" ..\n        \"else\\n\" ..\n        \"local rf = type(readfile)==\\\"function\\\" and readfile\\nlocal ff = type(isfile)==\\\"function\\\" and isfile\\n\" ..\n        \"if rf and ff and ff(\\\"AutoSkills_Void_AutoRun.lua\\\") then\\n\" ..\n        \"local fn = loadstring(rf(\\\"AutoSkills_Void_AutoRun.lua\\\"))\\nif fn then fn() end\\nend\\n\" ..\n        \"end\\nend)\"\n\n    return pcall(queue, payload)\nend\n\n-- ------------------------------------------------------------\n-- LOBBY ONLY\n-- ------------------------------------------------------------\nif tonumber(game.PlaceId) ~= LOBBY_PLACE_ID then\n    -- If this source was queued into gameplay, hand off only if the gameplay file exists.\n    setStatus(\"NON-LOBBY • gameplay handoff\")\n    pcall(function()\n        local rf = type(readfile)==\"function\" and readfile\n        local ff = type(isfile)==\"function\" and isfile\n        if rf and ff and ff(\"AutoSkills_Void_AutoRun.lua\") then\n            local fn = loadstring(rf(\"AutoSkills_Void_AutoRun.lua\"))\n            if fn then fn() end\n        end\n    end)\n    return\nend\n\nsetStatus(\"LOBBY • Auto Join ONLY • owner: \" .. OWNER)\nqueueSelf()\n\n-- ------------------------------------------------------------\n-- FRESH STATE MACHINE\n-- ------------------------------------------------------------\nlocal state = \"PLAY_WAIT\"\nlocal playActioned = false\nlocal mapActioned = false\nlocal ownerActioned = false\nlocal joinActioned = false\nlocal stateAt = os.clock()\n\nlocal function stopState(msg)\n    state = \"STOP\"\n    dot.BackgroundColor3 = Color3.fromRGB(255, 180, 70)\n    setStatus(msg)\nend\n\nwhile controller.alive and state ~= \"STOP\" do\n    -- Continuously kill legacy workers in case an old queued script also starts.\n    pcall(function()\n        for _, key in ipairs({\n            \"__SLAYERS2_AUTOJOIN_V1\",\n            \"__SLAYERS2_AUTOJOIN_V2\",\n            \"__SLAYERS2_AUTOJOIN_ZERO\",\n            \"__AutoSkills_Slayers2_LobbyRecovery\",\n            \"__AutoSkills_LobbyController\",\n            \"__AutoJoinController\",\n        }) do\n            local old = env[key]\n            if old ~= controller and type(old) == \"table\" and type(old.Stop) == \"function\" then\n                pcall(old.Stop)\n            end\n        end\n    end)\n\n    if state == \"PLAY_WAIT\" then\n        local map = findMap()\n        local play = findPlay()\n        if map then\n            state = \"MAP_WAIT\"\n            stateAt = os.clock()\n            setStatus(\"OUWLAND PANEL DETECTED • PLAY skipped\")\n        elseif play and not playActioned then\n            playActioned = true -- permanent lock\n            setStatus(\"PLAY • EXACTLY ONE CLICK\")\n            local ok = oneClick(play, PLAY_POINT)\n            if not ok then\n                stopState(\"PLAY CLICK FAILED\")\n            else\n                state = \"MAP_WAIT\"\n                stateAt = os.clock()\n            end\n        elseif os.clock() - stateAt > 20 then\n            stopState(\"PLAY NOT FOUND • no retry click\")\n        end\n\n    elseif state == \"MAP_WAIT\" then\n        local map = findMap()\n        if privatePanelVisible() then\n            state = \"OWNER_WAIT\"\n            stateAt = os.clock()\n            setStatus(\"PRIVATE PANEL DETECTED\")\n        elseif map and not mapActioned then\n            mapActioned = true -- permanent one-click lock\n            setStatus(\"OUWLAND • EXACTLY ONE CLICK\")\n            local ok = oneClick(map, MAP_POINT)\n            if not ok then\n                stopState(\"OUWLAND CLICK FAILED\")\n            else\n                state = \"PRIVATE_WAIT\"\n                stateAt = os.clock()\n            end\n        elseif os.clock() - stateAt > 20 then\n            stopState(\"OUWLAND NOT FOUND • no retry click\")\n        end\n\n    elseif state == \"PRIVATE_WAIT\" then\n        if privatePanelVisible() then\n            state = \"OWNER_WAIT\"\n            stateAt = os.clock()\n            setStatus(\"PRIVATE PANEL • OWNER FIELD READY\")\n        elseif os.clock() - stateAt > 25 then\n            stopState(\"PRIVATE PANEL NOT FOUND • map remains locked\")\n        end\n\n    elseif state == \"OWNER_WAIT\" then\n        local box = findOwnerBox()\n        if box then\n            if norm(box.Text) == norm(OWNER) then\n                ownerActioned = true\n                state = \"JOIN_WAIT\"\n                stateAt = os.clock()\n                setStatus(\"OWNER CONFIRMED • \" .. OWNER)\n            elseif not ownerActioned then\n                ownerActioned = true -- one owner-input attempt\n                setStatus(\"ENTERING OWNER • \" .. OWNER)\n                if writeOwner(box) then\n                    state = \"JOIN_WAIT\"\n                    stateAt = os.clock()\n                    setStatus(\"OWNER CONFIRMED • \" .. OWNER)\n                else\n                    stopState(\"OWNER INPUT FAILED • \" .. OWNER)\n                end\n            end\n        elseif os.clock() - stateAt > 12 then\n            stopState(\"OWNER FIELD NOT FOUND\")\n        end\n\n    elseif state == \"JOIN_WAIT\" then\n        local join = findExact(\"JOIN PRIVATE\")\n        local box = findOwnerBox()\n        if join and box and norm(box.Text) == norm(OWNER) and not joinActioned then\n            joinActioned = true -- permanent one-hold lock\n            setStatus(\"JOIN PRIVATE • EXACTLY ONE 3.5s HOLD\")\n            local ok = physical(center(join) or JOIN_POINT, 3.5)\n            if ok then\n                state = \"DONE\"\n                setStatus(\"JOIN PRIVATE • HOLD COMPLETE • WAITING FOR TELEPORT\")\n            else\n                stopState(\"JOIN PRIVATE INPUT FAILED\")\n            end\n        elseif os.clock() - stateAt > 20 then\n            stopState(\"JOIN PRIVATE NOT READY • owner not confirmed\")\n        end\n\n    elseif state == \"DONE\" then\n        task.wait(0.5)\n    end\n\n    task.wait(0.10)\nend\n" .. "\n" ..
+        "local fn = loadstring(src)\nif fn then fn() end\n" ..
+        "else\n" ..
+        "local rf = type(readfile)==\"function\" and readfile\nlocal ff = type(isfile)==\"function\" and isfile\n" ..
+        "if rf and ff and ff(\"AutoSkills_Void_AutoRun.lua\") then\n" ..
+        "local fn = loadstring(rf(\"AutoSkills_Void_AutoRun.lua\"))\nif fn then fn() end\nend\n" ..
+        "end\nend)"
 
     return pcall(queue, payload)
 end
 
 -- ------------------------------------------------------------
--- Small HUD. This is the ONLY UI created by this controller.
+-- LOBBY ONLY
 -- ------------------------------------------------------------
-local parent = PlayerGui
-pcall(function()
-    if type(gethui) == "function" and gethui() then parent = gethui() end
-end)
-
-pcall(function()
-    local old = parent:FindFirstChild("Slayers2_AutoJoin_V1")
-    if old then old:Destroy() end
-end)
-
-local gui = Instance.new("ScreenGui")
-gui.Name = "Slayers2_AutoJoin_V1"
-gui.ResetOnSpawn = false
-gui.IgnoreGuiInset = true
-gui.DisplayOrder = 2147483647
-gui.Parent = parent
-controller.gui = gui
-
-local card = Instance.new("Frame")
-card.AnchorPoint = Vector2.new(1, 0)
-card.Position = UDim2.new(1, -18, 0, 18)
-card.Size = UDim2.fromOffset(390, 72)
-card.BackgroundColor3 = Color3.fromRGB(5, 16, 25)
-card.BackgroundTransparency = 0.04
-card.BorderSizePixel = 0
-card.Parent = gui
-Instance.new("UICorner", card).CornerRadius = UDim.new(0, 11)
-local stroke = Instance.new("UIStroke", card)
-stroke.Color = Color3.fromRGB(25, 207, 255)
-stroke.Thickness = 1
-
-local dot = Instance.new("Frame")
-dot.Position = UDim2.fromOffset(15, 17)
-dot.Size = UDim2.fromOffset(8, 8)
-dot.BackgroundColor3 = Color3.fromRGB(47, 239, 150)
-dot.BorderSizePixel = 0
-dot.Parent = card
-Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
-
-local title = Instance.new("TextLabel")
-title.BackgroundTransparency = 1
-title.Position = UDim2.fromOffset(32, 8)
-title.Size = UDim2.fromOffset(340, 20)
-title.Font = Enum.Font.GothamBold
-title.TextSize = 11
-title.TextColor3 = Color3.fromRGB(235, 249, 255)
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Text = "SLAYERS 2 • PRIVATE JOIN V1"
-title.Parent = card
-
-local status = Instance.new("TextLabel")
-status.BackgroundTransparency = 1
-status.Position = UDim2.fromOffset(15, 31)
-status.Size = UDim2.fromOffset(360, 31)
-status.Font = Enum.Font.GothamMedium
-status.TextSize = 10
-status.TextColor3 = Color3.fromRGB(151, 190, 211)
-status.TextXAlignment = Enum.TextXAlignment.Left
-status.TextYAlignment = Enum.TextYAlignment.Top
-status.TextWrapped = true
-status.Parent = card
-
-local function setStatus(s)
-    if status and status.Parent then status.Text = tostring(s) end
-    print("Slayers2 AutoJoin V1: " .. tostring(s))
-end
-
-if not BACKEND then
-    dot.BackgroundColor3 = Color3.fromRGB(255, 90, 110)
-    setStatus("ERROR • no supported single mouse backend")
-    return
-end
-
--- Save the owner for the next run if file APIs exist.
-pcall(function()
-    if type(writefile) == "function" then
-        writefile("AutoSkills_PrivateOwner.txt", OWNER)
-    end
-end)
-
--- Queue immediately. This is what makes disconnect -> lobby -> private recovery automatic.
-queueSelf()
-
--- In a private server: this controller does nothing except load gameplay.
-if tostring(game.PrivateServerId or "") ~= "" then
-    setStatus("PRIVATE SERVER • loading gameplay")
+if tonumber(game.PlaceId) ~= LOBBY_PLACE_ID then
+    -- If this source was queued into gameplay, hand off only if the gameplay file exists.
+    setStatus("NON-LOBBY • gameplay handoff")
     pcall(function()
-        local rf = type(readfile) == "function" and readfile
-        local ff = type(isfile) == "function" and isfile
+        local rf = type(readfile)=="function" and readfile
+        local ff = type(isfile)=="function" and isfile
         if rf and ff and ff("AutoSkills_Void_AutoRun.lua") then
             local fn = loadstring(rf("AutoSkills_Void_AutoRun.lua"))
             if fn then fn() end
@@ -446,169 +457,139 @@ if tostring(game.PrivateServerId or "") ~= "" then
     return
 end
 
-if tonumber(game.PlaceId) ~= LOBBY_PLACE_ID then
-    setStatus("NON-LOBBY PLACE • waiting")
-    return
-end
-
-setStatus("LOBBY • one-controller system • owner: " .. OWNER)
+setStatus("LOBBY • Auto Join ONLY • owner: " .. OWNER)
+queueSelf()
 
 -- ------------------------------------------------------------
--- New state machine.
--- MAP IS A ONE-SHOT: after one click, the system is forbidden from clicking
--- Ouwland again during this entire lobby instance.
+-- FRESH STATE MACHINE
 -- ------------------------------------------------------------
-local stage = "PLAY"
-local playDone = false
-local mapDone = false
-local ownerDone = false
-local joinDone = false
-local stageStarted = os.clock()
-local lastStatus = 0
+local state = "PLAY_WAIT"
+local playActioned = false
+local mapActioned = false
+local ownerActioned = false
+local joinActioned = false
+local stateAt = os.clock()
 
-local function waitFor(predicate, timeout)
-    local deadline = os.clock() + timeout
-    while controller.alive and os.clock() < deadline do
-        if predicate() then return true end
-        task.wait(0.08)
-    end
-    return false
+local function stopState(msg)
+    state = "STOP"
+    dot.BackgroundColor3 = Color3.fromRGB(255, 180, 70)
+    setStatus(msg)
 end
 
-local function clickPlayOnce()
-    local play = findExact("PLAY") or findByText("PLAY")
-    local button = findGuiButtonAncestor(play) or play
-    local point = center(button) or fallbackPlay()
-    return physicalClick(point, 0.12)
-end
-
-local function findOuwlandPoint()
-    local label = findExact("Ouwland") or findByText("Ouwland")
-    if not label then return nil end
-
-    -- Choose the nearest reasonably card-sized ancestor, but click only once.
-    local n = label
-    local candidate
-    for _ = 1, 12 do
-        if not n or n == PlayerGui then break end
-        if n:IsA("GuiButton") and visible(n) then
-            candidate = n
-            break
-        end
-        if n:IsA("GuiObject") and visible(n) then
-            local s = n.AbsoluteSize
-            if s.X >= 180 and s.X <= 600 and s.Y >= 250 and s.Y <= 850 then
-                candidate = n
+while controller.alive and state ~= "STOP" do
+    -- Continuously kill legacy workers in case an old queued script also starts.
+    pcall(function()
+        for _, key in ipairs({
+            "__SLAYERS2_AUTOJOIN_V1",
+            "__SLAYERS2_AUTOJOIN_V2",
+            "__SLAYERS2_AUTOJOIN_ZERO",
+            "__AutoSkills_Slayers2_LobbyRecovery",
+            "__AutoSkills_LobbyController",
+            "__AutoJoinController",
+        }) do
+            local old = env[key]
+            if old ~= controller and type(old) == "table" and type(old.Stop) == "function" then
+                pcall(old.Stop)
             end
-        end
-        n = n.Parent
-    end
-
-    return center(candidate) or fallbackMap()
-end
-
-local function clickOuwlandExactlyOnce()
-    if mapDone then return false end
-    mapDone = true -- lock BEFORE input, so even errors cannot trigger another map click.
-
-    local point = findOuwlandPoint() or fallbackMap()
-    setStatus("OUWLAND • CLICK 1/1 • locked")
-    return physicalClick(point, 0.12)
-end
-
-task.spawn(function()
-    local ok, err = pcall(function()
-        while controller.alive do
-            if tostring(game.PrivateServerId or "") ~= "" then
-                setStatus("PRIVATE SERVER • teleport detected")
-                break
-            end
-
-            if stage == "PLAY" then
-                local map = findExact("Ouwland") or findByText("Ouwland")
-                if map then
-                    playDone = true
-                    stage = "MAP"
-                    stageStarted = os.clock()
-                    setStatus("PLAY complete • Ouwland visible")
-                elseif os.clock() - stageStarted >= 0.60 then
-                    stageStarted = os.clock()
-                    setStatus("PLAY • one click")
-                    clickPlayOnce()
-                end
-
-            elseif stage == "MAP" then
-                if privatePanel() then
-                    stage = "OWNER"
-                    stageStarted = os.clock()
-                    setStatus("PRIVATE PANEL • Ouwland selected")
-                elseif not mapDone then
-                    clickOuwlandExactlyOnce()
-                    stage = "WAIT_PRIVATE"
-                    stageStarted = os.clock()
-                end
-
-            elseif stage == "WAIT_PRIVATE" then
-                if privatePanel() then
-                    stage = "OWNER"
-                    stageStarted = os.clock()
-                    setStatus("PRIVATE PANEL • owner field ready")
-                elseif os.clock() - stageStarted >= 10 then
-                    setStatus("MAP LOCKED • private panel did not appear; NO second map click")
-                    stage = "STOPPED"
-                end
-
-            elseif stage == "OWNER" then
-                if privatePanel() then
-                    local box = ownerBox()
-                    if box and norm(box.Text) == norm(OWNER) then
-                        ownerDone = true
-                        stage = "JOIN"
-                        stageStarted = os.clock()
-                        setStatus("OWNER CONFIRMED • " .. OWNER)
-                    elseif os.clock() - stageStarted >= 0.35 then
-                        stageStarted = os.clock()
-                        ownerDone = enterOwner()
-                        if ownerDone then
-                            stage = "JOIN"
-                            stageStarted = os.clock()
-                            setStatus("OWNER CONFIRMED • " .. OWNER)
-                        else
-                            setStatus("OWNER • field not confirmed yet")
-                        end
-                    end
-                end
-
-            elseif stage == "JOIN" then
-                if not privatePanel() then
-                    stage = "PLAY"
-                    stageStarted = os.clock()
-                    playDone = false
-                    -- Deliberately keep mapDone true only for the current run.
-                elseif not joinDone and ownerDone then
-                    local join = findExact("JOIN PRIVATE") or findByText("JOIN PRIVATE")
-                    if join then
-                        joinDone = true -- lock BEFORE hold: no duplicate join input.
-                        setStatus("JOIN PRIVATE • ONE 3.5s HOLD")
-                        local button = findGuiButtonAncestor(join) or join
-                        local point = center(button) or fallbackJoin()
-                        physicalClick(point, 3.50)
-                        setStatus("JOIN PRIVATE • hold finished • waiting for teleport")
-                    end
-                end
-
-            elseif stage == "STOPPED" then
-                task.wait(1)
-            end
-
-            task.wait(0.08)
         end
     end)
 
-    if not ok then
-        setStatus("ERROR • " .. tostring(err))
+    if state == "PLAY_WAIT" then
+        local map = findMap()
+        local play = findPlay()
+        if map then
+            state = "MAP_WAIT"
+            stateAt = os.clock()
+            setStatus("OUWLAND PANEL DETECTED • PLAY skipped")
+        elseif play and not playActioned then
+            playActioned = true -- permanent lock
+            setStatus("PLAY • EXACTLY ONE CLICK")
+            local ok = oneClick(play, PLAY_POINT)
+            if not ok then
+                stopState("PLAY CLICK FAILED")
+            else
+                state = "MAP_WAIT"
+                stateAt = os.clock()
+            end
+        elseif os.clock() - stateAt > 20 then
+            stopState("PLAY NOT FOUND • no retry click")
+        end
+
+    elseif state == "MAP_WAIT" then
+        local map = findMap()
+        if privatePanelVisible() then
+            state = "OWNER_WAIT"
+            stateAt = os.clock()
+            setStatus("PRIVATE PANEL DETECTED")
+        elseif map and not mapActioned then
+            mapActioned = true -- permanent one-click lock
+            setStatus("OUWLAND • EXACTLY ONE CLICK")
+            local ok = oneClick(map, MAP_POINT)
+            if not ok then
+                stopState("OUWLAND CLICK FAILED")
+            else
+                state = "PRIVATE_WAIT"
+                stateAt = os.clock()
+            end
+        elseif os.clock() - stateAt > 20 then
+            stopState("OUWLAND NOT FOUND • no retry click")
+        end
+
+    elseif state == "PRIVATE_WAIT" then
+        if privatePanelVisible() then
+            state = "OWNER_WAIT"
+            stateAt = os.clock()
+            setStatus("PRIVATE PANEL • OWNER FIELD READY")
+        elseif os.clock() - stateAt > 25 then
+            stopState("PRIVATE PANEL NOT FOUND • map remains locked")
+        end
+
+    elseif state == "OWNER_WAIT" then
+        local box = findOwnerBox()
+        if box then
+            if norm(box.Text) == norm(OWNER) then
+                ownerActioned = true
+                state = "JOIN_WAIT"
+                stateAt = os.clock()
+                setStatus("OWNER CONFIRMED • " .. OWNER)
+            elseif not ownerActioned then
+                ownerActioned = true -- one owner-input attempt
+                setStatus("ENTERING OWNER • " .. OWNER)
+                if writeOwner(box) then
+                    state = "JOIN_WAIT"
+                    stateAt = os.clock()
+                    setStatus("OWNER CONFIRMED • " .. OWNER)
+                else
+                    stopState("OWNER INPUT FAILED • " .. OWNER)
+                end
+            end
+        elseif os.clock() - stateAt > 12 then
+            stopState("OWNER FIELD NOT FOUND")
+        end
+
+    elseif state == "JOIN_WAIT" then
+        local join = findExact("JOIN PRIVATE")
+        local box = findOwnerBox()
+        if join and box and norm(box.Text) == norm(OWNER) and not joinActioned then
+            joinActioned = true -- permanent one-hold lock
+            setStatus("JOIN PRIVATE • EXACTLY ONE 3.5s HOLD")
+            local ok = physical(center(join) or JOIN_POINT, 3.5)
+            if ok then
+                state = "DONE"
+                setStatus("JOIN PRIVATE • HOLD COMPLETE • WAITING FOR TELEPORT")
+            else
+                stopState("JOIN PRIVATE INPUT FAILED")
+            end
+        elseif os.clock() - stateAt > 20 then
+            stopState("JOIN PRIVATE NOT READY • owner not confirmed")
+        end
+
+    elseif state == "DONE" then
+        task.wait(0.5)
     end
-end)
+
+    task.wait(0.10)
+end
 
 ]==========]
 
@@ -6911,20 +6892,20 @@ local function saveFile(name, data)
 end
 
 -- Save the two clean runtime payloads.
-saveFile("AutoSkills_Slayers2_AutoJoinV1.lua", AUTOJOIN_SOURCE)
+saveFile("AutoSkills_Slayers2_AutoJoinZERO.lua", AUTOJOIN_SOURCE)
 saveFile("AutoSkills_Void_AutoRun.lua", FULL_GAMEPLAY_SOURCE)
 
 local function run(source)
     local fn, err = loadstring(source)
     if not fn then
-        warn("Slayers2 V1 compile error: " .. tostring(err))
+        warn("Slayers2 V4 compile error: " .. tostring(err))
         return
     end
     local ok, runErr = pcall(fn)
-    if not ok then warn("Slayers2 V1 runtime error: " .. tostring(runErr)) end
+    if not ok then warn("Slayers2 V4 runtime error: " .. tostring(runErr)) end
 end
 
-if tonumber(game.PlaceId) == LOBBY_PLACE_ID and tostring(game.PrivateServerId or "") == "" then
+if tonumber(game.PlaceId) == LOBBY_PLACE_ID then
     -- LOBBY = Auto Join ONLY. No gameplay systems are started here.
     run(AUTOJOIN_SOURCE)
 else
@@ -6932,4 +6913,4 @@ else
     run(FULL_GAMEPLAY_SOURCE)
 end
 
-]===========])()
+]=====])()

@@ -11,7 +11,7 @@ local Settings = {
     StaticMapScan = true, StaticScanRange = 500000,
     AutoRejoin = true, AutoExecute = true,
     PrivateServerMap = "Ouwigahara", PrivateJoinHold = 1.35,
-    NoClip = true, FlyEnabled = false, FlySpeed = 85,
+    NoClip = false, FlyEnabled = false, FlySpeed = 85,
     SpeedEnabled = false, WalkSpeed = 32,
     ToggleKey = Enum.KeyCode.F6,
     StopKey = Enum.KeyCode.F7,
@@ -490,7 +490,7 @@ do
 end
 
 local System
-local BUILT_IN_BOSS_SEED_CODE = "__AUTOSKILLS_BOSS_SEED_PLACEHOLDER__"
+local BUILT_IN_BOSS_SEED_CODE = "ASLOC1:22fb26d3:eyJmb3JtYXQiOiJBdXRvU2tpbGxzTG9jYXRpb25zIiwic2NoZW1hIjoxLCJwbGFjZUlkIjoiMTM2NDA2ODgxNTc2NTE3IiwiYm9zc2VzIjpbeyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuRmluYWwgU2VsZWN0aW9uIFBsYWlucy5BY3RpdmVOcGNzLkZ1amlrby5GdWppa28iLCJuYW1lIjoiRnVqaWtvIiwibWF4aW11bSI6MzIwMCwicG9zaXRpb24iOlstMjQ1Ny4wMTI5Mzk0NTMxMjUsMzguMzQyMzUwMDA2MTAzNTE2LDExMTYuOTg0ODYzMjgxMjVdLCJzcGF3biI6Wy0yNDU3LjAxMjkzOTQ1MzEyNSwzOC4zNDIzNTAwMDYxMDM1MTYsMTExNi45ODQ4NjMyODEyNV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5Ba2F6by5Ba2F6byIsIm5hbWUiOiJBa2F6byIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbLTExMzQuNTEyNjk1MzEyNSwxMzgxLjMxNzAxNjYwMTU2MjUsLTE3NDUuMjM3OTE1MDM5MDYyNV0sInNwYXduIjpbLTExMzQuNTEyNjk1MzEyNSwxMzgxLjMxNzAxNjYwMTU2MjUsLTE3NDUuMjM3OTE1MDM5MDYyNV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5EYXRhaS5EYXRhaSIsIm5hbWUiOiJEYXRhaSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbLTE2NC42NTM4MDg1OTM3NSwxMDQzLjQ5NDUwNjgzNTkzNzUsLTExMzguOTMzOTU5OTYwOTM3NV0sInNwYXduIjpbLTE2NC42NTM4MDg1OTM3NSwxMDQzLjQ5NDUwNjgzNTkzNzUsLTExMzguOTMzOTU5OTYwOTM3NV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5FbnJ1LkVucnUiLCJuYW1lIjoiRW5ydSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbODIyLjE5NTI1MTQ2NDg0MzgsNzk2LjA4MzkyMzMzOTg0MzgsNTQzLjQxNjc0ODA0Njg3NV0sInNwYXduIjpbODIyLjE5NTI1MTQ2NDg0MzgsNzk2LjA4MzkyMzMzOTg0MzgsNTQzLjQxNjc0ODA0Njg3NV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5HaXllbi5HaXllbiIsIm5hbWUiOiJHaXllbiIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbMzg2LjQxMDYxNDAxMzY3MTksMTAxOC40OTQ5MzQwODIwMzEyLC04My42NDQwNTA1OTgxNDQ1M10sInNwYXduIjpbMzg2LjQxMDYxNDAxMzY3MTksMTAxOC40OTQ5MzQwODIwMzEyLC04My42NDQwNTA1OTgxNDQ1M119LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5HeW9yZWkuR3lvcmVpIiwibmFtZSI6Ikd5b3JlaSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbMjU3NS43MTM2MjMwNDY4NzUsMTA4OS40OTQ2Mjg5MDYyNSwtNzQyLjgyNTk4ODc2OTUzMTJdLCJzcGF3biI6WzI1NzUuNzEzNjIzMDQ2ODc1LDEwODkuNDk0NjI4OTA2MjUsLTc0Mi44MjU5ODg3Njk1MzEyXX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLkd5dXRhaS5HeXV0YWkiLCJuYW1lIjoiR3l1dGFpIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstMjY0LjQzMzcxNTgyMDMxMjUsMTA0NS43MzQ4NjMyODEyNSwtMTEzNy4zNjA4Mzk4NDM3NV0sInNwYXduIjpbLTI2NC40MzM3MTU4MjAzMTI1LDEwNDUuNzM0ODYzMjgxMjUsLTExMzcuMzYwODM5ODQzNzVdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuTmV6dXJhLk5lenVyYSIsIm5hbWUiOiJOZXp1cmEiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wy0xNDYyLjU0MTYyNTk3NjU2MjUsMjc2LjQ0OTEyNzE5NzI2NTYsOTM3LjQ0OTcwNzAzMTI1XSwic3Bhd24iOlstMTQ2Mi41NDE2MjU5NzY1NjI1LDI3Ni40NDkxMjcxOTcyNjU2LDkzNy40NDk3MDcwMzEyNV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5PYmFyaS5PYmFyaSIsIm5hbWUiOiJPYmFyaSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbNzcxLjQ1MTA0OTgwNDY4NzUsMTEyMS40OTQ4NzMwNDY4NzUsLTEwNDYuNzk5NjgyNjE3MTg3NV0sInNwYXduIjpbNzcxLjQ1MTA0OTgwNDY4NzUsMTEyMS40OTQ4NzMwNDY4NzUsLTEwNDYuNzk5NjgyNjE3MTg3NV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5SZWFwZXIuUmVhcGVyIiwibmFtZSI6IlJlYXBlciIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbOTcuNTMwMzE5MjEzODY3MTksMTA0NS40OTk1MTE3MTg3NSwtNTcxLjY0ODY4MTY0MDYyNV0sInNwYXduIjpbOTcuNTMwMzE5MjEzODY3MTksMTA0NS40OTk1MTE3MTg3NSwtNTcxLjY0ODY4MTY0MDYyNV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5SZW5ndS5SZW5ndSIsIm5hbWUiOiJSZW5ndSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbLTcxNS44MDIxODUwNTg1OTM4LDk2NS40OTQ1Njc4NzEwOTM4LDg4NC40NDA5NzkwMDM5MDYyXSwic3Bhd24iOlstNzE1LjgwMjE4NTA1ODU5MzgsOTY1LjQ5NDU2Nzg3MTA5MzgsODg0LjQ0MDk3OTAwMzkwNjJdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuU2FuZXJpLlNhbmVyaSIsIm5hbWUiOiJTYW5lcmkiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wy0zNzkuNjM5MjgyMjI2NTYyNSwxMDkzLjkxOTQzMzU5Mzc1LC00MjAuNDg5MTM1NzQyMTg3NV0sInNwYXduIjpbLTM3OS42MzkyODIyMjY1NjI1LDEwOTMuOTE5NDMzNTkzNzUsLTQyMC40ODkxMzU3NDIxODc1XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLlNoaW5vcmEuU2hpbm9yYSIsIm5hbWUiOiJTaGlub3JhIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstNDUxLjE2MzY2NTc3MTQ4NDQsOTY0Ljk2NTY5ODI0MjE4NzUsLTEuMzYxNjc0MDcwMzU4Mjc2NF0sInNwYXduIjpbLTQ1MS4xNjM2NjU3NzE0ODQ0LDk2NC45NjU2OTgyNDIxODc1LC0xLjM2MTY3NDA3MDM1ODI3NjRdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuU3VtYXJpLlN1bWFyaSIsIm5hbWUiOiJTdW1hcmkiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6WzM5My45MTIyNjE5NjI4OTA2LDEwMjAuNDk5OTM4OTY0ODQzOCwtNjE5LjE4MTMzNTQ0OTIxODhdLCJzcGF3biI6WzM5My45MTIyNjE5NjI4OTA2LDEwMjAuNDk5OTM4OTY0ODQzOCwtNjE5LjE4MTMzNTQ0OTIxODhdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuVGVuZ2FpLlRlbmdhaSIsIm5hbWUiOiJUZW5nYWkiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wy0xMzYuMzE3NzAzMjQ3MDcwMywxMzQ5LjQ5NDc1MDk3NjU2MjUsLTI2MjguMzY0OTkwMjM0Mzc1XSwic3Bhd24iOlstMTM2LjMxNzcwMzI0NzA3MDMsMTM0OS40OTQ3NTA5NzY1NjI1LC0yNjI4LjM2NDk5MDIzNDM3NV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5ZYWhhcmkuWWFoYXJpIiwibmFtZSI6IllhaGFyaSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbODI3LjkwMzI1OTI3NzM0MzgsMTAyMS43MDMwNjM5NjQ4NDM4LC02MzkuMjQ0MTQwNjI1XSwic3Bhd24iOls4MjcuOTAzMjU5Mjc3MzQzOCwxMDIxLjcwMzA2Mzk2NDg0MzgsLTYzOS4yNDQxNDA2MjVdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuWmVudGFyby5aZW50YXJvIiwibmFtZSI6IlplbnRhcm8iLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6WzEzMzMuMTkzMTE1MjM0Mzc1LDgyMS40OTUwNTYxNTIzNDM4LC0xMDE2Ljg4OTY0ODQzNzVdLCJzcGF3biI6WzEzMzMuMTkzMTE1MjM0Mzc1LDgyMS40OTUwNTYxNTIzNDM4LC0xMDE2Ljg4OTY0ODQzNzVdfV0sIm1hcmtlcnMiOltdfQ=="
 local Farm = {catalog = {}, remembered = {}, pinned = nil, records = {}, selected = nil, nextScan = 0, status = "OFF",
     detail = "Select a target, then enable Auto farm.", count = 0, aliveCount = 0,
     autoVisited = {}, autoCurrent = nil, autoLastPath = nil, autoArrivedAt = 0,
@@ -2036,6 +2036,14 @@ do
             pause("WAITING", "Waiting for your living, unseated character."); return
         end
         if Settings.AutoBoss then
+            -- Environmental-damage watchdog runs before target selection so hazards
+            -- such as the snow biome cannot trap Auto Boss at an empty saved location.
+            if guardianObservePlayer(humanoid, rootPart, Farm.autoEngaged == true) then
+                Farm.guardian.lastAction, Farm.guardian.lastActionAt = "DAMAGE WITHOUT COMBAT", os.clock()
+                advanceAutoBoss("Guardian: environmental damage with no boss active", rootPart, true)
+                return
+            end
+
             local entry
 
             if Farm.autoRespawnResume and Farm.autoResumePath then
@@ -4241,7 +4249,6 @@ make("UIGradient", header, {
 })
 local headerLine = frame(header, "Line", 0, 63, W, 1, C.violet, 0)
 headerLine.BackgroundTransparency = 0.48
-local headerStroke = stroke(header, Color3.fromRGB(195,215,235), 0.87, 1)
 local brandmark = frame(header, "BrandMark", 18, 18, 26, 26, C.panel2, 13)
 stroke(brandmark, C.violet2, 0.12, 1)
 local markCore = frame(brandmark, "Core", 9, 9, 8, 8, C.violet2, 8)
@@ -4936,12 +4943,12 @@ end
 for key, tab in pairs(navButtons) do
     connect(tab.MouseEnter, function()
         if State.tab ~= key then
-            animate(tab, {BackgroundColor3 = System.theme == "Oblivion" and Color3.fromRGB(16, 20, 26) or Color3.fromRGB(24, 13, 38)}, false)
+            animate(tab, {BackgroundColor3 = Color3.fromRGB(24, 13, 38)}, false)
         end
     end)
     connect(tab.MouseLeave, function()
         if State.tab ~= key then
-            animate(tab, {BackgroundColor3 = System.theme == "Oblivion" and Color3.fromRGB(8, 11, 16) or Color3.fromRGB(8, 4, 16)}, false)
+            animate(tab, {BackgroundColor3 = Color3.fromRGB(8, 4, 16)}, false)
         end
     end)
     connect(tab.Activated, function() showPage(key) end)
@@ -5033,10 +5040,6 @@ local function applyWindowWidth(width)
         content.Position = UDim2.fromOffset(0, 280)
         content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
     elseif System.theme == "Oblivion" then
-        header.Position = UDim2.fromOffset(22, 20)
-        header.Size = UDim2.fromOffset(math.max(300, windowWidth - 44), 58)
-        statusDot.Position = UDim2.fromOffset(windowWidth - 106, 47)
-        UI.badge.Position = UDim2.fromOffset(windowWidth - 100, 36)
         local leftWidth = math.max(300, windowWidth - 469)
         tabs.Position = UDim2.fromOffset(22, 94)
         tabs.Size = UDim2.fromOffset(150, math.max(360, windowHeight - 116))
@@ -5049,12 +5052,6 @@ local function applyWindowWidth(width)
         OBL.side.Size = UDim2.fromOffset(245, math.max(360, windowHeight - 116))
         OBL.logPanel.Size = UDim2.fromOffset(215, math.max(150, windowHeight - 422))
     else
-        header.Position = UDim2.fromOffset(0, 0)
-        header.Size = UDim2.fromOffset(windowWidth, 64)
-        statusDot.Position = UDim2.fromOffset(windowWidth - 84, 27)
-        UI.badge.Position = UDim2.fromOffset(windowWidth - 72, 18)
-        local headerCorner = header:FindFirstChildOfClass("UICorner")
-        if headerCorner then headerCorner.CornerRadius = UDim.new(0, 8) end
         tabs.Position = UDim2.fromOffset(0, 88)
         content.Position = UDim2.fromOffset(0, 152)
         content.Size = UDim2.fromOffset(windowWidth, windowHeight - 152)
@@ -5298,10 +5295,6 @@ function Theme.apply(themeName)
         header.Size = UDim2.fromOffset(windowWidth - 44, 58)
         header.BackgroundColor3 = C.panel
         header.BackgroundTransparency = 0.24
-        headerStroke.Color = Color3.fromRGB(215,230,245)
-        headerStroke.Transparency = 0.86
-        local headerCorner = header:FindFirstChildOfClass("UICorner")
-        if headerCorner then headerCorner.CornerRadius = UDim.new(0, 8) end
         headerLine.Visible = false
         brandTitle.Text = "OBLIVION V1"
         brandTitle.TextColor3 = C.ink
@@ -5398,13 +5391,6 @@ function Theme.apply(themeName)
         edgeSheen.BackgroundColor3 = C.cyan
     end
 
-    if obl then
-        headerStroke.Color = Color3.fromRGB(215,230,245)
-        headerStroke.Transparency = 0.86
-    else
-        headerStroke.Color = C.line
-        headerStroke.Transparency = 1
-    end
     brandmark.BackgroundColor3 = C.panel2
     local brandStroke = brandmark:FindFirstChildOfClass("UIStroke")
     if brandStroke then brandStroke.Color = obl and C.bright or C.violet2 end
@@ -5852,13 +5838,50 @@ do
         }
 
         local loadAnimConn
+        local loaderFinished = false
+        local function finishLoader(force)
+            if loaderFinished then return end
+            loaderFinished = true
+            if loadAnimConn then pcall(function() loadAnimConn:Disconnect() end); loadAnimConn = nil end
+            if not State.alive then return end
+
+            loadStatus.Text = System.theme == "Blackhole" and "BLACKHOLE V1 ONLINE"
+                or System.theme == "Oblivion" and "OBLIVION V1 ONLINE"
+                or "VOID NEXUS ONLINE"
+            loadPercent.Text = force and "100%" or loadPercent.Text
+            loadFill.Size = UDim2.new(1, 0, 1, 0)
+
+            local okTween = pcall(function()
+                TweenService:Create(loadScale, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.78}):Play()
+                TweenService:Create(loadingLayer, TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
+            end)
+
+            task.delay(okTween and 0.28 or 0.05, function()
+                if not State.alive then return end
+                if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled = false end
+                if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end
+                holder.Visible = true
+                root.Enabled = true
+
+                local bootScale = make("UIScale", holder, {Scale = 0.94})
+                local bootStroke = panel:FindFirstChildOfClass("UIStroke")
+                TweenService:Create(bootScale, TweenInfo.new(0.48, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Scale = 1}):Play()
+                if bootStroke then
+                    bootStroke.Transparency = 1
+                    TweenService:Create(bootStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 0.28}):Play()
+                end
+                if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end
+            end)
+        end
+
         loadAnimConn = connect(RunService.RenderStepped, function()
             if not State.alive or not loadingLayer.Parent then
                 if loadAnimConn then loadAnimConn:Disconnect() end
                 return
             end
 
-            local elapsed = os.clock() - loadStart
+            local okFrame, frameErr = pcall(function()
+                local elapsed = os.clock() - loadStart
             local progress = math.clamp(elapsed / loadDuration, 0, 1)
 
             -- SVG .system breathe animation.
@@ -5916,32 +5939,23 @@ do
             loadFill.Size = UDim2.new(progress, 0, 1, 0)
             loadPercent.Text = string.format("%d%%", math.floor(progress * 100 + 0.5))
 
-            if progress >= 1 then
-                loadAnimConn:Disconnect()
-                loadStatus.Text = System.theme == "Blackhole" and "BLACKHOLE V1 ONLINE" or System.theme == "Oblivion" and "OBLIVION V1 ONLINE" or "VOID NEXUS ONLINE"
-                task.wait(0.10)
-                if not State.alive then return end
+                if progress >= 1 then
+                    finishLoader(false)
+                end
+            end)
 
-                TweenService:Create(loadScale, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.78}):Play()
-                TweenService:Create(loadingLayer, TweenInfo.new(0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
+            if not okFrame then
+                warn("AutoSkills loader frame error: " .. tostring(frameErr))
+                finishLoader(true)
+            end
+        end)
 
-                task.delay(0.36, function()
-                    if not State.alive then return end
-                    if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled = false end
-                    if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end
-
-                    holder.Visible = true
-                    root.Enabled = true
-
-                    local bootScale = make("UIScale", holder, {Scale = 0.94})
-                    local bootStroke = panel:FindFirstChildOfClass("UIStroke")
-                    TweenService:Create(bootScale, TweenInfo.new(0.48, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Scale = 1}):Play()
-                    if bootStroke then
-                        bootStroke.Transparency = 1
-                        TweenService:Create(bootStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 0.28}):Play()
-                    end
-                    if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end
-                end)
+        -- Hard watchdog: if RenderStepped ever errors/stalls, the UI cannot remain
+        -- trapped behind the loader forever. Normal loading still finishes at 2.65s.
+        task.delay(loadDuration + 1.75, function()
+            if State.alive and not loaderFinished and loadingLayer and loadingLayer.Parent then
+                warn("AutoSkills loader watchdog: forcing UI reveal after timeout.")
+                finishLoader(true)
             end
         end)
     end)
@@ -6178,7 +6192,14 @@ if type(BUILT_IN_BOSS_SEED_CODE) == "string"
     end
 end
 
-Farm.scan(true)
+task.delay(0.25, function()
+    if State.alive then
+        task.spawn(function()
+            pcall(function() Farm.scan(true) end)
+            pcall(render)
+        end)
+    end
+end)
 
 if Settings.StaticMapScan then
     task.delay(0.8, function()

@@ -6,7 +6,7 @@ local Settings = {
     BossAutoSave = true, BossFirstDiscovery = false, BossGridSearch = true,
     BossDwell = 1.5, BossGridRadius = 2048,
     AutoBoss = false, BossAutoRange = 500000, BossLocalScanRadius = 2500, BossNoAttackTimeout = 5,
-    GuardianDamageTimeout = 0.75, GuardianStuckTimeout = 6, GuardianCombatStallTimeout = 25,
+    GuardianDamageTimeout = 0.45, GuardianStuckTimeout = 6, GuardianCombatStallTimeout = 25,
     GuardianVerifyInterval = 1.0, GuardianMaxRecoveries = 1,
     StaticMapScan = true, StaticScanRange = 500000,
     AutoRejoin = true, AutoExecute = true,
@@ -1842,7 +1842,7 @@ do
                 g.damageBase = g.lastHealth
             end
             local cumulative = (g.damageBase or g.lastHealth) - hp
-            if cumulative >= 0.5 or now - g.damageSince >= Settings.GuardianDamageTimeout then
+            if cumulative >= 1 or now - g.damageSince >= Settings.GuardianDamageTimeout then
                 g.lastHealth = hp
                 g.damageSince, g.damageBase = 0, nil
                 return true
@@ -1851,7 +1851,7 @@ do
             local cumulative = (g.damageBase or g.lastHealth) - hp
             if now - g.damageSince >= Settings.GuardianDamageTimeout then
                 g.damageSince, g.damageBase = 0, nil
-                if cumulative >= 0.10 then return true end
+                if cumulative >= 0.25 then return true end
             end
         end
 
@@ -2035,6 +2035,17 @@ do
             or not rootPart or not rootPart:IsA("BasePart") or rootPart.Anchored or humanoid.Sit or humanoid.SeatPart then
             pause("WAITING", "Waiting for your living, unseated character."); return
         end
+
+        -- Run the environmental-damage watchdog before boss acquisition. This prevents
+        -- Auto Boss from sitting at an empty snow/biome location while the character takes damage.
+        if Settings.AutoBoss and not Farm.autoEngaged then
+            if guardianObservePlayer(humanoid, rootPart, false) then
+                Farm.guardian.lastAction, Farm.guardian.lastActionAt = "ENVIRONMENT DAMAGE", os.clock()
+                advanceAutoBoss("Guardian: environmental damage detected before boss acquisition", rootPart, true)
+                return
+            end
+        end
+
         if Settings.AutoBoss then
             local entry
 
@@ -2093,24 +2104,7 @@ do
                 pause("FILTERED", "Only 3,000-3,200 MaxHealth targets are attackable."); return
             end
             if not hp or hp <= 0 or not targetRoot then
-                if Settings.AutoBoss and not Farm.autoRespawnResume then
-                    -- Never park the character at an empty saved location. This is
-                    -- especially important for hazardous biomes such as the snow area.
-                    -- Only a confirmed live qualifying boss may cause Auto Boss to travel there.
-                    local now = os.clock()
-                    if Farm.guardian.verifyAt <= now then
-                        Farm.guardian.verifyAt = now + Settings.GuardianVerifyInterval
-                        local nearby = findBossNearSavedLocation(entry)
-                        if nearby then
-                            Farm.selected = nearby
-                            entry.live = nearby
-                            hp, maximum, _, targetRoot = Farm.read(nearby)
-                        else
-                            advanceAutoBoss("No live boss at saved location; skipped before travel", rootPart, true)
-                            return
-                        end
-                    end
-                elseif Settings.AutoBoss and Farm.autoRespawnResume then
+                if Settings.AutoBoss then
                     local nearby = findBossNearSavedLocation(entry)
                     if nearby then
                         Farm.selected = nearby
@@ -3050,7 +3044,7 @@ System = {
     directTriedAt = 0,
     menuNextAt = 0,
     menuStage = "idle",
-    theme = "Default",
+    theme = "Blackhole",
 }
 
 do
@@ -3080,7 +3074,8 @@ do
         if type(data.StaticMapScan) == "boolean" then Settings.StaticMapScan = data.StaticMapScan end
         if type(data.AutoRejoin) == "boolean" then Settings.AutoRejoin = data.AutoRejoin end
         if type(data.AutoExecute) == "boolean" then Settings.AutoExecute = data.AutoExecute end
-        if data.Theme == "Blackhole" or data.Theme == "Default" then System.theme = data.Theme end
+        -- Blackhole V1 is the only available theme. Legacy theme prefs are migrated.
+        System.theme = "Blackhole"
         if finiteText(data.PrivateServerMap, 80) then Settings.PrivateServerMap = data.PrivateServerMap end
         if finiteText(data.TargetGameId, 40) then System.targetGameId = data.TargetGameId end
         if finiteText(data.LastPrivateJob, 120) then System.lastPrivateJob = data.LastPrivateJob end
@@ -3719,7 +3714,7 @@ panel.ZIndex = 2
 panel.Active = true
 panel.ClipsDescendants = true
 stroke(panel, Color3.fromRGB(168, 120, 255), 0.28, 1)
-local panelGradient = make("UIGradient", panel, {
+make("UIGradient", panel, {
     Rotation = 90,
     Color = ColorSequence.new({
         ColorSequenceKeypoint.new(0, Color3.fromRGB(23, 12, 39)),
@@ -4135,7 +4130,7 @@ local header = make("Frame", panel, {
     BackgroundColor3 = C.panel, BackgroundTransparency = 0.08, BorderSizePixel = 0,
     Active = true, ZIndex = 5,
 })
-local headerGradient = make("UIGradient", header, {
+make("UIGradient", header, {
     Rotation = 90,
     Color = ColorSequence.new(C.violet, C.panel),
     Transparency = NumberSequence.new({
@@ -4210,7 +4205,7 @@ connect(RunService.RenderStepped, function()
 end)
 
 
--- BLACKHOLE V1 visual preset hero. Hidden unless the saved Theme is Blackhole.
+-- BLACKHOLE V1 visual preset hero.
 local BH = {}
 BH.hero = frame(panel, "BlackholeHero", 0, 64, W, 152, C.black, 0)
 BH.hero.ZIndex = 4
@@ -4280,12 +4275,14 @@ BH.horizonPurple.Position = UDim2.fromOffset(W * 0.5, 76)
 BH.horizonPurple.BackgroundTransparency = 1
 BH.horizonPurple.ZIndex = 5
 BH.purpleStroke = stroke(BH.horizonPurple, Color3.fromRGB(122,63,242), 0.28, 1.2)
-
--- Keep the singularity perfectly circular even when the hero is resized.
-for _, object in ipairs({BH.coreGlow, BH.core, BH.horizonSilver, BH.horizonPurple}) do
-    local c = object:FindFirstChildOfClass("UICorner")
+local function setCircleCorner(object)
+    local c = object and object:FindFirstChildOfClass("UICorner")
     if c then c.CornerRadius = UDim.new(1, 0) end
 end
+setCircleCorner(BH.coreGlow)
+setCircleCorner(BH.core)
+setCircleCorner(BH.horizonSilver)
+setCircleCorner(BH.horizonPurple)
 
 BH.front = frame(BH.hero, "FrontOrbit", 0, 0, W, 152, Color3.new(1,1,1), 0)
 BH.front.BackgroundTransparency = 1
@@ -4349,13 +4346,10 @@ connect(RunService.RenderStepped, function()
     local heroWidth = math.max(420, BH.hero.AbsoluteSize.X)
     -- The HTML reference uses a 300px-wide hero. Keep the orbit field proportional
     -- to the resized Roblox hero while keeping the fixed-height panel usable.
-    local orbitScale = math.max(1, heroWidth / 420)
-    local segmentScale = math.clamp(0.92 + (heroWidth / 420) * 0.12, 0.92, 1.28)
+    local scale = math.max(0.65, heroWidth / W)
     local cx = heroWidth * 0.5
     local cy = 76
-    -- The hero height stays fixed while the window resizes horizontally, so the
-    -- event horizon stays tied to that fixed height instead of becoming a square.
-    local coreScale = 1
+    local coreScale = math.clamp(0.92 + (heroWidth / 420) * 0.28, 0.92, 1.65)
     BH.core.Position = UDim2.fromOffset(cx, cy)
     BH.coreGlow.Position = UDim2.fromOffset(cx, cy)
     BH.horizonSilver.Position = UDim2.fromOffset(cx, cy)
@@ -4381,10 +4375,10 @@ connect(RunService.RenderStepped, function()
     BH.core.Size = UDim2.fromOffset(coreSize, coreSize)
     BH.horizonSilver.Size = UDim2.fromOffset(horizonSize, horizonSize)
     BH.horizonPurple.Size = UDim2.fromOffset(horizonSize, horizonSize)
-    for _, object in ipairs({BH.coreGlow, BH.core, BH.horizonSilver, BH.horizonPurple}) do
-        local c = object:FindFirstChildOfClass("UICorner")
-        if c then c.CornerRadius = UDim.new(1, 0) end
-    end
+    setCircleCorner(BH.coreGlow)
+    setCircleCorner(BH.core)
+    setCircleCorner(BH.horizonSilver)
+    setCircleCorner(BH.horizonPurple)
     BH.silverStroke.Transparency = 0.16 + pulse * 0.18
     BH.purpleStroke.Transparency = 0.28 + (1 - pulse) * 0.20
 
@@ -4396,13 +4390,13 @@ connect(RunService.RenderStepped, function()
     for _, ring in ipairs({BH.backRing1, BH.backRing2, BH.frontRing}) do
         for _, seg in ipairs(ring.segments) do
             local angle = seg.angle
-            local rx, ry = ring.rx * orbitScale, ring.ry
+            local rx, ry = ring.rx * scale, ring.ry
             local x = cx + math.cos(angle) * rx
             local y = cy + math.sin(angle) * ry
             local tx, ty = -rx * math.sin(angle), ry * math.cos(angle)
             local rotation = math.deg(math.atan2(ty, tx))
-            seg.seg.Size = UDim2.fromOffset(math.floor(seg.length * segmentScale), seg.width)
-            seg.glow.Size = UDim2.fromOffset(math.floor(seg.length * segmentScale) + 8, seg.width + 6)
+            seg.seg.Size = UDim2.fromOffset(math.floor(seg.length * scale), seg.width)
+            seg.glow.Size = UDim2.fromOffset(math.floor(seg.length * scale) + 8, seg.width + 6)
             seg.seg.Position = UDim2.fromOffset(x, y)
             seg.seg.Rotation = rotation
             seg.glow.Position = UDim2.fromOffset(x, y)
@@ -4449,15 +4443,9 @@ UI.moveTab = navButtons.Move
 UI.systemTab = navButtons.System
 UI.themeTab = navButtons.Theme
 
-local contentBackdrop = make("Frame", panel, {
-    Name = "ContentBackdrop", Position = UDim2.fromOffset(0, 152), Size = UDim2.fromOffset(W, H - 152),
-    BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0,
-    Active = false, ZIndex = 3,
-})
-
 local content = make("Frame", panel, {
     Name = "Content", Position = UDim2.fromOffset(0, 152), Size = UDim2.fromOffset(W, H - 152),
-    BackgroundTransparency = 1, BorderSizePixel = 0, Active = false, ZIndex = 4,
+    BackgroundTransparency = 1, BorderSizePixel = 0, Active = false, ZIndex = 3,
 })
 
 local function newPage(name)
@@ -4466,7 +4454,7 @@ local function newPage(name)
         BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3,
         ScrollBarImageColor3 = C.violet2, ScrollBarImageTransparency = 0.55,
         CanvasSize = UDim2.fromOffset(0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y,
-        Visible = false, Active = true, ZIndex = 5,
+        Visible = false, Active = true, ZIndex = 4,
     })
     return page
 end
@@ -4666,7 +4654,7 @@ pageHead(ThemeUI.page, "theme", "THEME", "DISPLAY")
 local themeInfo = frame(ThemeUI.page, "ThemeInfo", 16, 48, W - 32, 54, Color3.fromRGB(18,10,30), 10)
 stroke(themeInfo, C.line, 0.72, 1)
 safeText(themeInfo, "Name", "ACTIVE PRESET", 12, 7, 130, 16, 9, C.faint, Enum.Font.GothamBold)
-ThemeUI.activeLabel = safeText(themeInfo, "Active", "DEFAULT", 12, 25, 180, 20, 13, C.ink, Enum.Font.GothamBold)
+ThemeUI.activeLabel = safeText(themeInfo, "Active", "BLACKHOLE V1", 12, 25, 180, 20, 13, C.ink, Enum.Font.GothamBold)
 ThemeUI.activeLabel.TextStrokeTransparency = 0.88
 safeText(themeInfo, "Desc", "Saved automatically for the next execution.", 160, 17, W - 188, 30, 9, C.faint, Enum.Font.GothamMedium)
 
@@ -4700,13 +4688,10 @@ function ThemeUI.makePreset(y, title, desc, themeName)
     return row, select, rowStroke
 end
 
-ThemeUI.defaultRow, ThemeUI.defaultButton = ThemeUI.makePreset(
-    114, "Default", "Original Void Nexus interface", "Default"
-)
 ThemeUI.blackholeRow, ThemeUI.blackholeButton = ThemeUI.makePreset(
-    186, "Blackhole V1", "HTML-matched black-hole reactor interface", "Blackhole"
+    114, "Blackhole V1", "HTML-matched black-hole reactor interface", "Blackhole"
 )
-ThemeUI.hint = safeText(ThemeUI.page, "Hint", "Theme changes are saved immediately.", 16, 258, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+ThemeUI.hint = safeText(ThemeUI.page, "Hint", "Blackhole V1 is the only available theme.", 16, 186, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
 ThemeUI.hint.TextXAlignment = Enum.TextXAlignment.Center
 
 UI.count = safeText(skillsPage, "Count", "4 / 4 ENABLED", 0, 0, 1, 1, 1, C.dim)
@@ -4843,7 +4828,6 @@ local function applyWindowWidth(width)
     setObjectWidth(tickerText, windowWidth * 2)
     setObjectWidth(tabs, windowWidth)
     setObjectWidth(content, windowWidth)
-    setObjectWidth(contentBackdrop, windowWidth)
     setObjectWidth(panelBackdrop, windowWidth)
     setObjectWidth(voidFX, windowWidth)
     if System.theme == "Blackhole" then
@@ -4859,16 +4843,10 @@ local function applyWindowWidth(width)
             star.object.Position = UDim2.fromOffset(math.floor(star.x), math.floor(star.y))
         end
         tabs.Position = UDim2.fromOffset(0, 216)
-        contentBackdrop.Position = UDim2.fromOffset(0, 280)
-        contentBackdrop.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
-        contentBackdrop.BackgroundTransparency = 0.06
         content.Position = UDim2.fromOffset(0, 280)
         content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
     else
         tabs.Position = UDim2.fromOffset(0, 88)
-        contentBackdrop.Position = UDim2.fromOffset(0, 152)
-        contentBackdrop.Size = UDim2.fromOffset(windowWidth, windowHeight - 152)
-        contentBackdrop.BackgroundTransparency = 1
         content.Position = UDim2.fromOffset(0, 152)
         content.Size = UDim2.fromOffset(windowWidth, windowHeight - 152)
     end
@@ -4942,13 +4920,6 @@ local function fitWindow(centerIfNeeded)
 end
 
 local Theme = {
-    Default = {
-        black = C.black, deep = C.deep, panel = C.panel, panel2 = C.panel2,
-        violet = C.violet, violet2 = C.violet2, magenta = C.magenta, cyan = C.cyan,
-        ink = C.ink, dim = C.dim, faint = C.faint, line = C.line,
-        accent = C.accent, bright = C.bright, muted = C.muted, surface = C.surface,
-        text = C.text, voidDeep = C.voidDeep, toggleOn = C.toggleOn, toggleOff = C.toggleOff,
-    },
     Blackhole = {
         black = Color3.fromRGB(0,0,0),
         deep = Color3.fromRGB(8,8,12),
@@ -5023,86 +4994,44 @@ function Theme.restyleRows()
 end
 
 function Theme.apply(themeName)
-    if themeName ~= "Blackhole" then themeName = "Default" end
+    -- Blackhole V1 is the only theme. Any legacy/invalid value is migrated automatically.
+    themeName = "Blackhole"
     System.theme = themeName
-    local bh = themeName == "Blackhole"
-    Theme.current = bh and Theme.Blackhole or Theme.Default
+    Theme.current = Theme.Blackhole
     Theme.copy(Theme.current)
 
-    if bh then
-        Theme.height = 600
-        windowHeight = Theme.height
-        holder.Size = UDim2.fromOffset(windowWidth, windowHeight)
-        shadow.Size = UDim2.fromOffset(windowWidth + 12, windowHeight + 12)
-        panel.Size = UDim2.fromOffset(windowWidth, windowHeight)
-        panel.BackgroundColor3 = C.black
-        panel.BackgroundTransparency = 0.04
-        panelGradient.Enabled = false
-        panelStroke.Color = C.line
-        panelStroke.Transparency = 0.72
-        panelBackdrop.Visible = false
-        voidFX.Visible = false
-        ticker.Visible = false
-        header.Position = UDim2.fromOffset(0, 0)
-        header.Size = UDim2.fromOffset(windowWidth, 64)
-        header.BackgroundTransparency = 0.02
-        headerGradient.Enabled = false
-        headerLine.BackgroundColor3 = C.line
-        headerLine.BackgroundTransparency = 0.70
-        brandTitle.Text = "BLACKHOLE V1"
-        brandTitle.TextColor3 = C.ink
-        header:FindFirstChild("Sub").Text = "REACTOR ONLINE"
-        BH.hero.Visible = true
-        BH.hero.Position = UDim2.fromOffset(0, 64)
-        BH.hero.Size = UDim2.fromOffset(windowWidth, 152)
-        BH.hero.BackgroundColor3 = C.black
-        BH.heroStroke.Color = C.line
-        BH.heroStroke.Transparency = 0.82
-        tabs.Position = UDim2.fromOffset(0, 216)
-        tabs.BackgroundColor3 = C.black
-        tabs.BackgroundTransparency = 0.08
-        contentBackdrop.Position = UDim2.fromOffset(0, 280)
-        contentBackdrop.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
-        contentBackdrop.BackgroundColor3 = C.black
-        contentBackdrop.BackgroundTransparency = 0.06
-        content.Position = UDim2.fromOffset(0, 280)
-        content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
-        edgeSheen.BackgroundColor3 = C.cyan
-        BH.atmosphere.BackgroundColor3 = Color3.fromRGB(12,8,20)
-    else
-        Theme.height = H
-        windowHeight = Theme.height
-        holder.Size = UDim2.fromOffset(windowWidth, windowHeight)
-        shadow.Size = UDim2.fromOffset(windowWidth + 12, windowHeight + 12)
-        panel.Size = UDim2.fromOffset(windowWidth, windowHeight)
-        panel.BackgroundColor3 = C.panel
-        panel.BackgroundTransparency = 0.40
-        panelGradient.Enabled = true
-        panelStroke.Color = C.violet2
-        panelStroke.Transparency = 0.28
-        panelBackdrop.Visible = true
-        voidFX.Visible = true
-        ticker.Visible = true
-        header.Position = UDim2.fromOffset(0, 0)
-        header.Size = UDim2.fromOffset(windowWidth, 64)
-        header.BackgroundTransparency = 0.08
-        headerGradient.Enabled = true
-        headerLine.BackgroundColor3 = C.violet
-        headerLine.BackgroundTransparency = 0.48
-        brandTitle.Text = "VOID NEXUS"
-        brandTitle.TextColor3 = C.ink
-        header:FindFirstChild("Sub").Text = "CORE LINK STABLE"
-        BH.hero.Visible = false
-        tabs.Position = UDim2.fromOffset(0, 88)
-        tabs.BackgroundColor3 = C.black
-        tabs.BackgroundTransparency = 0.35
-        contentBackdrop.Position = UDim2.fromOffset(0, 152)
-        contentBackdrop.Size = UDim2.fromOffset(windowWidth, windowHeight - 152)
-        contentBackdrop.BackgroundTransparency = 1
-        content.Position = UDim2.fromOffset(0, 152)
-        content.Size = UDim2.fromOffset(windowWidth, windowHeight - 152)
-        edgeSheen.BackgroundColor3 = C.cyan
-    end
+    Theme.height = 600
+    windowHeight = Theme.height
+    holder.Size = UDim2.fromOffset(windowWidth, windowHeight)
+    shadow.Size = UDim2.fromOffset(windowWidth + 12, windowHeight + 12)
+    panel.Size = UDim2.fromOffset(windowWidth, windowHeight)
+    panel.BackgroundColor3 = C.panel
+    panel.BackgroundTransparency = 0.18
+    panelStroke.Color = C.line
+    panelStroke.Transparency = 0.72
+    panelBackdrop.Visible = false
+    voidFX.Visible = false
+    ticker.Visible = false
+    header.Position = UDim2.fromOffset(0, 0)
+    header.Size = UDim2.fromOffset(windowWidth, 64)
+    headerLine.BackgroundColor3 = C.line
+    headerLine.BackgroundTransparency = 0.70
+    brandTitle.Text = "BLACKHOLE V1"
+    brandTitle.TextColor3 = C.ink
+    header:FindFirstChild("Sub").Text = "REACTOR ONLINE"
+    BH.hero.Visible = true
+    BH.hero.Position = UDim2.fromOffset(0, 64)
+    BH.hero.Size = UDim2.fromOffset(windowWidth, 152)
+    BH.hero.BackgroundColor3 = C.black
+    BH.heroStroke.Color = C.line
+    BH.heroStroke.Transparency = 0.82
+    tabs.Position = UDim2.fromOffset(0, 216)
+    tabs.BackgroundColor3 = C.black
+    tabs.BackgroundTransparency = 0.28
+    content.Position = UDim2.fromOffset(0, 280)
+    content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
+    edgeSheen.BackgroundColor3 = C.cyan
+    BH.atmosphere.BackgroundColor3 = Color3.fromRGB(12,8,20)
 
     brandmark.BackgroundColor3 = C.panel2
     local brandStroke = brandmark:FindFirstChildOfClass("UIStroke")
@@ -5116,7 +5045,7 @@ function Theme.apply(themeName)
     edgeSheenGradient.Color = ColorSequence.new(C.cyan, C.violet2)
 
     for key, tab in pairs(navButtons) do
-        tab.BackgroundColor3 = bh and C.panel2 or Color3.fromRGB(8,4,16)
+        tab.BackgroundColor3 = C.panel2
         local st = UI.navStrokes[key]
         if st then st.Color = C.line end
         local bar = UI.navBars[key]
@@ -5126,31 +5055,21 @@ function Theme.apply(themeName)
     Theme.restyleText()
 
     if ThemeUI.activeLabel then
-        ThemeUI.activeLabel.Text = bh and "BLACKHOLE V1" or "DEFAULT"
+        ThemeUI.activeLabel.Text = "BLACKHOLE V1"
         ThemeUI.activeLabel.TextColor3 = C.ink
     end
-    if ThemeUI.defaultButton then
-        ThemeUI.defaultButton.BackgroundColor3 = bh and C.panel2 or C.violet2
-        ThemeUI.defaultButton.TextColor3 = bh and C.faint or C.ink
-    end
     if ThemeUI.blackholeButton then
-        ThemeUI.blackholeButton.BackgroundColor3 = bh and C.violet2 or C.panel2
-        ThemeUI.blackholeButton.TextColor3 = bh and C.ink or C.faint
-    end
-    if ThemeUI.defaultRow then
-        local st = ThemeUI.defaultRow:FindFirstChildOfClass("UIStroke")
-        if st then st.Color = bh and C.line or C.violet2 end
+        ThemeUI.blackholeButton.BackgroundColor3 = C.violet2
+        ThemeUI.blackholeButton.TextColor3 = C.ink
     end
     if ThemeUI.blackholeRow then
         local st = ThemeUI.blackholeRow:FindFirstChildOfClass("UIStroke")
-        if st then st.Color = bh and C.violet2 or C.line end
+        if st then st.Color = C.violet2 end
     end
-    if bh then
-        BH.core.BackgroundColor3 = Color3.new(0,0,0)
-        BH.coreGlow.BackgroundColor3 = Color3.fromRGB(65,35,135)
-        BH.silverStroke.Color = Color3.fromRGB(238,241,251)
-        BH.purpleStroke.Color = Color3.fromRGB(122,63,242)
-    end
+    BH.core.BackgroundColor3 = Color3.new(0,0,0)
+    BH.coreGlow.BackgroundColor3 = Color3.fromRGB(65,35,135)
+    BH.silverStroke.Color = Color3.fromRGB(238,241,251)
+    BH.purpleStroke.Color = Color3.fromRGB(122,63,242)
 
     applyWindowWidth(windowWidth)
     fitWindow(false)
@@ -5175,7 +5094,7 @@ local function renderPageState()
         or State.tab == "ESP" and (Settings.ESPEnabled and "ESP" or "SYNCED")
         or State.tab == "Health" and (Settings.HealthEscapeEnabled and "HP" or "SYNCED")
         or State.tab == "Move" and (Settings.FlyEnabled and "FLY" or Settings.NoClip and "MOVE" or "SYNCED")
-        or State.tab == "Theme" and (System.theme == "Blackhole" and "BLACKHOLE" or "DEFAULT")
+        or State.tab == "Theme" and "BLACKHOLE"
         or "SYNCED")
     UI.badge.TextColor3 = mainColor
     statusDot.BackgroundColor3 = mainColor
@@ -5330,11 +5249,11 @@ do
         local loadScale = make("UIScale", loadCard, {Scale = 0.88})
         TweenService:Create(loadScale, TweenInfo.new(0.62, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
 
-        local loadTitle = safeText(loadCard, "Title", System.theme == "Blackhole" and "BLACKHOLE V1" or "VOID NEXUS", 0, 16, 326, 22, 17, C.ink, Enum.Font.GothamBold)
+        local loadTitle = safeText(loadCard, "Title", "BLACKHOLE V1", 0, 16, 326, 22, 17, C.ink, Enum.Font.GothamBold)
         loadTitle.TextXAlignment = Enum.TextXAlignment.Center
         loadTitle.ZIndex = 103
 
-        local loadSub = safeText(loadCard, "Sub", System.theme == "Blackhole" and "GALACTIC REACTOR" or "VOID CORE ONLINE", 0, 40, 326, 16, 8, C.dim, Enum.Font.GothamBold)
+        local loadSub = safeText(loadCard, "Sub", "GALACTIC REACTOR", 0, 40, 326, 16, 8, C.dim, Enum.Font.GothamBold)
         loadSub.TextXAlignment = Enum.TextXAlignment.Center
         loadSub.ZIndex = 103
 
@@ -5491,7 +5410,7 @@ do
             {0.37, "IGNITING ACCRETION DISK..."},
             {0.56, "BENDING SPACETIME..."},
             {0.75, "SYNCHRONIZING ORBITAL RINGS..."},
-            {0.90, System.theme == "Blackhole" and "BLACKHOLE V1 ONLINE" or "VOID NEXUS ONLINE"},
+            {0.90, "BLACKHOLE V1 ONLINE"},
         }
 
         local loadAnimConn
@@ -5561,7 +5480,7 @@ do
 
             if progress >= 1 then
                 loadAnimConn:Disconnect()
-                loadStatus.Text = System.theme == "Blackhole" and "BLACKHOLE V1 ONLINE" or "VOID NEXUS ONLINE"
+                loadStatus.Text = "BLACKHOLE V1 ONLINE"
                 task.wait(0.10)
                 if not State.alive then return end
 

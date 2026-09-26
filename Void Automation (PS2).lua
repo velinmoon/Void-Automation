@@ -6090,7 +6090,7 @@ Title.Font = Enum.Font.GothamBold
 Title.TextSize = 11
 Title.TextColor3 = Color3.fromRGB(235, 249, 255)
 Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Text = "SLAYERS 2 • AUTO JOIN V6"
+Title.Text = "SLAYERS 2 • AUTO JOIN V7"
 Title.Parent = Card
 
 local Status = Instance.new("TextLabel")
@@ -6276,72 +6276,116 @@ local function findMap()
     return findText({"Ouwland", "Ouwigahara"})
 end
 
+local function privateJoinContextVisible()
+    return findText({
+        "JOIN PRIVATE",
+        "Hold to join private server",
+        "Private server owner",
+    }) ~= nil
+end
+
 local function findOwnerBox()
-    local visibleBoxes = {}
+    local boxes = {}
 
     for _, object in ipairs(PlayerGui:GetDescendants()) do
         if object:IsA("TextBox") and visible(object) then
-            visibleBoxes[#visibleBoxes + 1] = object
+            boxes[#boxes + 1] = object
 
             local blob = norm(
                 tostring(object.Name or "") .. " "
                 .. tostring(object.PlaceholderText or "") .. " "
                 .. tostring(object.Text or "")
             )
+
             if blob:find("privateserverowner", 1, true)
-                or (blob:find("private", 1, true) and blob:find("owner", 1, true))
-                or blob:find("playername", 1, true) then
+                or (blob:find("private", 1, true) and blob:find("owner", 1, true)) then
                 return object
             end
         end
     end
 
-    -- On the private-server screen from the screenshot there is a single name
-    -- field above JOIN PRIVATE. If private-server instructions are visible,
-    -- use the smallest visible TextBox as the owner/name field.
-    local privateInstruction = findText({
-        "Hold to join private server",
-        "JOIN PRIVATE",
-        "Private server",
-    })
-
-    if privateInstruction and #visibleBoxes > 0 then
-        table.sort(visibleBoxes, function(a, b)
-            return (a.AbsoluteSize.X * a.AbsoluteSize.Y)
-                < (b.AbsoluteSize.X * b.AbsoluteSize.Y)
-        end)
-        return visibleBoxes[1]
+    if not privateJoinContextVisible() or #boxes == 0 then
+        return nil
     end
+
+    -- Prefer the TextBox nearest and directly ABOVE JOIN PRIVATE.
+    local joinLabel = findText({"JOIN PRIVATE"})
+    if joinLabel then
+        local joinCenter = joinLabel.AbsolutePosition + joinLabel.AbsoluteSize / 2
+        local best, bestScore
+
+        for _, box in ipairs(boxes) do
+            local center = box.AbsolutePosition + box.AbsoluteSize / 2
+            local dy = joinCenter.Y - center.Y
+            local dx = math.abs(joinCenter.X - center.X)
+
+            if dy > 0 and dy < 260 and dx < 260 then
+                local score = dy + dx * 0.35
+                if not bestScore or score < bestScore then
+                    best, bestScore = box, score
+                end
+            end
+        end
+
+        if best then return best end
+    end
+
+    -- Private context is confirmed. Owner input is the lowest visible TextBox.
+    table.sort(boxes, function(a, b)
+        return a.AbsolutePosition.Y > b.AbsolutePosition.Y
+    end)
+    return boxes[1]
 end
 
 local function findFriendJoinLabel()
     return findText({"Friend Join"})
 end
 
-local function privateJoinContextVisible()
-    if findOwnerBox() then return true end
-
-    return findText({
-        "Hold to join private server",
-        "Private server owner",
-        "Private Server",
-    }) ~= nil
-end
 
 local function findJoin()
-    -- Ignore Friend Join until the actual private-server UI exists.
     if not privateJoinContextVisible() then
         return nil
     end
 
-    local join = findText({"JOIN", "Join Server", "Join Private Server"})
-    if not join then return nil end
+    -- Exact private button text first.
+    local exact = findText({"JOIN PRIVATE"})
+    if exact then return exact end
 
-    if findFriendJoinLabel() and not findOwnerBox() then
-        return nil
+    -- Geometry fallback: clickable/text GUI directly below owner field.
+    local ownerBox = findOwnerBox()
+    if not ownerBox then return nil end
+
+    local ownerCenter = ownerBox.AbsolutePosition + ownerBox.AbsoluteSize / 2
+    local best, bestScore
+
+    for _, object in ipairs(PlayerGui:GetDescendants()) do
+        if object:IsA("GuiObject")
+            and visible(object)
+            and object ~= ownerBox
+            and object.AbsoluteSize.X >= 70
+            and object.AbsoluteSize.Y >= 25 then
+
+            local center = object.AbsolutePosition + object.AbsoluteSize / 2
+            local dy = center.Y - ownerCenter.Y
+            local dx = math.abs(center.X - ownerCenter.X)
+
+            if dy > 18 and dy < 180 and dx < 180 then
+                local blob = norm(
+                    tostring(object.Name or "") .. " "
+                    .. displayed(object)
+                )
+
+                if object:IsA("GuiButton") or blob:find("join", 1, true) then
+                    local score = dy + dx * 0.5
+                    if not bestScore or score < bestScore then
+                        best, bestScore = object, score
+                    end
+                end
+            end
+        end
     end
 
-    return join
+    return best
 end
 
 local function objectPoint(object)
@@ -6429,110 +6473,109 @@ end
 
 local Owner = loadOwner()
 
-local OWNER_FIELD_1920 = Vector2.new(1180, 931)
-local JOIN_PRIVATE_1920 = Vector2.new(1180, 990)
+local function fireTextBoxCallbacks(box)
+    if not box then return end
 
-local function scaled1920(point)
-    local v = viewport()
-    return Vector2.new(
-        math.clamp(point.X * (v.X / 1920), 4, v.X - 4),
-        math.clamp(point.Y * (v.Y / 1080), 4, v.Y - 4)
-    )
-end
+    local fire = type(firesignal) == "function" and firesignal
+        or (type(env.firesignal) == "function" and env.firesignal)
+        or nil
+    local getter = type(getconnections) == "function" and getconnections
+        or (type(env.getconnections) == "function" and env.getconnections)
+        or nil
 
-local function clearFocusedText()
-    if vimOK and VIM then
-        pcall(function()
-            VIM:SendKeyEvent(true, Enum.KeyCode.LeftControl, false, game)
-            VIM:SendKeyEvent(true, Enum.KeyCode.A, false, game)
-            VIM:SendKeyEvent(false, Enum.KeyCode.A, false, game)
-            VIM:SendKeyEvent(false, Enum.KeyCode.LeftControl, false, game)
-            task.wait(0.03)
-            VIM:SendKeyEvent(true, Enum.KeyCode.Backspace, false, game)
-            VIM:SendKeyEvent(false, Enum.KeyCode.Backspace, false, game)
-        end)
+    local signals = {}
+
+    pcall(function()
+        signals[#signals + 1] = {box:GetPropertyChangedSignal("Text")}
+    end)
+    pcall(function()
+        signals[#signals + 1] = {box.Changed, "Text"}
+    end)
+    pcall(function()
+        signals[#signals + 1] = {box.FocusLost, true}
+    end)
+
+    if type(fire) == "function" then
+        for _, item in ipairs(signals) do
+            pcall(function()
+                fire(item[1], item[2])
+            end)
+        end
     end
 
-    if type(keyPress) == "function" and type(keyRelease) == "function" then
-        pcall(function()
-            keyPress(0x11) -- CTRL
-            keyPress(0x41) -- A
-            keyRelease(0x41)
-            keyRelease(0x11)
-            keyPress(0x08) -- BACKSPACE
-            keyRelease(0x08)
-        end)
+    if type(getter) == "function" then
+        for _, item in ipairs(signals) do
+            local ok, connections = pcall(getter, item[1])
+            if ok and type(connections) == "table" then
+                for _, connection in ipairs(connections) do
+                    local fn = connection.Function
+                    if type(fn) == "function" then
+                        pcall(fn, item[2])
+                    end
+                end
+            end
+        end
     end
 end
 
-local function typeOwnerCharacters(owner)
+local function clearOwnerBox(box)
+    if not box then return end
+
+    pcall(function()
+        box:CaptureFocus()
+        box.Text = ""
+        box.CursorPosition = 1
+    end)
+
+    task.wait(0.04)
+end
+
+local function fallbackTypeOwner(owner)
     local typed = false
 
-    -- Some executors expose this VIM method even though ordinary key events
-    -- don't update custom text fields correctly.
-    if vimOK and VIM then
-        local methodOK = pcall(function()
-            VIM:SendTextInputCharacterEvent("a", game)
-        end)
+    local setClip = type(setclipboard) == "function" and setclipboard
+        or (type(env.setclipboard) == "function" and env.setclipboard)
+        or nil
 
-        if methodOK then
-            -- Remove the test character immediately, then send the real string.
-            pcall(function()
-                VIM:SendKeyEvent(true, Enum.KeyCode.Backspace, false, game)
-                VIM:SendKeyEvent(false, Enum.KeyCode.Backspace, false, game)
+    if type(setClip) == "function" then
+        pcall(setClip, owner)
+
+        if vimOK and VIM then
+            local ok = pcall(function()
+                VIM:SendKeyEvent(true, Enum.KeyCode.LeftControl, false, game)
+                VIM:SendKeyEvent(true, Enum.KeyCode.V, false, game)
+                VIM:SendKeyEvent(false, Enum.KeyCode.V, false, game)
+                VIM:SendKeyEvent(false, Enum.KeyCode.LeftControl, false, game)
             end)
-
-            for i = 1, #owner do
-                local ch = owner:sub(i, i)
-                pcall(function()
-                    VIM:SendTextInputCharacterEvent(ch, game)
-                end)
-                task.wait(0.018)
-            end
-            typed = true
+            typed = typed or ok
         end
+
+        if type(keyPress) == "function" and type(keyRelease) == "function" then
+            local ok = pcall(function()
+                keyPress(0x11)
+                keyPress(0x56)
+                keyRelease(0x56)
+                keyRelease(0x11)
+            end)
+            typed = typed or ok
+        end
+
+        task.wait(0.10)
     end
 
-    -- Normal per-letter keyboard input. The confirmed owner only contains letters,
-    -- but this path supports digits too.
     if vimOK and VIM then
         for i = 1, #owner do
-            local ch = owner:sub(i, i)
-            local upper = string.upper(ch)
+            local ch = string.upper(owner:sub(i, i))
             local keyCode
-
-            pcall(function()
-                keyCode = Enum.KeyCode[upper]
-            end)
+            pcall(function() keyCode = Enum.KeyCode[ch] end)
 
             if keyCode then
-                pcall(function()
+                local ok = pcall(function()
                     VIM:SendKeyEvent(true, keyCode, false, game)
-                    task.wait(0.012)
+                    task.wait(0.018)
                     VIM:SendKeyEvent(false, keyCode, false, game)
                 end)
-                typed = true
-            end
-        end
-    end
-
-    -- Executor virtual-key fallback.
-    if type(keyPress) == "function" and type(keyRelease) == "function" then
-        for i = 1, #owner do
-            local ch = owner:sub(i, i)
-            local upper = string.upper(ch)
-            local byte = string.byte(upper)
-
-            if byte and (
-                (byte >= string.byte("A") and byte <= string.byte("Z"))
-                or (byte >= string.byte("0") and byte <= string.byte("9"))
-            ) then
-                pcall(function()
-                    keyPress(byte)
-                    task.wait(0.012)
-                    keyRelease(byte)
-                end)
-                typed = true
+                typed = typed or ok
             end
         end
     end
@@ -6540,124 +6583,67 @@ local function typeOwnerCharacters(owner)
     return typed
 end
 
-local function submitOwnerField(box)
-    -- Make the game process Text/FocusLost exactly like manual entry.
-    if box then
-        pcall(function()
-            box.CursorPosition = #tostring(box.Text or "") + 1
-            box:ReleaseFocus(true)
-        end)
-
-        local fire = type(firesignal) == "function" and firesignal
-            or (type(env.firesignal) == "function" and env.firesignal)
-            or nil
-
-        if type(fire) == "function" then
-            pcall(fire, box.FocusLost, true)
-        end
-    end
-
-    if vimOK and VIM then
-        pcall(function()
-            VIM:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
-            task.wait(0.035)
-            VIM:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
-        end)
-    end
-end
-
 local function fillOwner()
     local box = findOwnerBox()
     local owner = tostring(Owner or "thingbelow")
-    local fieldPoint = box and objectPoint(box) or scaled1920(OWNER_FIELD_1920)
 
-    setStatus("OWNER • typing " .. owner)
-
-    -- Click the field first. This is crucial for the Slayers 2 custom lobby.
-    clickPoint(fieldPoint, 0.07)
-    task.wait(0.10)
-
-    if box then
-        pcall(function()
-            box:CaptureFocus()
-        end)
-        task.wait(0.05)
+    if not box then
+        setStatus("OWNER • private owner field not found yet")
+        return false
     end
 
-    clearFocusedText()
+    setStatus("OWNER • field found: " .. tostring(box.Name))
+
+    -- Focus the ACTUAL detected TextBox.
+    clickObject(box, 0.07)
+    task.wait(0.08)
+
+    pcall(function() box:CaptureFocus() end)
     task.wait(0.05)
 
-    -- Direct property assignment first. It fires Text changed signals on a real TextBox.
-    if box then
-        pcall(function()
-            box.Text = owner
-            box.CursorPosition = #owner + 1
-        end)
-        task.wait(0.08)
-    end
+    clearOwnerBox(box)
 
-    -- Clipboard paste path.
-    local setClip = type(setclipboard) == "function" and setclipboard
-        or (type(env.setclipboard) == "function" and env.setclipboard)
-        or nil
+    -- Preferred path: assign the real TextBox and KEEP the value.
+    pcall(function()
+        box.Text = owner
+        box.CursorPosition = #owner + 1
+    end)
 
-    if type(setClip) == "function" then
-        pcall(setClip, owner)
-        clearFocusedText()
-        task.wait(0.03)
+    task.wait(0.12)
 
-        if vimOK and VIM then
-            pcall(function()
-                VIM:SendKeyEvent(true, Enum.KeyCode.LeftControl, false, game)
-                VIM:SendKeyEvent(true, Enum.KeyCode.V, false, game)
-                VIM:SendKeyEvent(false, Enum.KeyCode.V, false, game)
-                VIM:SendKeyEvent(false, Enum.KeyCode.LeftControl, false, game)
-            end)
-        end
+    local directWorked = norm(box.Text) == norm(owner)
 
-        if type(keyPress) == "function" and type(keyRelease) == "function" then
-            pcall(function()
-                keyPress(0x11)
-                keyPress(0x56)
-                keyRelease(0x56)
-                keyRelease(0x11)
-            end)
-        end
-
-        task.wait(0.10)
-    end
-
-    -- If paste/custom textbox handling is weird, physically type the username too.
-    local currentText = box and tostring(box.Text or "") or ""
-    if norm(currentText) ~= norm(owner) then
-        clearFocusedText()
-        task.wait(0.04)
-        typeOwnerCharacters(owner)
+    -- Only use fallback input if direct TextBox assignment truly failed.
+    if not directWorked then
+        clearOwnerBox(box)
+        fallbackTypeOwner(owner)
         task.wait(0.12)
 
-        -- Keep a real TextBox synchronized after physical typing.
-        if box then
-            pcall(function()
-                if norm(box.Text) ~= norm(owner) then
-                    box.Text = owner
-                end
-            end)
-        end
+        pcall(function()
+            if norm(box.Text) ~= norm(owner) then
+                box.Text = owner
+                box.CursorPosition = #owner + 1
+            end
+        end)
     end
 
-    submitOwnerField(box)
-    task.wait(0.20)
+    -- Explicitly notify local menu listeners.
+    fireTextBoxCallbacks(box)
 
-    local finalText = box and tostring(box.Text or "") or owner
-    local good = norm(finalText) == norm(owner)
+    pcall(function()
+        box:ReleaseFocus(true)
+    end)
 
-    if good then
-        setStatus("OWNER SET • " .. owner)
-    else
-        setStatus("OWNER INPUT SENT • " .. owner)
+    task.wait(0.40)
+
+    local final = tostring(box.Text or "")
+    if norm(final) == norm(owner) then
+        setStatus("OWNER CONFIRMED • " .. owner)
+        return true
     end
 
-    return true
+    setStatus("OWNER RETRY • current field: " .. final)
+    return false
 end
 
 local PLAY_FALLBACK = Vector2.new(0.040, 0.438)
@@ -6728,22 +6714,20 @@ end
 
 local function doJoin()
     local join = findJoin()
-    setStatus("JOIN PRIVATE • clicking")
 
-    if join then
-        clickObject(join, 0.13)
-        task.wait(0.07)
+    if not join then
+        setStatus("JOIN PRIVATE • control not found yet")
+        return false
     end
 
-    -- Exact private-screen button center for 1920x1080, scaled if necessary.
-    local exactPoint = scaled1920(JOIN_PRIVATE_1920)
+    setStatus("JOIN PRIVATE • clicking detected control")
 
-    for _ = 1, 3 do
-        clickPoint(exactPoint, 0.13)
-        task.wait(0.09)
-    end
+    clickObject(join, 0.14)
+    task.wait(0.10)
+    clickObject(join, 0.14)
 
     setStatus("JOIN PRIVATE CLICKED • waiting for teleport")
+    return true
 end
 
 -- If no input backend exists, the HUD tells you instead of silently doing nothing.
@@ -6837,18 +6821,15 @@ task.spawn(function()
                     lastAction = os.clock()
                     local filled = doOwner()
 
-                    -- User requested a normal click immediately after the name
-                    -- is entered, instead of a long hold.
                     if filled then
-                        -- Slayers 2 validates the owner field before enabling the button.
                         task.wait(0.65)
 
-                        -- Click through the exact 1920x1080 fallback even when the
-                        -- JOIN PRIVATE GuiObject isn't exposed to introspection.
-                        doJoin()
-                        stage = "join"
-                        stageAt = os.clock()
-                        lastAction = os.clock()
+                        local clicked = doJoin()
+                        if clicked then
+                            stage = "join"
+                            stageAt = os.clock()
+                            lastAction = os.clock()
+                        end
                     end
                 end
             elseif not privateJoinContextVisible() and os.clock() - stageAt > 2.0 then
@@ -6868,11 +6849,15 @@ task.spawn(function()
             end
 
         elseif stage == "join" then
-            -- Keep retrying JOIN PRIVATE by both GUI lookup and exact 1920x1080
-            -- coordinates until Roblox teleports us.
             if os.clock() - lastAction >= 2.0 then
                 lastAction = os.clock()
-                doJoin()
+
+                if not doJoin() and not privateJoinContextVisible() then
+                    stage = "map"
+                    stageAt = os.clock()
+                    lastAction = 0
+                    mapAttempts = 0
+                end
             end
         end
 

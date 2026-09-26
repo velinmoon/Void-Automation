@@ -551,7 +551,7 @@ local Farm = {catalog = {}, remembered = {}, pinned = nil, records = {}, selecte
     autoVisited = {}, autoCurrent = nil, autoLastPath = nil, autoArrivedAt = 0,
     autoCombatAt = 0, autoLastProgressAt = 0, autoLastHP = nil, autoDefeated = false,
     autoRespawnResume = false, autoResumePath = nil,
-    autoCycles = 0, autoSkipped = 0}
+    autoCycles = 0, autoSkipped = 0, travelHealth = nil}
 local function attackHealthAllowed(maximum)
     return type(maximum) == "number"
         and maximum == maximum
@@ -1878,6 +1878,7 @@ do
         Farm.autoEngaged = false
         Farm.autoDefeated = false
         Farm.travelKey, Farm.travelAt = nil, nil
+        Farm.travelHealth = nil
         Farm.nextScan = 0
         Farm.status = "AUTO BOSS"
         Farm.detail = (reason or "Moving to next boss") .. (previous and (" | " .. previous.name) or "")
@@ -1910,6 +1911,7 @@ do
         State.farming = false
         combatPose = nil
         Farm.travelKey, Farm.travelAt = nil, nil
+        Farm.travelHealth = nil
         Farm.stopM1(); Farm.clearLoot()
         Farm.restoreHitbox()
         if rotationState then
@@ -2038,7 +2040,7 @@ do
 
                 if hp and hp > 0 and targetRoot and attackHealthAllowed(maximum) then
                     -- A valid boss was found inside the expanded saved-location scan.
-                    Farm.travelKey, Farm.travelAt = nil, nil
+                    Farm.travelKey, Farm.travelAt, Farm.travelHealth = nil, nil, nil
                 else
                     State.farming = false; Farm.stopM1(); Farm.restoreHitbox(); releaseOrPause()
                     local location = hp and hp <= 0 and entry.spawn or entry.position or entry.spawn
@@ -2052,8 +2054,25 @@ do
                 end
                 humanoid.AutoRotate = false
                 prepareFarmCollision(character)
+
+                -- Safety for environmental hazard zones (for example snow damage):
+                -- if no qualifying boss is actually loaded/being attacked and the
+                -- character starts losing HP while waiting at a saved location,
+                -- do not keep the avatar parked in the damaging area.
+                if Farm.travelHealth and humanoid.Health < Farm.travelHealth - 0.01 then
+                    local damagedHealth = humanoid.Health
+                    Farm.travelHealth = nil
+                    if Settings.AutoBoss then
+                        advanceAutoBoss("No boss loaded; environmental damage detected, moving on", rootPart, false)
+                    else
+                        pause("DANGER", string.format("No boss loaded; damage detected (%.0f HP). Returning to safety.", damagedHealth))
+                    end
+                    return
+                end
+
                 if Farm.travelKey ~= entry.path then
                     Farm.travelKey, Farm.travelAt = entry.path, os.clock()
+                    Farm.travelHealth = humanoid.Health
                     Farm.travelDestination = location - Vector3.new(0, math.clamp(Settings.FarmDepth,6,7),0)
                     Farm.nextScan = 0
                     if Settings.AutoBoss then
@@ -2099,7 +2118,7 @@ do
                 Farm.autoLastProgressAt = Farm.autoCombatAt
                 Farm.autoLastHP = hp
             end
-            Farm.travelKey, Farm.travelAt = nil, nil
+            Farm.travelKey, Farm.travelAt, Farm.travelHealth = nil, nil, nil
         end
         if Settings.AutoBoss and (not hp or hp <= 0 or not targetRoot or not attackHealthAllowed(maximum)) then
             if Farm.autoDefeated or (hp and hp <= 0) then

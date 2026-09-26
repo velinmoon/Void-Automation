@@ -6090,7 +6090,7 @@ Title.Font = Enum.Font.GothamBold
 Title.TextSize = 11
 Title.TextColor3 = Color3.fromRGB(235, 249, 255)
 Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Text = "SLAYERS 2 • AUTO JOIN V4"
+Title.Text = "SLAYERS 2 • AUTO JOIN V5"
 Title.Parent = Card
 
 local Status = Instance.new("TextLabel")
@@ -6148,31 +6148,43 @@ local function pointFraction(x, y)
 end
 
 local function moveMouse(point)
+    local worked = false
+
     if vimOK and VIM then
         local ok = pcall(function()
             VIM:SendMouseMoveEvent(point.X, point.Y, game)
         end)
-        if ok then return true end
+        worked = worked or ok
     end
 
     if type(mouseMoveAbs) == "function" then
-        return pcall(mouseMoveAbs, point.X, point.Y)
+        local ok = pcall(mouseMoveAbs, point.X, point.Y)
+        worked = worked or ok
     end
-    return false
+
+    return worked
 end
 
 local function clickPoint(point, hold)
     hold = hold or 0.09
+    local worked = false
+
     moveMouse(point)
     task.wait(0.035)
 
+    -- Send VIM input.
     if vimOK and VIM then
         local ok = pcall(function()
             VIM:SendMouseButtonEvent(point.X, point.Y, 0, true, game, 0)
             task.wait(hold)
             VIM:SendMouseButtonEvent(point.X, point.Y, 0, false, game, 0)
         end)
-        if ok then return true end
+        worked = worked or ok
+    end
+
+    -- ALSO send executor mouse input. Do not skip this just because VIM returned OK.
+    if type(mouseMoveAbs) == "function" then
+        pcall(mouseMoveAbs, point.X, point.Y)
     end
 
     if type(mouse1Press) == "function" and type(mouse1Release) == "function" then
@@ -6181,14 +6193,13 @@ local function clickPoint(point, hold)
             task.wait(hold)
             mouse1Release()
         end)
-        if ok then return true end
+        worked = worked or ok
+    elseif hold <= 0.25 and type(mouse1Click) == "function" then
+        local ok = pcall(mouse1Click)
+        worked = worked or ok
     end
 
-    if hold <= 0.2 and type(mouse1Click) == "function" then
-        return pcall(mouse1Click)
-    end
-
-    return false
+    return worked
 end
 
 local function norm(value)
@@ -6259,18 +6270,40 @@ local function findMap()
 end
 
 local function findOwnerBox()
+    local visibleBoxes = {}
+
     for _, object in ipairs(PlayerGui:GetDescendants()) do
         if object:IsA("TextBox") and visible(object) then
+            visibleBoxes[#visibleBoxes + 1] = object
+
             local blob = norm(
                 tostring(object.Name or "") .. " "
                 .. tostring(object.PlaceholderText or "") .. " "
                 .. tostring(object.Text or "")
             )
             if blob:find("privateserverowner", 1, true)
-                or (blob:find("private", 1, true) and blob:find("owner", 1, true)) then
+                or (blob:find("private", 1, true) and blob:find("owner", 1, true))
+                or blob:find("playername", 1, true) then
                 return object
             end
         end
+    end
+
+    -- On the private-server screen from the screenshot there is a single name
+    -- field above JOIN PRIVATE. If private-server instructions are visible,
+    -- use the smallest visible TextBox as the owner/name field.
+    local privateInstruction = findText({
+        "Hold to join private server",
+        "JOIN PRIVATE",
+        "Private server",
+    })
+
+    if privateInstruction and #visibleBoxes > 0 then
+        table.sort(visibleBoxes, function(a, b)
+            return (a.AbsoluteSize.X * a.AbsoluteSize.Y)
+                < (b.AbsoluteSize.X * b.AbsoluteSize.Y)
+        end)
+        return visibleBoxes[1]
     end
 end
 
@@ -6313,13 +6346,39 @@ local function clickObject(object, hold)
     local point = objectPoint(object)
     if not point then return false end
 
-    local ok = clickPoint(point, hold)
+    local worked = false
+
+    -- Fire actual GuiButton signals when the executor exposes firesignal.
+    local fire = type(firesignal) == "function" and firesignal
+        or (type(env.firesignal) == "function" and env.firesignal)
+        or nil
+
+    if type(fire) == "function" then
+        local node = object
+        for _ = 1, 8 do
+            if not node or node == PlayerGui then break end
+            if node:IsA("GuiButton") then
+                for _, signalName in ipairs({"Activated", "MouseButton1Click"}) do
+                    local okSignal, signal = pcall(function()
+                        return node[signalName]
+                    end)
+                    if okSignal and signal then
+                        local ok = pcall(fire, signal)
+                        worked = worked or ok
+                    end
+                end
+            end
+            node = node.Parent
+        end
+    end
+
+    worked = clickPoint(point, hold) or worked
 
     -- Also click useful visible ancestors because Slayers 2 can put the text
     -- inside an input-catching Frame.
     local node = object.Parent
     local tried = 0
-    while node and node ~= PlayerGui and tried < 3 do
+    while node and node ~= PlayerGui and tried < 4 do
         if node:IsA("GuiObject") and visible(node)
             and node.AbsoluteSize.X >= object.AbsoluteSize.X
             and node.AbsoluteSize.Y >= object.AbsoluteSize.Y then
@@ -6329,7 +6388,7 @@ local function clickObject(object, hold)
         node = node.Parent
     end
 
-    return ok
+    return worked
 end
 
 local function loadOwner()
@@ -6403,16 +6462,28 @@ local function fillOwner()
     return false
 end
 
-local PLAY_FALLBACK = Vector2.new(0.055, 0.075)
+local PLAY_FALLBACK = Vector2.new(0.040, 0.438)
 local MAP_FALLBACK = Vector2.new(0.205, 0.505)
 local JOIN_FALLBACK = Vector2.new(0.615, 0.916)
 
 local function doPlay()
     local play = findPlay()
-    setStatus("PLAY • " .. (play and "GUI found" or "using screen fallback"))
+    setStatus("PLAY • clicking menu row")
 
-    if play then clickObject(play, 0.10) end
-    clickPoint(pointFraction(PLAY_FALLBACK.X, PLAY_FALLBACK.Y), 0.10)
+    if play then
+        clickObject(play, 0.10)
+    end
+
+    -- Exact full-screen screenshot fallbacks:
+    -- diamond, PLAY text center, and right side of the same row.
+    for _, p in ipairs({
+        Vector2.new(0.014, 0.438),
+        Vector2.new(0.040, 0.438),
+        Vector2.new(0.067, 0.438),
+    }) do
+        clickPoint(pointFraction(p.X, p.Y), 0.10)
+        task.wait(0.05)
+    end
 end
 
 local function doMap()
@@ -6459,13 +6530,15 @@ end
 
 local function doJoin()
     local join = findJoin()
-    setStatus("JOIN • holding 3.5 seconds")
+    setStatus("JOIN PRIVATE • clicking")
 
     if join then
-        clickObject(join, 3.5)
-    else
-        clickPoint(pointFraction(JOIN_FALLBACK.X, JOIN_FALLBACK.Y), 3.5)
+        clickObject(join, 0.14)
+        return
     end
+
+    -- Fallback is a normal click too, not a hold.
+    clickPoint(pointFraction(JOIN_FALLBACK.X, JOIN_FALLBACK.Y), 0.14)
 end
 
 -- If no input backend exists, the HUD tells you instead of silently doing nothing.
@@ -6557,7 +6630,20 @@ task.spawn(function()
             if ownerBox then
                 if os.clock() - lastAction >= 1.15 then
                     lastAction = os.clock()
-                    doOwner()
+                    local filled = doOwner()
+
+                    -- User requested a normal click immediately after the name
+                    -- is entered, instead of a long hold.
+                    if filled then
+                        task.wait(0.30)
+                        privateJoin = findJoin()
+                        if privateJoin then
+                            doJoin()
+                            stage = "join"
+                            stageAt = os.clock()
+                            lastAction = os.clock()
+                        end
+                    end
                 end
             elseif not privateJoinContextVisible() and os.clock() - stageAt > 2.0 then
                 stage = "map"
@@ -6566,11 +6652,13 @@ task.spawn(function()
                 mapAttempts = 0
             end
 
-            privateJoin = findJoin()
-            if privateJoin then
-                stage = "join"
-                stageAt = os.clock()
-                lastAction = 0
+            if stage == "owner" then
+                privateJoin = findJoin()
+                if privateJoin then
+                    stage = "join"
+                    stageAt = os.clock()
+                    lastAction = 0
+                end
             end
 
         elseif stage == "join" then
@@ -6583,10 +6671,10 @@ task.spawn(function()
                     lastAction = 0
                     mapAttempts = 0
                 end
-            elseif os.clock() - lastAction >= 5.0 then
+            elseif os.clock() - lastAction >= 2.0 then
                 lastAction = os.clock()
                 doJoin()
-                setStatus("JOIN SENT • waiting for teleport")
+                setStatus("JOIN PRIVATE clicked • waiting for teleport")
             end
         end
 

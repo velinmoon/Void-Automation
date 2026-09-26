@@ -43,7 +43,7 @@ local __AUTOSKILLS_SOURCE = [====[
 -- Static boss discovery runs from your spawn/current position WITHOUT moving your character.
 -- It scans replicated boss spawn/timer/location objects inside the 500,000-stud route and saves coordinates.
 -- Legacy moving/grid discovery remains available only as a manual fallback.
--- Auto-rejoin uses the game's visible flow: PLAY -> Ouwland -> private server owner -> hold JOIN.
+-- Lobby execution enters LOBBY-ONLY mode: PLAY -> Ouwland -> private server owner -> hold JOIN; all gameplay systems stay off.
 -- Auto-execute uses queue_on_teleport and a best-effort executor autoexec loader scoped to this Roblox universe.
 -- Timer markers are hints, never proof that a 3000-3200 HP NPC is alive.
 local Settings = {
@@ -108,6 +108,412 @@ local environment = type(getgenv) == "function" and getgenv() or _G
 local slot = "__AutoSkills_ZXCVB"
 local previous = environment[slot]
 if type(previous) == "table" and type(previous.Stop) == "function" then previous.Stop() end
+
+-- ============================================================
+-- LOBBY-ONLY MODE
+-- If the script starts on the PLAY / Ouwland lobby UI, NOTHING
+-- below this block is started: no farm scans, UI, ESP, movement,
+-- Anti-AFK, boss discovery, etc. Only private-server auto-join.
+-- ============================================================
+local function lobbyNormalize(value)
+    return string.lower(tostring(value or "")):gsub("[^%w]", "")
+end
+
+local function lobbyVisible(object)
+    if not object or not object.Parent then return false end
+
+    local node = object
+    while node and node ~= playerGui do
+        if node:IsA("GuiObject") and not node.Visible then return false end
+        if node:IsA("ScreenGui") and not node.Enabled then return false end
+        node = node.Parent
+    end
+
+    return true
+end
+
+local function lobbyDisplayedText(object)
+    if object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox") then
+        return tostring(object.Text or "")
+    end
+    return ""
+end
+
+local function lobbyFindText(words)
+    local wanted = {}
+    for _, word in ipairs(words) do
+        wanted[lobbyNormalize(word)] = true
+    end
+
+    local best, bestScore
+
+    for _, object in ipairs(playerGui:GetDescendants()) do
+        if object:IsA("GuiObject")
+            and lobbyVisible(object)
+            and object.AbsoluteSize.X > 2
+            and object.AbsoluteSize.Y > 2 then
+
+            local displayed = lobbyNormalize(lobbyDisplayedText(object))
+            local name = lobbyNormalize(object.Name)
+
+            local match = wanted[displayed] == true
+
+            if not match then
+                for word in pairs(wanted) do
+                    if #word >= 4 and (
+                        displayed:find(word, 1, true)
+                        or name:find(word, 1, true)
+                    ) then
+                        match = true
+                        break
+                    end
+                end
+            end
+
+            if match then
+                local area = object.AbsoluteSize.X * object.AbsoluteSize.Y
+                local score = area
+
+                -- Prefer the real displayed text/button instead of giant parents.
+                if object:IsA("GuiButton") then score = score - 100000000 end
+                if displayed ~= "" then score = score - 50000000 end
+
+                if not bestScore or score < bestScore then
+                    best, bestScore = object, score
+                end
+            end
+        end
+    end
+
+    return best
+end
+
+local function lobbyFindOwnerBox()
+    for _, object in ipairs(playerGui:GetDescendants()) do
+        if object:IsA("TextBox") and lobbyVisible(object) then
+            local blob = lobbyNormalize(
+                tostring(object.Name or "") .. " "
+                .. tostring(object.PlaceholderText or "") .. " "
+                .. tostring(object.Text or "")
+            )
+
+            if blob:find("privateserverowner", 1, true)
+                or (blob:find("private", 1, true) and blob:find("owner", 1, true)) then
+                return object
+            end
+        end
+    end
+end
+
+local function lobbyFindPlay()
+    return lobbyFindText({"PLAY"})
+end
+
+local function lobbyFindMap()
+    return lobbyFindText({"Ouwland", "Ouwigahara"})
+end
+
+local function lobbyFindJoin()
+    return lobbyFindText({"JOIN", "Join Server", "Join Private Server"})
+end
+
+local function lobbySignature()
+    local play = lobbyFindPlay()
+    local customize = lobbyFindText({"CUSTOMIZE"})
+    local hub = lobbyFindText({"HUB"})
+    local slots = lobbyFindText({"SLOTS"})
+
+    local map = lobbyFindMap()
+    local owner = lobbyFindOwnerBox()
+    local join = lobbyFindJoin()
+
+    local mainMenu = play and (customize or hub or slots)
+    local privateMenu = map and (owner or join)
+
+    return (mainMenu or privateMenu) and true or false,
+        play, map, owner, join
+end
+
+local function lobbyAncestors(object)
+    local list, seen = {}, {}
+    local node = object
+
+    for _ = 1, 10 do
+        if not node or node == playerGui then break end
+
+        if node:IsA("GuiObject") and lobbyVisible(node) and not seen[node] then
+            seen[node] = true
+            list[#list + 1] = node
+        end
+
+        node = node.Parent
+    end
+
+    return list
+end
+
+local function lobbyFireSignals(object)
+    local fire = type(firesignal) == "function" and firesignal
+        or (type(environment.firesignal) == "function" and environment.firesignal)
+        or nil
+
+    if type(fire) ~= "function" then return false end
+
+    local didFire = false
+
+    for _, candidate in ipairs(lobbyAncestors(object)) do
+        if candidate:IsA("GuiButton") then
+            for _, signalName in ipairs({"Activated", "MouseButton1Click"}) do
+                local okSignal, signal = pcall(function()
+                    return candidate[signalName]
+                end)
+
+                if okSignal and signal then
+                    local ok = pcall(fire, signal)
+                    didFire = didFire or ok
+                end
+            end
+        end
+    end
+
+    return didFire
+end
+
+local function lobbyMouseClickAt(point, hold)
+    if not point then return false end
+
+    return pcall(function()
+        VirtualInput:SendMouseMoveEvent(point.X, point.Y, game)
+        task.wait(0.04)
+
+        VirtualInput:SendMouseButtonEvent(
+            point.X, point.Y, 0, true, game, 0
+        )
+
+        task.wait(math.max(0.08, hold or 0.08))
+
+        VirtualInput:SendMouseButtonEvent(
+            point.X, point.Y, 0, false, game, 0
+        )
+    end)
+end
+
+local function lobbyClick(object, hold, fireDirect)
+    if not object or not object.Parent then return false end
+
+    local direct = false
+    if fireDirect ~= false then
+        direct = lobbyFireSignals(object)
+    end
+
+    local point = object.AbsolutePosition + object.AbsoluteSize / 2
+    local physical = lobbyMouseClickAt(point, hold)
+
+    return direct or physical
+end
+
+local function lobbyClickMapCard(mapLabel)
+    if not mapLabel or not mapLabel.Parent then return false end
+
+    -- Try the Ouwland text / any actual ancestor button first.
+    lobbyFireSignals(mapLabel)
+    lobbyClick(mapLabel, 0.10, false)
+
+    -- The screenshot's selectable artwork/card is BELOW the "Ouwland" text.
+    -- Also click a scaled point inside that card in case the label itself is not
+    -- the hit target.
+    local viewport = World.CurrentCamera and World.CurrentCamera.ViewportSize
+        or Vector2.new(1920, 1080)
+
+    local pos = mapLabel.AbsolutePosition
+    local size = mapLabel.AbsoluteSize
+
+    local cardPoint = Vector2.new(
+        math.clamp(pos.X + math.max(120, size.X * 1.7), 4, viewport.X - 4),
+        math.clamp(pos.Y + math.max(160, size.Y * 7.0), 4, viewport.Y - 4)
+    )
+
+    task.wait(0.08)
+    lobbyMouseClickAt(cardPoint, 0.10)
+
+    return true
+end
+
+local function lobbyLoadOwner()
+    local fallback = Player.Name
+
+    local isFile = type(isfile) == "function" and isfile or environment.isfile
+    local readFile = type(readfile) == "function" and readfile or environment.readfile
+
+    if type(isFile) ~= "function" or type(readFile) ~= "function" then
+        return fallback
+    end
+
+    local okExists, exists = pcall(isFile, "AutoSkills_System_v1.json")
+    if not okExists or not exists then return fallback end
+
+    local ok, data = pcall(function()
+        return HttpService:JSONDecode(readFile("AutoSkills_System_v1.json"))
+    end)
+
+    if ok and type(data) == "table"
+        and type(data.PrivateServerOwner) == "string"
+        and data.PrivateServerOwner ~= "" then
+        return data.PrivateServerOwner
+    end
+
+    return fallback
+end
+
+local function lobbyFillOwner(box, owner)
+    if not box or not box.Parent then return false end
+    owner = tostring(owner or Player.Name)
+
+    local ok = pcall(function()
+        box:CaptureFocus()
+        task.wait(0.05)
+
+        -- Property assignment triggers Text changed listeners used by many menus.
+        box.Text = owner
+        box.CursorPosition = #owner + 1
+
+        task.wait(0.08)
+        box:ReleaseFocus(false)
+    end)
+
+    return ok
+end
+
+local function lobbyQueueGameplayScript()
+    local queue = type(queue_on_teleport) == "function" and queue_on_teleport
+        or (type(environment.queue_on_teleport) == "function" and environment.queue_on_teleport)
+        or (type(syn) == "table"
+            and type(syn.queue_on_teleport) == "function"
+            and syn.queue_on_teleport)
+        or nil
+
+    if type(queue) == "function" then
+        pcall(queue, [[
+task.wait(1)
+pcall(function()
+    local rf = type(readfile) == "function" and readfile
+    local ff = type(isfile) == "function" and isfile
+    if rf and ff and ff("AutoSkills_Void_AutoRun.lua") then
+        local fn = loadstring(rf("AutoSkills_Void_AutoRun.lua"))
+        if fn then fn() end
+    end
+end)
+]])
+    end
+end
+
+local function detectLobbyForStartup()
+    -- Private gameplay should never enter lobby-only mode.
+    if tostring(game.PrivateServerId or "") ~= "" then
+        return false
+    end
+
+    -- Give the lobby UI a little time to render before deciding.
+    local deadline = os.clock() + 7
+
+    repeat
+        local detected = lobbySignature()
+        if detected then return true end
+        task.wait(0.15)
+    until os.clock() >= deadline
+
+    return false
+end
+
+if detectLobbyForStartup() then
+    local lobbyController = {alive = true}
+
+    function lobbyController.Stop()
+        lobbyController.alive = false
+    end
+
+    environment[slot] = lobbyController
+    lobbyQueueGameplayScript()
+
+    local privateOwner = lobbyLoadOwner()
+
+    print("AutoSkills: LOBBY MODE - only private-server auto join is running.")
+
+    task.spawn(function()
+        local lastPlay = 0
+        local lastMap = 0
+        local lastOwner = 0
+        local lastJoin = 0
+
+        while lobbyController.alive do
+            local _, play, map, ownerBox, join = lobbySignature()
+
+            -- SCREEN 1: PLAY / CUSTOMIZE / HUB / SLOTS.
+            if play and not ownerBox and not join then
+                if os.clock() - lastPlay >= 1.2 then
+                    lastPlay = os.clock()
+                    print("AutoSkills Lobby: clicking PLAY")
+                    lobbyClick(play, 0.10, true)
+                end
+
+                task.wait(0.12)
+                continue
+            end
+
+            -- SCREEN 2. If Ouwland is visible but the private controls are not,
+            -- select its artwork/card.
+            if map and not ownerBox and not join then
+                if os.clock() - lastMap >= 1.2 then
+                    lastMap = os.clock()
+                    print("AutoSkills Lobby: selecting Ouwland")
+                    lobbyClickMapCard(map)
+                end
+
+                task.wait(0.12)
+                continue
+            end
+
+            -- Some builds show the owner/JOIN controls at the same time as the
+            -- Ouwland card. A single card click is still sent before filling it.
+            if map and ownerBox and lastMap == 0 then
+                lastMap = os.clock()
+                lobbyClickMapCard(map)
+                task.wait(0.25)
+            end
+
+            if ownerBox then
+                local current = lobbyNormalize(ownerBox.Text)
+                local wanted = lobbyNormalize(privateOwner)
+
+                if current ~= wanted or os.clock() - lastOwner >= 6 then
+                    lastOwner = os.clock()
+                    print("AutoSkills Lobby: entering private server owner " .. privateOwner)
+                    lobbyFillOwner(ownerBox, privateOwner)
+
+                    -- Give the game's owner lookup/validation time to update JOIN.
+                    task.wait(0.75)
+                end
+            end
+
+            join = lobbyFindJoin() or join
+
+            if join and ownerBox and lobbyNormalize(ownerBox.Text) == lobbyNormalize(privateOwner) then
+                if os.clock() - lastJoin >= 5 then
+                    lastJoin = os.clock()
+                    print("AutoSkills Lobby: holding JOIN")
+
+                    -- JOIN is explicitly hold-to-join. Do not firesignal it.
+                    lobbyClick(join, 3.5, false)
+                end
+            end
+
+            task.wait(0.12)
+        end
+    end)
+
+    -- Critical: no normal script systems are created in lobby mode.
+    return
+end
 
 local State = {
     alive = true, enabled = false, focused = true, minimized = false,

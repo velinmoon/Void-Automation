@@ -3033,6 +3033,7 @@ System = {
     directTriedAt = 0,
     menuNextAt = 0,
     menuStage = "idle",
+    theme = "Default",
 }
 
 do
@@ -3062,6 +3063,7 @@ do
         if type(data.StaticMapScan) == "boolean" then Settings.StaticMapScan = data.StaticMapScan end
         if type(data.AutoRejoin) == "boolean" then Settings.AutoRejoin = data.AutoRejoin end
         if type(data.AutoExecute) == "boolean" then Settings.AutoExecute = data.AutoExecute end
+        if data.Theme == "Blackhole" or data.Theme == "Default" then System.theme = data.Theme end
         if finiteText(data.PrivateServerMap, 80) then Settings.PrivateServerMap = data.PrivateServerMap end
         if finiteText(data.TargetGameId, 40) then System.targetGameId = data.TargetGameId end
         if finiteText(data.LastPrivateJob, 120) then System.lastPrivateJob = data.LastPrivateJob end
@@ -3080,6 +3082,7 @@ do
                 StaticMapScan = Settings.StaticMapScan,
                 AutoRejoin = Settings.AutoRejoin,
                 AutoExecute = Settings.AutoExecute,
+                Theme = System.theme,
                 PrivateServerMap = Settings.PrivateServerMap,
                 TargetGameId = System.targetGameId,
                 LastPrivatePlace = System.lastPrivatePlace,
@@ -3683,6 +3686,8 @@ local C = {
     surface = Color3.fromRGB(16, 8, 29),
     text = Color3.fromRGB(233, 226, 247),
     voidDeep = Color3.fromRGB(11, 6, 22),
+    toggleOn = Color3.fromRGB(88, 48, 124),
+    toggleOff = Color3.fromRGB(32, 24, 43),
 }
 local uiScale = make("UIScale", canvas, {Scale = 1})
 local holder = make("Frame", canvas, {
@@ -4094,6 +4099,12 @@ local function navIcon(parent, kind, x, y, color)
         bar("Stem", 9, 3, 2, 12, 0)
         bar("Left", 5, 4, 7, 2, 45); bar("Right", 8, 4, 7, 2, -45)
         bar("Base", 3, 16, 13, 2, 0)
+    elseif kind == "theme" then
+        local orbit = frame(box, "Orbit", 2, 6, 15, 7, Color3.new(1,1,1), 7)
+        orbit.BackgroundTransparency = 1
+        orbit.Rotation = -18
+        stroke(orbit, color, 0, 1)
+        frame(box, "Void", 7, 7, 5, 5, color, 5)
     else
         local shell = frame(box, "Shell", 3, 3, 13, 13, Color3.new(1,1,1), 2)
         shell.BackgroundTransparency = 1; stroke(shell, color, 0, 1)
@@ -4181,12 +4192,184 @@ connect(RunService.RenderStepped, function()
     end
 end)
 
+
+-- BLACKHOLE V1 visual preset hero. Hidden unless the saved Theme is Blackhole.
+local BH = {}
+BH.hero = frame(panel, "BlackholeHero", 0, 64, W, 152, C.black, 0)
+BH.hero.ZIndex = 4
+BH.hero.ClipsDescendants = true
+BH.hero.Visible = false
+BH.heroStroke = stroke(BH.hero, Color3.fromRGB(150, 120, 230), 0.84, 1)
+BH.atmosphere = frame(BH.hero, "Atmosphere", 0, 0, W, 152, Color3.fromRGB(18, 8, 35), 0)
+BH.atmosphere.BackgroundTransparency = 0.30
+BH.atmosphere.ZIndex = 1
+
+BH.stars = {}
+for i = 1, 20 do
+    local size = (i % 5 == 0) and 2 or 1
+    local star = frame(
+        BH.hero, "Star" .. i,
+        math.random(8, math.max(9, W - 10)),
+        math.random(6, 146),
+        size, size,
+        (i % 4 == 0) and Color3.fromRGB(238,241,251) or Color3.fromRGB(130,110,175),
+        size
+    )
+    star.BackgroundTransparency = 0.25 + math.random() * 0.55
+    star.ZIndex = 2
+    BH.stars[#BH.stars + 1] = {
+        object = star,
+        x = star.Position.X.Offset,
+        y = star.Position.Y.Offset,
+        phase = math.random() * math.pi * 2,
+        twinkle = 0.7 + math.random() * 2.2,
+    }
+end
+
+BH.backA = frame(BH.hero, "BackOrbitA", 0, 0, W, 152, Color3.new(1,1,1), 0)
+BH.backA.BackgroundTransparency = 1
+BH.backA.ZIndex = 3
+BH.backB = frame(BH.hero, "BackOrbitB", 0, 0, W, 152, Color3.new(1,1,1), 0)
+BH.backB.BackgroundTransparency = 1
+BH.backB.ZIndex = 3
+
+BH.coreGlow = frame(BH.hero, "CoreGlow", 0, 0, 90, 90, Color3.fromRGB(72,38,150), 45)
+BH.coreGlow.AnchorPoint = Vector2.new(0.5, 0.5)
+BH.coreGlow.Position = UDim2.fromOffset(W * 0.5, 76)
+BH.coreGlow.BackgroundTransparency = 0.90
+BH.coreGlow.ZIndex = 4
+
+BH.core = frame(BH.hero, "EventHorizon", 0, 0, 56, 56, Color3.new(0,0,0), 28)
+BH.core.AnchorPoint = Vector2.new(0.5, 0.5)
+BH.core.Position = UDim2.fromOffset(W * 0.5, 76)
+BH.core.BackgroundTransparency = 0
+BH.core.ZIndex = 6
+
+BH.horizonSilver = frame(BH.hero, "HorizonSilver", 0, 0, 58, 58, Color3.new(1,1,1), 29)
+BH.horizonSilver.AnchorPoint = Vector2.new(0.5, 0.5)
+BH.horizonSilver.Position = UDim2.fromOffset(W * 0.5, 76)
+BH.horizonSilver.BackgroundTransparency = 1
+BH.horizonSilver.ZIndex = 5
+BH.silverStroke = stroke(BH.horizonSilver, Color3.fromRGB(238,241,251), 0.18, 1.4)
+
+BH.horizonPurple = frame(BH.hero, "HorizonPurple", 0, 0, 58, 58, Color3.new(1,1,1), 29)
+BH.horizonPurple.AnchorPoint = Vector2.new(0.5, 0.5)
+BH.horizonPurple.Position = UDim2.fromOffset(W * 0.5, 76)
+BH.horizonPurple.BackgroundTransparency = 1
+BH.horizonPurple.ZIndex = 5
+BH.purpleStroke = stroke(BH.horizonPurple, Color3.fromRGB(122,63,242), 0.28, 1.2)
+
+BH.front = frame(BH.hero, "FrontOrbit", 0, 0, W, 152, Color3.new(1,1,1), 0)
+BH.front.BackgroundTransparency = 1
+BH.front.ZIndex = 7
+
+function BH.makeOrbit(group, rx, ry, count, width, z, palette, phaseOffset)
+    local data = {group = group, rx = rx, ry = ry, segments = {}}
+    for i = 1, count do
+        local angle = ((i - 1) / count) * math.pi * 2 + (phaseOffset or 0)
+        local segmentLength = math.floor(math.max(20, rx * (0.20 + ((i % 3) * 0.035))))
+        local color = palette[((i - 1) % #palette) + 1]
+        local glow = frame(group, "Glow" .. i, 0, 0, segmentLength + 8, width + 6, color, math.floor((width + 6) / 2))
+        glow.AnchorPoint = Vector2.new(0.5, 0.5)
+        glow.BackgroundTransparency = 0.90
+        glow.ZIndex = z
+        local seg = frame(group, "Segment" .. i, 0, 0, segmentLength, width, color, math.floor(width / 2))
+        seg.AnchorPoint = Vector2.new(0.5, 0.5)
+        seg.BackgroundTransparency = 0.08
+        seg.ZIndex = z + 1
+        data.segments[#data.segments + 1] = {seg = seg, glow = glow, angle = angle, length = segmentLength, width = width}
+    end
+    return data
+end
+
+BH.backRing1 = BH.makeOrbit(
+    BH.backA, 216, 28, 9, 5, 3,
+    {Color3.fromRGB(238,241,251), Color3.fromRGB(160,140,205), Color3.fromRGB(122,63,242), Color3.fromRGB(72,38,130)}, 0.18
+)
+BH.backRing2 = BH.makeOrbit(
+    BH.backB, 166, 20, 7, 3, 3,
+    {Color3.fromRGB(122,63,242), Color3.fromRGB(155,130,215), Color3.fromRGB(238,241,251)}, -0.35
+)
+BH.frontRing = BH.makeOrbit(
+    BH.front, 226, 34, 8, 4, 7,
+    {Color3.fromRGB(42,20,88), Color3.fromRGB(238,241,251), Color3.fromRGB(190,176,230), Color3.fromRGB(122,63,242)}, 0.55
+)
+
+BH.scan = frame(BH.hero, "Scan", 0, -58, W, 54, Color3.fromRGB(238,241,251), 0)
+BH.scan.BackgroundTransparency = 0.965
+BH.scan.ZIndex = 9
+BH.scanGradient = make("UIGradient", BH.scan, {
+    Rotation = 90,
+    Color = ColorSequence.new(Color3.fromRGB(238,241,251), Color3.fromRGB(122,63,242)),
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(0.5, 0.18),
+        NumberSequenceKeypoint.new(1, 1),
+    }),
+})
+
+BH.clock = os.clock()
+BH.last = BH.clock
+connect(RunService.RenderStepped, function()
+    if not State.alive or not BH.hero.Parent or not BH.hero.Visible then return end
+    local now = os.clock()
+    local dt = math.min(now - BH.last, 0.05)
+    BH.last = now
+    local t = now - BH.clock
+    local heroWidth = math.max(420, BH.hero.AbsoluteSize.X)
+    local scale = heroWidth / 420
+    local cx = heroWidth * 0.5
+    local cy = 76
+    BH.core.Position = UDim2.fromOffset(cx, cy)
+    BH.coreGlow.Position = UDim2.fromOffset(cx, cy)
+    BH.horizonSilver.Position = UDim2.fromOffset(cx, cy)
+    BH.horizonPurple.Position = UDim2.fromOffset(cx, cy)
+
+    for _, star in ipairs(BH.stars) do
+        star.y = star.y + dt * 1.5
+        if star.y > 148 then star.y = 4 end
+        star.object.Position = UDim2.fromOffset(star.x, star.y)
+        star.object.BackgroundTransparency = 0.25 + (math.sin(t * star.twinkle + star.phase) + 1) * 0.28
+    end
+
+    BH.backA.Rotation = (t * 6) % 360
+    BH.backB.Rotation = (-t * 4.4) % 360
+    BH.front.Rotation = (-t * 7.5) % 360
+
+    local pulse = (math.sin(t * 1.25) + 1) * 0.5
+    BH.coreGlow.Size = UDim2.fromOffset(82 + math.floor(pulse * 18), 82 + math.floor(pulse * 18))
+    BH.coreGlow.BackgroundTransparency = 0.94 - pulse * 0.08
+    BH.silverStroke.Transparency = 0.16 + pulse * 0.18
+    BH.purpleStroke.Transparency = 0.28 + (1 - pulse) * 0.20
+
+    for _, ring in ipairs({BH.backRing1, BH.backRing2, BH.frontRing}) do
+        for _, seg in ipairs(ring.segments) do
+            local angle = seg.angle
+            local rx, ry = ring.rx * scale, ring.ry
+            local x = cx + math.cos(angle) * rx
+            local y = cy + math.sin(angle) * ry
+            local tx, ty = -rx * math.sin(angle), ry * math.cos(angle)
+            local rotation = math.deg(math.atan2(ty, tx))
+            seg.seg.Size = UDim2.fromOffset(math.floor(seg.length * scale), seg.width)
+            seg.glow.Size = UDim2.fromOffset(math.floor(seg.length * scale) + 8, seg.width + 6)
+            seg.seg.Position = UDim2.fromOffset(x, y)
+            seg.seg.Rotation = rotation
+            seg.glow.Position = UDim2.fromOffset(x, y)
+            seg.glow.Rotation = rotation
+            seg.glow.BackgroundTransparency = 0.86 + (math.sin(t * 1.6 + angle * 2) + 1) * 0.05
+        end
+    end
+
+    BH.scan.Position = UDim2.fromOffset(0, -58 + ((t * 34) % 268))
+    BH.scanGradient.Offset = Vector2.new(0, ((t * 0.14) % 2) - 1)
+end)
+
 local tabs = frame(panel, "Nav", 0, 88, W, 64, C.black, 0)
 tabs.BackgroundTransparency = 0.35
 tabs.ZIndex = 5
 stroke(tabs, C.line, 0.55, 1)
-local navNames = {"Skills", "ESP", "Health", "Farm", "Move", "System"}
-local navKinds = {"skills", "esp", "health", "farm", "move", "system"}
+local navNames = {"Skills", "ESP", "Health", "Farm", "Move", "System", "Theme"}
+local navKinds = {"skills", "esp", "health", "farm", "move", "system", "theme"}
 local navButtons = {}
 UI.navStrokes, UI.navBars = {}, {}
 local navX, navW, navGap = 12, 61, 6
@@ -4212,6 +4395,7 @@ UI.healthTab = navButtons.Health
 UI.farmTab = navButtons.Farm
 UI.moveTab = navButtons.Move
 UI.systemTab = navButtons.System
+UI.themeTab = navButtons.Theme
 
 local content = make("Frame", panel, {
     Name = "Content", Position = UDim2.fromOffset(0, 152), Size = UDim2.fromOffset(W, H - 152),
@@ -4419,6 +4603,54 @@ connect(UI.privateMapBox.FocusLost, function()
     render()
 end)
 
+local ThemeUI = {page = newPage("Theme")}
+pageHead(ThemeUI.page, "theme", "THEME", "DISPLAY")
+local themeInfo = frame(ThemeUI.page, "ThemeInfo", 16, 48, W - 32, 54, Color3.fromRGB(18,10,30), 10)
+stroke(themeInfo, C.line, 0.72, 1)
+safeText(themeInfo, "Name", "ACTIVE PRESET", 12, 7, 130, 16, 9, C.faint, Enum.Font.GothamBold)
+ThemeUI.activeLabel = safeText(themeInfo, "Active", "DEFAULT", 12, 25, 180, 20, 13, C.ink, Enum.Font.GothamBold)
+ThemeUI.activeLabel.TextStrokeTransparency = 0.88
+safeText(themeInfo, "Desc", "Saved automatically for the next execution.", 160, 17, W - 188, 30, 9, C.faint, Enum.Font.GothamMedium)
+
+function ThemeUI.makePreset(y, title, desc, themeName)
+    local row = frame(ThemeUI.page, "Preset_" .. themeName, 16, y, W - 32, 62, Color3.fromRGB(18,10,30), 10)
+    local rowStroke = stroke(row, C.line, 0.72, 1)
+    local icon = frame(row, "Icon", 12, 13, 36, 36, C.black, 18)
+    icon.BackgroundTransparency = 0.18
+    stroke(icon, C.violet2, 0.48, 1)
+    if themeName == "Blackhole" then
+        local orb = frame(icon, "Orb", 9, 9, 18, 18, Color3.new(0,0,0), 9)
+        orb.BackgroundTransparency = 0
+        stroke(orb, Color3.fromRGB(238,241,251), 0.32, 1)
+        local orbit = frame(icon, "Orbit", 4, 15, 28, 8, Color3.new(1,1,1), 4)
+        orbit.BackgroundTransparency = 1
+        orbit.Rotation = -16
+        stroke(orbit, C.violet2, 0.30, 1)
+    else
+        local core = frame(icon, "Core", 11, 11, 14, 14, C.violet2, 7)
+        core.BackgroundTransparency = 0.25
+        stroke(core, C.cyan, 0.45, 1)
+    end
+    safeText(row, "Title", title, 60, 8, 190, 18, 12.5, C.ink, Enum.Font.GothamBold)
+    safeText(row, "Desc", desc, 60, 28, 205, 18, 9.5, C.faint, Enum.Font.GothamMedium)
+    local select = button(row, "Select", "SELECT", W - 104, 14, 76, 34, C.panel2, 9)
+    select.TextColor3 = C.faint
+    stroke(select, C.line, 0.58, 1)
+    connect(select.Activated, function()
+        if UI.setTheme then UI.setTheme(themeName) end
+    end)
+    return row, select, rowStroke
+end
+
+ThemeUI.defaultRow, ThemeUI.defaultButton = ThemeUI.makePreset(
+    114, "Default", "Original Void Nexus interface", "Default"
+)
+ThemeUI.blackholeRow, ThemeUI.blackholeButton = ThemeUI.makePreset(
+    186, "Blackhole V1", "HTML-matched black-hole reactor interface", "Blackhole"
+)
+ThemeUI.hint = safeText(ThemeUI.page, "Hint", "Theme changes are saved immediately.", 16, 258, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+ThemeUI.hint.TextXAlignment = Enum.TextXAlignment.Center
+
 UI.count = safeText(skillsPage, "Count", "4 / 4 ENABLED", 0, 0, 1, 1, 1, C.dim)
 UI.cycle = safeText(skillsPage, "Cycle", "", 0, 0, 1, 1, 1, C.dim)
 UI.status = safeText(skillsPage, "Status", "STANDBY", 0, 0, 1, 1, 1, C.dim)
@@ -4458,7 +4690,7 @@ UI.footerConnected.Visible = false
 local footerDot = frame(panel, "FooterDot", 0, 0, 1, 1, C.green, 1)
 footerDot.Visible = false
 
-local pageMap = {Skills = skillsPage, ESP = espPage, Health = healthPage, Farm = farmPage, Move = movePage, System = systemPage}
+local pageMap = {Skills = skillsPage, ESP = espPage, Health = healthPage, Farm = farmPage, Move = movePage, System = systemPage, Theme = ThemeUI.page}
 local pageBaseY = 0
 
 local function showPage(key)
@@ -4515,6 +4747,7 @@ end
 local resizeGrip
 local windowPlaced = false
 local MIN_WINDOW_WIDTH = W
+local windowHeight = H
 
 resizeGrip = button(panel, "ResizeGrip", "", W - 28, H - 28, 28, 28, C.panel, 1)
 resizeGrip.BackgroundTransparency = 1
@@ -4540,8 +4773,9 @@ end
 local function applyWindowWidth(width)
     windowWidth = math.max(MIN_WINDOW_WIDTH, math.floor(width + 0.5))
     setObjectWidth(holder, windowWidth)
-    setObjectWidth(shadow, windowWidth + 12)
-    setObjectWidth(panel, windowWidth)
+    holder.Size = UDim2.fromOffset(windowWidth, windowHeight)
+    shadow.Size = UDim2.fromOffset(windowWidth + 12, windowHeight + 12)
+    panel.Size = UDim2.fromOffset(windowWidth, windowHeight)
     setObjectWidth(header, windowWidth)
     headerLine.Size = UDim2.fromOffset(windowWidth, 1)
     statusDot.Position = UDim2.fromOffset(windowWidth - 84, 27)
@@ -4553,10 +4787,21 @@ local function applyWindowWidth(width)
     setObjectWidth(content, windowWidth)
     setObjectWidth(panelBackdrop, windowWidth)
     setObjectWidth(voidFX, windowWidth)
+    if System.theme == "Blackhole" then
+        BH.hero.Size = UDim2.fromOffset(windowWidth, 152)
+        tabs.Position = UDim2.fromOffset(0, 216)
+        content.Position = UDim2.fromOffset(0, 280)
+        content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
+    else
+        tabs.Position = UDim2.fromOffset(0, 88)
+        content.Position = UDim2.fromOffset(0, 152)
+        content.Size = UDim2.fromOffset(windowWidth, windowHeight - 152)
+    end
     resizeVoidEffects(windowWidth)
 
-    local availableNav = math.max(240, windowWidth - 24 - navGap * 5)
-    local dynamicNavW = math.floor(availableNav / 6)
+    local navCount = #navNames
+    local availableNav = math.max(240, windowWidth - 24 - navGap * math.max(0, navCount - 1))
+    local dynamicNavW = math.floor(availableNav / navCount)
     for i, key in ipairs(navNames) do
         local tab = navButtons[key]
         if tab then
@@ -4596,7 +4841,7 @@ local function applyWindowWidth(width)
             end
         end
     end
-    resizeGrip.Position = UDim2.fromOffset(windowWidth - 28, H - 28)
+    resizeGrip.Position = UDim2.fromOffset(windowWidth - 28, windowHeight - 28)
 end
 
 local function fitWindow(centerIfNeeded)
@@ -4606,7 +4851,7 @@ local function fitWindow(centerIfNeeded)
     local maxWidth = math.max(MIN_WINDOW_WIDTH, viewport.X - 16)
     windowWidth = math.clamp(windowWidth, MIN_WINDOW_WIDTH, maxWidth)
     applyWindowWidth(windowWidth)
-    local width, height = windowWidth, H
+    local width, height = windowWidth, windowHeight
     local x, y
     if centerIfNeeded or not windowPlaced then
         x = (viewport.X - width) / 2
@@ -4621,6 +4866,217 @@ local function fitWindow(centerIfNeeded)
     windowPlaced = true
 end
 
+local Theme = {
+    Default = {
+        black = C.black, deep = C.deep, panel = C.panel, panel2 = C.panel2,
+        violet = C.violet, violet2 = C.violet2, magenta = C.magenta, cyan = C.cyan,
+        ink = C.ink, dim = C.dim, faint = C.faint, line = C.line,
+        accent = C.accent, bright = C.bright, muted = C.muted, surface = C.surface,
+        text = C.text, voidDeep = C.voidDeep, toggleOn = C.toggleOn, toggleOff = C.toggleOff,
+    },
+    Blackhole = {
+        black = Color3.fromRGB(0,0,0),
+        deep = Color3.fromRGB(8,8,12),
+        panel = Color3.fromRGB(8,8,12),
+        panel2 = Color3.fromRGB(4,4,7),
+        violet = Color3.fromRGB(74,37,144),
+        violet2 = Color3.fromRGB(122,63,242),
+        magenta = Color3.fromRGB(90,45,170),
+        cyan = Color3.fromRGB(238,241,251),
+        ink = Color3.fromRGB(236,234,245),
+        dim = Color3.fromRGB(150,146,170),
+        faint = Color3.fromRGB(85,80,105),
+        line = Color3.fromRGB(150,120,230),
+        accent = Color3.fromRGB(122,63,242),
+        bright = Color3.fromRGB(238,241,251),
+        muted = Color3.fromRGB(150,146,170),
+        surface = Color3.fromRGB(8,8,12),
+        text = Color3.fromRGB(236,234,245),
+        voidDeep = Color3.fromRGB(4,4,7),
+        toggleOn = Color3.fromRGB(70,38,125),
+        toggleOff = Color3.fromRGB(24,24,31),
+    },
+    height = H,
+    current = nil,
+}
+
+function Theme.copy(source)
+    for key, value in pairs(source) do C[key] = value end
+end
+
+function Theme.restyleText()
+    local bh = System.theme == "Blackhole"
+    for _, obj in ipairs(panel:GetDescendants()) do
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+            if obj.Name == "Desc" or obj.Name == "Sub" or obj.Name == "Modules" or obj.Name == "Hint"
+                or obj.Name == "Status" or obj.Name == "Percent" or obj.Name == "ScanStatus"
+                or obj.Name == "RejoinStatus" then
+                obj.TextColor3 = C.faint
+            elseif obj.Name == "Value" then
+                obj.TextColor3 = C.cyan
+            elseif obj.Name ~= "Status" then
+                obj.TextColor3 = C.ink
+            end
+            if bh and obj:IsA("TextButton") and obj.Name ~= "Status" then obj.AutoButtonColor = false end
+        end
+    end
+end
+
+function Theme.restyleRows()
+    for _, page in pairs(pageMap) do
+        for _, child in ipairs(page:GetChildren()) do
+            if child.Name:match("^Row_") or child.Name:match("^Slider_") or child.Name == "KeyLoadout"
+                or child.Name == "ThemeInfo" or child.Name:match("^Preset_") then
+                child.BackgroundColor3 = C.panel2
+                local st = child:FindFirstChildOfClass("UIStroke")
+                if st then st.Color = C.line end
+            end
+        end
+    end
+    for _, view in ipairs(toggleViews) do
+        view.track.BackgroundColor3 = view.getter() and C.toggleOn or C.toggleOff
+        view.knob.BackgroundColor3 = view.getter() and C.cyan or C.faint
+        local st = view.track:FindFirstChildOfClass("UIStroke")
+        if st then st.Color = C.line end
+    end
+    for _, view in ipairs(sliders) do
+        view.fill.BackgroundColor3 = C.violet2
+        view.knob.BackgroundColor3 = C.cyan
+        local rail = view.hit:FindFirstChild("Rail")
+        if rail then rail.BackgroundColor3 = C.toggleOff end
+    end
+end
+
+function Theme.apply(themeName)
+    if themeName ~= "Blackhole" then themeName = "Default" end
+    System.theme = themeName
+    local bh = themeName == "Blackhole"
+    Theme.current = bh and Theme.Blackhole or Theme.Default
+    Theme.copy(Theme.current)
+
+    if bh then
+        Theme.height = 600
+        windowHeight = Theme.height
+        holder.Size = UDim2.fromOffset(windowWidth, windowHeight)
+        shadow.Size = UDim2.fromOffset(windowWidth + 12, windowHeight + 12)
+        panel.Size = UDim2.fromOffset(windowWidth, windowHeight)
+        panel.BackgroundColor3 = C.panel
+        panel.BackgroundTransparency = 0.18
+        panelStroke.Color = C.line
+        panelStroke.Transparency = 0.72
+        panelBackdrop.Visible = false
+        voidFX.Visible = false
+        ticker.Visible = false
+        header.Position = UDim2.fromOffset(0, 0)
+        header.Size = UDim2.fromOffset(windowWidth, 64)
+        headerLine.BackgroundColor3 = C.line
+        headerLine.BackgroundTransparency = 0.70
+        brandTitle.Text = "BLACKHOLE V1"
+        brandTitle.TextColor3 = C.ink
+        header:FindFirstChild("Sub").Text = "REACTOR ONLINE"
+        BH.hero.Visible = true
+        BH.hero.Position = UDim2.fromOffset(0, 64)
+        BH.hero.Size = UDim2.fromOffset(windowWidth, 152)
+        BH.hero.BackgroundColor3 = C.black
+        BH.heroStroke.Color = C.line
+        BH.heroStroke.Transparency = 0.82
+        tabs.Position = UDim2.fromOffset(0, 216)
+        tabs.BackgroundColor3 = C.black
+        tabs.BackgroundTransparency = 0.28
+        content.Position = UDim2.fromOffset(0, 280)
+        content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
+        edgeSheen.BackgroundColor3 = C.cyan
+        BH.atmosphere.BackgroundColor3 = Color3.fromRGB(12,8,20)
+    else
+        Theme.height = H
+        windowHeight = Theme.height
+        holder.Size = UDim2.fromOffset(windowWidth, windowHeight)
+        shadow.Size = UDim2.fromOffset(windowWidth + 12, windowHeight + 12)
+        panel.Size = UDim2.fromOffset(windowWidth, windowHeight)
+        panel.BackgroundColor3 = C.panel
+        panel.BackgroundTransparency = 0.40
+        panelStroke.Color = C.violet2
+        panelStroke.Transparency = 0.28
+        panelBackdrop.Visible = true
+        voidFX.Visible = true
+        ticker.Visible = true
+        header.Position = UDim2.fromOffset(0, 0)
+        header.Size = UDim2.fromOffset(windowWidth, 64)
+        headerLine.BackgroundColor3 = C.violet
+        headerLine.BackgroundTransparency = 0.48
+        brandTitle.Text = "VOID NEXUS"
+        brandTitle.TextColor3 = C.ink
+        header:FindFirstChild("Sub").Text = "CORE LINK STABLE"
+        BH.hero.Visible = false
+        tabs.Position = UDim2.fromOffset(0, 88)
+        tabs.BackgroundColor3 = C.black
+        tabs.BackgroundTransparency = 0.35
+        content.Position = UDim2.fromOffset(0, 152)
+        content.Size = UDim2.fromOffset(windowWidth, windowHeight - 152)
+        edgeSheen.BackgroundColor3 = C.cyan
+    end
+
+    brandmark.BackgroundColor3 = C.panel2
+    local brandStroke = brandmark:FindFirstChildOfClass("UIStroke")
+    if brandStroke then brandStroke.Color = C.violet2 end
+    markCore.BackgroundColor3 = C.violet2
+    markH.BackgroundColor3 = C.violet2
+    markV.BackgroundColor3 = C.cyan
+    ticker.BackgroundColor3 = C.black
+    tickerText.TextColor3 = C.faint
+    tabs:FindFirstChildOfClass("UIStroke").Color = C.line
+    edgeSheenGradient.Color = ColorSequence.new(C.cyan, C.violet2)
+
+    for key, tab in pairs(navButtons) do
+        tab.BackgroundColor3 = bh and C.panel2 or Color3.fromRGB(8,4,16)
+        local st = UI.navStrokes[key]
+        if st then st.Color = C.line end
+        local bar = UI.navBars[key]
+        if bar then bar.BackgroundColor3 = C.violet2 end
+    end
+    Theme.restyleRows()
+    Theme.restyleText()
+
+    if ThemeUI.activeLabel then
+        ThemeUI.activeLabel.Text = bh and "BLACKHOLE V1" or "DEFAULT"
+        ThemeUI.activeLabel.TextColor3 = C.ink
+    end
+    if ThemeUI.defaultButton then
+        ThemeUI.defaultButton.BackgroundColor3 = bh and C.panel2 or C.violet2
+        ThemeUI.defaultButton.TextColor3 = bh and C.faint or C.ink
+    end
+    if ThemeUI.blackholeButton then
+        ThemeUI.blackholeButton.BackgroundColor3 = bh and C.violet2 or C.panel2
+        ThemeUI.blackholeButton.TextColor3 = bh and C.ink or C.faint
+    end
+    if ThemeUI.defaultRow then
+        local st = ThemeUI.defaultRow:FindFirstChildOfClass("UIStroke")
+        if st then st.Color = bh and C.line or C.violet2 end
+    end
+    if ThemeUI.blackholeRow then
+        local st = ThemeUI.blackholeRow:FindFirstChildOfClass("UIStroke")
+        if st then st.Color = bh and C.violet2 or C.line end
+    end
+    if bh then
+        BH.core.BackgroundColor3 = Color3.new(0,0,0)
+        BH.coreGlow.BackgroundColor3 = Color3.fromRGB(65,35,135)
+        BH.silverStroke.Color = Color3.fromRGB(238,241,251)
+        BH.purpleStroke.Color = Color3.fromRGB(122,63,242)
+    end
+
+    applyWindowWidth(windowWidth)
+    fitWindow(false)
+    render()
+end
+
+UI.setTheme = function(themeName)
+    Theme.apply(themeName)
+    if type(System.savePrefs) == "function" then System.savePrefs() end
+    notify("Theme saved: " .. System.theme)
+    render()
+end
+
+
 local function renderPageState()
     if not State.alive then return end
     local running, statusName, description = availability()
@@ -4631,6 +5087,7 @@ local function renderPageState()
         or State.tab == "ESP" and (Settings.ESPEnabled and "ESP" or "SYNCED")
         or State.tab == "Health" and (Settings.HealthEscapeEnabled and "HP" or "SYNCED")
         or State.tab == "Move" and (Settings.FlyEnabled and "FLY" or Settings.NoClip and "MOVE" or "SYNCED")
+        or State.tab == "Theme" and (System.theme == "Blackhole" and "BLACKHOLE" or "DEFAULT")
         or "SYNCED")
     UI.badge.TextColor3 = mainColor
     statusDot.BackgroundColor3 = mainColor
@@ -4687,7 +5144,7 @@ local function renderPageState()
         local value = view.getter()
         if view.last ~= value then
             view.last = value
-            view.track.BackgroundColor3 = value and Color3.fromRGB(88, 48, 124) or Color3.fromRGB(32, 24, 43)
+            view.track.BackgroundColor3 = value and C.toggleOn or C.toggleOff
             view.knob.Position = UDim2.fromOffset(value and 22 or 3, 3)
             view.knob.BackgroundColor3 = value and C.cyan or C.faint
         end
@@ -4760,6 +5217,7 @@ end)
 connect(canvas:GetPropertyChangedSignal("AbsoluteSize"), function() fitWindow(false) end)
 fitWindow(true)
 render()
+pcall(function() Theme.apply(System.theme) end)
 
 do
     local __loaderLayer
@@ -4780,10 +5238,10 @@ do
     local loadScale = make("UIScale", loadCard, {Scale = 0.72})
     TweenService:Create(loadScale, TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
 
-    local loadTitle = safeText(loadCard, "Title", "VOID NEXUS", 0, 14, 320, 22, 17, C.ink, Enum.Font.GothamBold)
+    local loadTitle = safeText(loadCard, "Title", System.theme == "Blackhole" and "BLACKHOLE V1" or "VOID NEXUS", 0, 14, 320, 22, 17, C.ink, Enum.Font.GothamBold)
     loadTitle.TextXAlignment = Enum.TextXAlignment.Center
     loadTitle.ZIndex = 103
-    local loadSub = safeText(loadCard, "Sub", "CORE INITIALIZATION", 0, 38, 320, 16, 8, C.dim, Enum.Font.GothamBold)
+    local loadSub = safeText(loadCard, "Sub", System.theme == "Blackhole" and "REACTOR ONLINE" or "CORE INITIALIZATION", 0, 38, 320, 16, 8, C.dim, Enum.Font.GothamBold)
     loadSub.TextXAlignment = Enum.TextXAlignment.Center
     loadSub.ZIndex = 103
 
@@ -4927,7 +5385,7 @@ do
     local coreScale2 = make("UIScale", coreGlow2, {Scale = 1})
     local coreScale3 = make("UIScale", coreGlow3, {Scale = 1})
 
-    local loadStatus = safeText(loadCard, "Status", "ESTABLISHING VOID LINK...", 0, 270, 320, 18, 9, C.cyan, Enum.Font.GothamBold)
+    local loadStatus = safeText(loadCard, "Status", System.theme == "Blackhole" and "ESTABLISHING VOID LINK..." or "ESTABLISHING VOID LINK...", 0, 270, 320, 18, 9, C.cyan, Enum.Font.GothamBold)
     loadStatus.TextXAlignment = Enum.TextXAlignment.Center
     loadStatus.ZIndex = 121
     local loadRail = frame(loadCard, "Rail", 36, 302, 248, 4, Color3.fromRGB(42, 25, 62), 2)
@@ -4940,7 +5398,13 @@ do
 
     local loadStart = os.clock()
     local loadDuration = 2.20
-    local loadStages = {
+    local loadStages = System.theme == "Blackhole" and {
+        {0.00, "ESTABLISHING VOID LINK..."},
+        {0.23, "CALIBRATING GRAVITY WELL..."},
+        {0.48, "SYNCHRONIZING ORBITAL RINGS..."},
+        {0.72, "LOADING BLACKHOLE MODULES..."},
+        {0.91, "REACTOR ONLINE"},
+    } or {
         {0.00, "ESTABLISHING VOID LINK..."},
         {0.23, "CALIBRATING GRAVITY WELL..."},
         {0.48, "SYNCHRONIZING ORBITAL RINGS..."},
@@ -5026,7 +5490,7 @@ do
 
         if progress >= 1 then
             loadAnimConn:Disconnect()
-            loadStatus.Text = "CORE LINK STABLE"
+            loadStatus.Text = System.theme == "Blackhole" and "REACTOR ONLINE" or "CORE LINK STABLE"
             task.wait(0.10)
             if not State.alive then return end
 

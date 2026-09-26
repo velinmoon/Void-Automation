@@ -7,7 +7,7 @@ local __AUTOSKILLS_SOURCE = [====[
 -- Z / X / C / V only. B is not used. Starts OFF.
 -- Requires the same virtual-input support as the original script.
 -- Repeats keypresses, not cooldown detection. Equip your tool and aim normally.
--- All UI is built locally. Cyan side-navigation control-panel layout; no downloaded UI libraries or assets.
+-- All UI is built locally. Space/void side-navigation control-panel layout; no downloaded UI libraries or assets.
 -- Player ESP uses available character models; it cannot reveal unloaded characters.
 -- Health Escape: moves your character exactly 70 studs UP in world space.
 -- Uses CURRENT Health / MaxHealth, including live maximum-health changes.
@@ -928,32 +928,63 @@ do
             or math.abs(hp) == math.huge or maximum <= 0 or maximum == math.huge then return nil end
         return hp, maximum, humanoid, rootPart and rootPart:IsA("BasePart") and rootPart or nil
     end
+    local humanoidCache = setmetatable({}, {__mode = "k"})
+    local humanoidCacheReady = false
+    local function cacheHumanoid(object)
+        if object and object:IsA("Humanoid") then humanoidCache[object] = true end
+    end
+    connect(World.DescendantAdded, function(object) cacheHumanoid(object) end)
+    connect(World.DescendantRemoving, function(object)
+        if object and object:IsA("Humanoid") then humanoidCache[object] = nil end
+    end)
+    task.spawn(function()
+        local list = World:GetDescendants()
+        for i, object in ipairs(list) do
+            cacheHumanoid(object)
+            if i % 1800 == 0 then task.wait() end
+        end
+        humanoidCacheReady = true
+    end)
+
     function Farm.scan(force)
         if not force and os.clock() < Farm.nextScan then return end
-        Farm.nextScan = os.clock() + 2
+        Farm.nextScan = os.clock() + 2.25
         local found, seen = {}, {}
         Farm.scanned = 0
-        for _, object in ipairs(World:GetDescendants()) do
-            if object:IsA("Humanoid") then
-                local model = rigModel(object)
-                if model and not seen[model] and not isPlayer(model) then
-                    seen[model] = true
-                    Farm.scanned = Farm.scanned + 1
-                    local record = {model = model, humanoid = object, root = rigRoot(model, object), path = path(model)}
-                    local hp, maximum = Farm.read(record)
-                    if hp and attackHealthAllowed(maximum) then
-                        if not ids[model] then nextID = nextID + 1; ids[model] = nextID end
-                        local gameID = model:GetAttribute("BossId") or model:GetAttribute("BossID")
-                            or model:GetAttribute("NPCId") or model:GetAttribute("Id")
-                        local display = model:GetAttribute("NPCName") or model:GetAttribute("BossName")
-                            or model:GetAttribute("DisplayName") or object.DisplayName
-                        record.name = type(display) == "string" and display ~= "" and display ~= "Humanoid" and display or model.Name
-                        record.id = gameID ~= nil and ("Game ID: " .. tostring(gameID)) or ("Session ID: " .. ids[model])
-                        found[#found + 1] = record
-                    end
+
+        local function inspect(object)
+            if not object or not object.Parent or not object:IsA("Humanoid") then return end
+            local model = rigModel(object)
+            if model and not seen[model] and not isPlayer(model) then
+                seen[model] = true
+                Farm.scanned = Farm.scanned + 1
+                local record = {model = model, humanoid = object, root = rigRoot(model, object), path = path(model)}
+                local hp, maximum = Farm.read(record)
+                if hp and attackHealthAllowed(maximum) then
+                    if not ids[model] then nextID = nextID + 1; ids[model] = nextID end
+                    local gameID = model:GetAttribute("BossId") or model:GetAttribute("BossID")
+                        or model:GetAttribute("NPCId") or model:GetAttribute("Id")
+                    local display = model:GetAttribute("NPCName") or model:GetAttribute("BossName")
+                        or model:GetAttribute("DisplayName") or object.DisplayName
+                    record.name = type(display) == "string" and display ~= "" and display ~= "Humanoid" and display or model.Name
+                    record.id = gameID ~= nil and ("Game ID: " .. tostring(gameID)) or ("Session ID: " .. ids[model])
+                    found[#found + 1] = record
                 end
             end
         end
+
+        if humanoidCacheReady then
+            for object in pairs(humanoidCache) do inspect(object) end
+        else
+            -- Only the first scan can use a full descendant pass; the cache then
+            -- takes over so teleports/streaming do not rescan the whole map.
+            for _, object in ipairs(World:GetDescendants()) do
+                cacheHumanoid(object)
+                inspect(object)
+            end
+            humanoidCacheReady = true
+        end
+
         if Farm.scanMarkers then Farm.scanMarkers() end
         Farm.remember(found)
         table.sort(found, function(a,b) return a.path < b.path end)
@@ -1442,29 +1473,31 @@ do
     local LOOT_OLD_HORIZONTAL_RADIUS = 60
     local LOOT_NEW_HORIZONTAL_RADIUS = 250
     local LOOT_VERTICAL_RADIUS = 400
+
     local function endPrompt()
         if loot and loot.holding then
-            local prompt = loot.holding; loot.holding = nil
+            local prompt = loot.holding
+            loot.holding = nil
             pcall(function() prompt:InputHoldEnd() end)
         end
     end
+
     function Farm.clearLoot()
         endPrompt()
-        if loot and loot.spawnConnection then
-            loot.spawnConnection:Disconnect()
-            loot.spawnConnection = nil
-        end
         loot = nil
         if deathConnection then deathConnection:Disconnect(); deathConnection = nil end
         watched, lastTargetPosition = nil, nil
     end
+
     function Farm.setLoot(value)
         Settings.FarmAutoLoot = value
         if not value then Farm.clearLoot() end
     end
+
     local function beginLoot(position)
         if not Settings.FarmEnabled or not Settings.FarmAutoLoot or not State.alive or loot then return end
-        Farm.stopM1(); Farm.restoreHitbox(); State.farming = false; releaseOrPause()
+        Farm.stopM1(); Farm.restoreHitbox(); State.farming = false
+        releaseOrPause()
 
         loot = {
             center = position,
@@ -1473,59 +1506,31 @@ do
             nextScan = 0,
             tries = {},
             count = 0,
-            changed = true,
+            preexisting = setmetatable({}, {__mode = "k"}),
             excludedModels = {},
-            fresh = setmetatable({}, {__mode = "k"}),
             message = "Waiting for boss drops near the kill.",
         }
+
         for _, record in ipairs(Farm.records) do
             if record.model then loot.excludedModels[record.model] = true end
         end
 
-        -- Only mark likely loot objects as fresh. The old handler marked up to
-        -- eight ancestors for EVERY new Workspace descendant. Opening a world
-        -- chest can create hundreds of descendants at once, which caused a
-        -- noticeable client hitch.
-        loot.spawnConnection = World.DescendantAdded:Connect(function(object)
-            if not loot then return end
-
-            local relevant = object:IsA("BasePart")
-                or object:IsA("Model")
-                or object:IsA("Tool")
-                or object:IsA("ProximityPrompt")
-                or object:IsA("ClickDetector")
-
-            if not relevant then return end
-
-            local marked = object:IsA("Tool")
-            if object:GetAttribute("IsLoot") == true or object:GetAttribute("Collectible") == true then
-                marked = true
-            end
-
-            local name = string.lower(object.Name)
-            if name:find("chest", 1, true) or name:find("loot", 1, true)
-                or name:find("drop", 1, true) or name:find("pickup", 1, true)
-                or name:find("collect", 1, true) then
-                marked = true
-            end
-
-            -- Prompts/detectors are always useful candidates. Generic models
-            -- are still picked up by the spatial loot query below.
-            marked = marked or object:IsA("ProximityPrompt") or object:IsA("ClickDetector")
-            if not marked then return end
-
-            local node = object
-            for _ = 1, 5 do
-                if not node or node == World then break end
-                loot.fresh[node] = true
-                node = node.Parent
-            end
-            loot.changed = true
+        -- Snapshot nearby parts ONCE. We no longer listen to every Workspace
+        -- DescendantAdded event while a chest opens; that event storm was one of
+        -- the biggest sources of the post-kill hitch.
+        local ok, parts = pcall(function()
+            return World:GetPartBoundsInRadius(position, LOOT_NEW_HORIZONTAL_RADIUS)
         end)
+        if ok and type(parts) == "table" then
+            for _, part in ipairs(parts) do
+                if part and part:IsA("BasePart") then loot.preexisting[part] = true end
+            end
+        end
 
         if deathConnection then deathConnection:Disconnect(); deathConnection = nil end
         watched, lastTargetPosition = nil, nil
     end
+
     local function watchTarget(record, part)
         lastTargetPosition = part.Position
         if watched == record.humanoid then return end
@@ -1538,30 +1543,41 @@ do
             end
         end)
     end
+
     local function lootPart(object)
         if not object then return nil end
         if object:IsA("BasePart") then return object end
         if object:IsA("Attachment") then return lootPart(object.Parent) end
         if object:IsA("Model") and object.PrimaryPart then return object.PrimaryPart end
-        for _, child in ipairs(object:GetDescendants()) do if child:IsA("BasePart") then return child end end
+        return object:FindFirstChildWhichIsA("BasePart", true)
     end
+
     local function lootIdentity(object)
-        local node, entity, part, marked = object, nil, nil, false
-        while node and node ~= World do
-            if isPlayer(node) then return nil end
-            if node:IsA("Model") and node:FindFirstChildOfClass("Humanoid") then return nil end
-            if loot and loot.excludedModels and loot.excludedModels[node] then return nil end
-            if not entity and (node:IsA("Model") or node:IsA("Tool")) then entity = node end
-            if not part and node:IsA("BasePart") then part = node end
-            local name = string.lower(node.Name)
-            marked = marked or node:IsA("Tool") or node:GetAttribute("IsLoot") == true
-                or node:GetAttribute("Collectible") == true or name:find("chest", 1, true)
-                or name:find("loot", 1, true) or name:find("drop", 1, true)
-                or name:find("pickup", 1, true) or name:find("collect", 1, true)
-            node = node.Parent
+        if not object then return nil end
+        local entity
+        if object:IsA("Model") or object:IsA("Tool") then
+            entity = object
+        else
+            entity = object:FindFirstAncestorOfClass("Model")
+                or object:FindFirstAncestorOfClass("Tool")
+                or object
         end
-        return entity or part, marked
+        if not entity or not inWorld(entity) then return nil end
+        if loot and loot.excludedModels and loot.excludedModels[entity] then return nil end
+        if entity:IsA("Model") and entity:FindFirstChildOfClass("Humanoid") then return nil end
+        if isPlayer(entity) then return nil end
+
+        local marked = entity:IsA("Tool")
+            or entity:GetAttribute("IsLoot") == true
+            or entity:GetAttribute("Collectible") == true
+        local name = string.lower(entity.Name)
+        marked = marked or name:find("chest", 1, true) or name:find("loot", 1, true)
+            or name:find("drop", 1, true) or name:find("pickup", 1, true)
+            or name:find("collect", 1, true)
+        if object:IsA("ProximityPrompt") or object:IsA("ClickDetector") then marked = true end
+        return entity, marked
     end
+
     local function allowedPrompt(prompt)
         local action = string.lower(prompt.ActionText or "")
         for _, word in ipairs({"buy", "purchase", "trade", "sell", "quest", "talk", "teleport", "travel", "upgrade"}) do
@@ -1571,47 +1587,39 @@ do
             or action:find("loot", 1, true) or action:find("claim", 1, true)
         return action == "" or action:find("open", 1, true) or pickup, pickup
     end
+
     local function lootDistanceOK(part, entity)
         if not loot or not part then return false, false, math.huge end
-
         local delta = part.Position - loot.center
         local horizontal = Vector3.new(delta.X, 0, delta.Z).Magnitude
         local vertical = math.abs(delta.Y)
-
-        if vertical > LOOT_VERTICAL_RADIUS then
+        if horizontal > LOOT_NEW_HORIZONTAL_RADIUS or vertical > LOOT_VERTICAL_RADIUS then
             return false, false, horizontal
         end
-
-        local fresh = (loot.fresh and (
-            loot.fresh[part] or
-            (entity and loot.fresh[entity]) or
-            loot.fresh[part.Parent]
-        )) and true or false
-
-        local radius = fresh and LOOT_NEW_HORIZONTAL_RADIUS or LOOT_OLD_HORIZONTAL_RADIUS
-        return horizontal <= radius, fresh, horizontal
+        local fresh = not loot.preexisting[part]
+        return horizontal <= (fresh and LOOT_NEW_HORIZONTAL_RADIUS or LOOT_OLD_HORIZONTAL_RADIUS), fresh, horizontal
     end
 
     local function findLoot()
-        local candidates, interactive, seen = {}, {}, {}
+        local candidates, seen = {}, {}
         local function available(object)
             local attempt = loot.tries[object]
             return not attempt or (attempt.count < 3 and os.clock() >= attempt.nextTry)
         end
 
-        -- Use Roblox's spatial query instead of scanning every descendant in the
-        -- entire Workspace. The old double GetDescendants() pass was the main
-        -- source of the frame hitch after a chest opened or drops spawned.
-        local queryRadius = math.ceil(math.sqrt(LOOT_NEW_HORIZONTAL_RADIUS * LOOT_NEW_HORIZONTAL_RADIUS
-            + LOOT_VERTICAL_RADIUS * LOOT_VERTICAL_RADIUS))
-        local parts = {}
-        local ok = pcall(function()
-            parts = World:GetPartBoundsInRadius(loot.center, queryRadius)
+        -- Small, bounded spatial query. MaxParts prevents a giant world/chest
+        -- scene from handing thousands of parts to Lua in one frame.
+        local overlap = OverlapParams.new()
+        overlap.FilterType = Enum.RaycastFilterType.Exclude
+        overlap.FilterDescendantsInstances = {Player.Character}
+        overlap.MaxParts = 600
+        local ok, parts = pcall(function()
+            return World:GetPartBoundsInRadius(loot.center, LOOT_NEW_HORIZONTAL_RADIUS, overlap)
         end)
         if not ok then return nil end
 
-        local function considerInteractive(object, part, entity, marked)
-            if not object or not entity then return end
+        local function addInteractive(object, part, entity, marked)
+            if not object or not part or not entity or seen[entity] then return end
             local allowed = true
             if object:IsA("ProximityPrompt") then
                 local pickup
@@ -1620,102 +1628,67 @@ do
                 allowed = allowed and object.Enabled
             end
             if not marked or not allowed or not available(object) then return end
-
-            interactive[entity] = true
             local inRange, fresh, horizontal = lootDistanceOK(part, entity)
             if inRange then
+                seen[entity] = true
                 candidates[#candidates + 1] = {
                     object = object, part = part, entity = entity,
-                    fresh = fresh, horizontal = horizontal
+                    fresh = fresh, horizontal = horizontal,
                 }
             end
         end
 
         for _, part in ipairs(parts) do
             if part:IsA("BasePart") and part.CanTouch then
-                -- Cheap distance test BEFORE walking the ancestor chain.
                 local delta = part.Position - loot.center
-                local horizontal0 = Vector3.new(delta.X, 0, delta.Z).Magnitude
-                local vertical0 = math.abs(delta.Y)
-                if horizontal0 <= LOOT_NEW_HORIZONTAL_RADIUS and vertical0 <= LOOT_VERTICAL_RADIUS then
+                local horizontal = Vector3.new(delta.X, 0, delta.Z).Magnitude
+                if horizontal <= LOOT_NEW_HORIZONTAL_RADIUS and math.abs(delta.Y) <= LOOT_VERTICAL_RADIUS then
                     local entity, marked = lootIdentity(part)
                     if entity and not seen[entity] then
-                        seen[entity] = true
-                        local inRange, fresh, horizontal = lootDistanceOK(part, entity)
-                        local pendingTouch = nil
+                        local prompt = part:FindFirstChildOfClass("ProximityPrompt")
+                        local click = part:FindFirstChildOfClass("ClickDetector")
+                        if prompt then addInteractive(prompt, part, entity, marked) end
+                        if not seen[entity] and click then addInteractive(click, part, entity, marked) end
 
-                        -- Most game loot puts the prompt/detector directly under
-                        -- the handle/part, so this is cheap and covers chests.
-                        local directPrompt = part:FindFirstChildOfClass("ProximityPrompt")
-                        local directClick = part:FindFirstChildOfClass("ClickDetector")
-                        local direct = directPrompt or directClick
-                        if inRange and direct then
-                            considerInteractive(direct, part, entity, marked)
-                        end
-
-                        -- Generic item models may not have a loot-looking name.
-                        -- Inspect descendants only after the spatial filter has
-                        -- identified a nearby model.
-                        if inRange and not interactive[entity] and entity:IsA("Model") then
-                            local descendantList = entity:GetDescendants()
-                            for _, child in ipairs(descendantList) do
-                                if child:IsA("ProximityPrompt") or child:IsA("ClickDetector") then
-                                    considerInteractive(child, part, entity, marked)
-                                    if interactive[entity] then break end
-                                end
+                        if not seen[entity] and marked and available(entity) then
+                            local inRange, fresh, horizontal2 = lootDistanceOK(part, entity)
+                            if inRange then
+                                seen[entity] = true
+                                candidates[#candidates + 1] = {
+                                    object = entity, part = part, entity = entity,
+                                    touch = true, fresh = fresh, horizontal = horizontal2,
+                                }
                             end
                         end
-
-                        if inRange and marked and not interactive[entity] and available(entity) then
-                            pendingTouch = {
-                                object = entity, part = part, entity = entity, touch = true,
-                                fresh = fresh, horizontal = horizontal
-                            }
-                        end
-                        if pendingTouch then
-                            candidates[#candidates + 1] = pendingTouch
-                        end
                     end
                 end
             end
         end
 
-        -- Fresh interactive objects that have not yet received a nearby BasePart
-        -- query result can still be found through the small fresh set.
-        if loot.changed and loot.fresh then
-            for object in pairs(loot.fresh) do
-                if object and inWorld(object)
-                    and (object:IsA("ProximityPrompt") or object:IsA("ClickDetector")) then
-                    local entity, marked = lootIdentity(object)
-                    local part = lootPart(object.Parent)
-                    if entity and part then
-                        considerInteractive(object, part, entity, marked)
-                    end
-                end
-            end
-        end
-
-        table.sort(candidates, function(a,b)
-            -- Boss-created objects first, then nearest horizontal distance.
+        table.sort(candidates, function(a, b)
             if a.fresh ~= b.fresh then return a.fresh == true end
             return (a.horizontal or math.huge) < (b.horizontal or math.huge)
         end)
-        loot.changed = false
         return candidates[1]
     end
+
     local function stepLoot(character, rootPart)
         if not loot then return false end
-        State.farming = false; Farm.stopM1(); releaseOrPause()
+        State.farming = false
+        -- M1/key release already happened in beginLoot. Do NOT call
+        -- releaseOrPause() every frame; that also forces a full UI render and
+        -- was the hidden per-frame hitch during chest/ground loot.
         if os.clock() >= loot.deadline then Farm.clearLoot(); return false end
         Farm.status, Farm.detail = "LOOT", loot.message
+
         if loot.touchUntil then
             if os.clock() < loot.touchUntil then return true end
-            loot.touchUntil = nil; loot.destination = loot.center + Vector3.new(0,2,0)
+            loot.touchUntil = nil
+            loot.destination = loot.center + Vector3.new(0, 2, 0)
         end
+
         if loot.destination then
             local delta = loot.destination - rootPart.Position
-            -- Do not repeatedly PivotTo every Render/Stepped tick once we have
-            -- already reached the pickup. This removes the post-kill physics hitch.
             if delta.Magnitude > 1.5 then
                 character:PivotTo(character:GetPivot() + delta)
                 rootPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
@@ -1724,9 +1697,15 @@ do
                 loot.destination = nil
             end
         end
+
         if loot.holding then
-            if not inWorld(loot.holding) or os.clock() >= loot.holdUntil then endPrompt() else return true end
+            if not inWorld(loot.holding) or os.clock() >= loot.holdUntil then
+                endPrompt()
+            else
+                return true
+            end
         end
+
         local item = loot.pending
         if item then
             if os.clock() < loot.readyAt then return true end
@@ -1734,32 +1713,43 @@ do
             if not inWorld(item.object) or not inWorld(item.part) then return true end
         else
             if os.clock() < loot.nextScan then return true end
-            loot.nextScan = os.clock() + 0.28
+            loot.nextScan = os.clock() + 0.55
             item = findLoot()
             if not item then return true end
             local old = loot.tries[item.object]
-            loot.tries[item.object] = {count=old and old.count+1 or 1, nextTry=os.clock()+2}
-            loot.pending, loot.readyAt = item, os.clock()+0.15
-            loot.destination = item.part.Position + Vector3.new(0,item.touch and 2 or 1,0)
+            loot.tries[item.object] = {count = old and old.count + 1 or 1, nextTry = os.clock() + 2}
+            loot.pending, loot.readyAt = item, os.clock() + 0.12
+            -- Prompt/click loot can be activated directly; do not teleport the
+            -- character across the chest drop pile unless the item is touch-only.
+            if item.touch then
+                loot.destination = item.part.Position + Vector3.new(0, 2, 0)
+            else
+                loot.destination = nil
+            end
             return true
         end
-        loot.count = loot.count+1; loot.message = "Pickup requested: " .. item.entity.Name
+
+        loot.count = loot.count + 1
+        loot.message = "Pickup requested: " .. item.entity.Name
         local ok, err = pcall(function()
             if item.object:IsA("ProximityPrompt") then
-                local duration = math.max(0,item.object.HoldDuration)
-                if os.clock()+duration+0.1 > loot.deadline then return end
-                if type(fireproximityprompt) == "function" then fireproximityprompt(item.object,duration)
+                local duration = math.max(0, item.object.HoldDuration)
+                if os.clock() + duration + 0.1 > loot.deadline then return end
+                if type(fireproximityprompt) == "function" then
+                    fireproximityprompt(item.object, duration)
                 else
-                    loot.holding, loot.holdUntil = item.object, os.clock()+duration+0.1
+                    loot.holding, loot.holdUntil = item.object, os.clock() + duration + 0.1
                     item.object:InputHoldBegin()
                 end
             elseif item.object:IsA("ClickDetector") then
                 if type(fireclickdetector) ~= "function" then error("Click-detector support unavailable") end
                 fireclickdetector(item.object)
             elseif type(firetouchinterest) == "function" then
-                firetouchinterest(rootPart,item.part,0); firetouchinterest(rootPart,item.part,1)
+                firetouchinterest(rootPart, item.part, 0)
+                firetouchinterest(rootPart, item.part, 1)
             else
-                loot.destination = nil; loot.touchUntil = os.clock()+0.2
+                loot.destination = nil
+                loot.touchUntil = os.clock() + 0.2
                 rootPart.AssemblyLinearVelocity = Vector3.new(0,-8,0)
             end
         end)
@@ -1912,7 +1902,7 @@ do
         Farm.step()
         render()
     end
-    function Farm.release(returnToStart)
+    function Farm.release(returnToStart, silent)
         State.farming = false
         Farm.travelKey, Farm.travelAt = nil, nil
         Farm.stopM1(); Farm.clearLoot()
@@ -1930,7 +1920,7 @@ do
             pcall(function() part.CanCollide = original end)
         end
         collisionState, farmCharacter, origin = {}, nil, nil
-        releaseOrPause()
+        if not silent then releaseOrPause() else releaseKey() end
     end
     pauseFarmForEscape = function()
         if Farm.stopDiscovery then Farm.stopDiscovery("Stopped for health escape") end
@@ -1965,7 +1955,10 @@ do
     end
     local function update()
         if Farm.discoveryStep and Farm.discoveryStep() then return end
-        if Settings.FarmEnabled or Settings.AutoBoss or Settings.BossAutoSave or State.tab == "Farm" then Farm.scan(false) end
+        if (Farm.streamPauseUntil or 0) <= os.clock()
+            and (Settings.FarmEnabled or Settings.AutoBoss or Settings.BossAutoSave or State.tab == "Farm") then
+            Farm.scan(false)
+        end
         Farm.saveConfig(false)
         Farm.aliveCount = 0
         for _, record in ipairs(Farm.records) do
@@ -1973,8 +1966,10 @@ do
             if hp and hp > 0 then Farm.aliveCount = Farm.aliveCount + 1 end
         end
         local function pause(status, detail)
-            if farmCharacter then Farm.release(true) end
+            local changed = Farm.status ~= status or Farm.detail ~= detail
+            if farmCharacter then Farm.release(true, true) end
             Farm.status, Farm.detail = status, detail
+            if changed then render() end
         end
         if Farm.fault then pause("ERROR", Farm.fault); return end
         if not Settings.FarmEnabled then pause("OFF", "Choose a remembered boss, Auto nearest, or enable Auto Boss."); return end
@@ -2045,7 +2040,7 @@ do
                     -- A valid boss was found inside the expanded saved-location scan.
                     Farm.travelKey, Farm.travelAt = nil, nil
                 else
-                    State.farming = false; Farm.stopM1(); Farm.restoreHitbox(); releaseOrPause()
+                    State.farming = false; Farm.stopM1(); Farm.restoreHitbox(); releaseKey()
                     local location = hp and hp <= 0 and entry.spawn or entry.position or entry.spawn
                 if not location then
                     pause("UNKNOWN LOCATION", "Visit this boss once to learn its location."); return
@@ -2079,6 +2074,11 @@ do
                     character:PivotTo(character:GetPivot() + travelDelta)
                     rootPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
                     rootPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
+                    -- Give Roblox streaming/physics a quiet window before the
+                    -- next NPC scan. The scan cache will pick up newly streamed
+                    -- Humanoids through DescendantAdded without a world sweep.
+                    Farm.streamPauseUntil = os.clock() + 2.5
+                    Farm.nextScan = os.clock() + 2.5
                 end
                 if Settings.AutoBoss and not Farm.autoRespawnResume
                     and os.clock() - Farm.autoArrivedAt >= Settings.BossNoAttackTimeout then
@@ -2235,15 +2235,15 @@ do
         resetAutoBossRoute(true)
         Farm.release(true)
     end
-    local runOK, Run = pcall(function() return game:GetService("RunService") end)
-    if runOK then
-        -- Apply noclip before physics each frame; discovery remains throttled.
-        connect(Run.Stepped, function() Farm.step() end)
-    else
-        task.spawn(function()
-            while State.alive do Farm.step(); task.wait(0.03) end
-        end)
-    end
+    -- Farming/loot does not need a physics-frame callback. Running the whole
+    -- farm state machine on every Stepped tick wastes CPU exactly when Roblox
+    -- is streaming a new boss area. No-clip has its own Stepped handler.
+    task.spawn(function()
+        while State.alive do
+            Farm.step()
+            task.wait(0.033)
+        end
+    end)
 end
 
 -- Discovery follows replicated world timers, then a bounded grid. Hidden map data is not invented.
@@ -2268,8 +2268,37 @@ do
         return false
     end
     local known={"Enru","Akazo","Datai","Gyorei","Gyutai","Nezura","Nezurai","Tengai","Zentaro","Rengu","Giyen"}
-    function Farm.scanMarkers()
+    local nextMarkerScan = 0
+    local markerGuiCache = setmetatable({}, {__mode = "k"})
+    local markerGuiCacheReady = false
+    local function cacheMarkerGui(object)
+        if object and (object:IsA("BillboardGui") or object:IsA("SurfaceGui")) then
+            markerGuiCache[object] = true
+        end
+    end
+    connect(World.DescendantAdded, cacheMarkerGui)
+    connect(playerGui.DescendantAdded, cacheMarkerGui)
+    connect(World.DescendantRemoving, function(object) markerGuiCache[object] = nil end)
+    connect(playerGui.DescendantRemoving, function(object) markerGuiCache[object] = nil end)
+    task.spawn(function()
+        local list = World:GetDescendants()
+        for i, object in ipairs(list) do
+            cacheMarkerGui(object)
+            if i % 1800 == 0 then task.wait() end
+        end
+        local guiList = playerGui:GetDescendants()
+        for i, object in ipairs(guiList) do
+            cacheMarkerGui(object)
+            if i % 600 == 0 then task.wait() end
+        end
+        markerGuiCacheReady = true
+    end)
+
+    function Farm.scanMarkers(force)
+        if not force and os.clock() < nextMarkerScan then return end
+        nextMarkerScan = os.clock() + 7
         local function inspect(gui)
+            if not gui or not gui.Parent then return end
             if not gui:IsA("BillboardGui") and not gui:IsA("SurfaceGui") then return end
             local anchor=gui.Adornee or gui.Parent
             if not anchor or isCharacter(anchor) then return end
@@ -2314,13 +2343,13 @@ do
             end
             if entry then entry.timerText,entry.timerAt=marker.timerText,marker.timerAt end
         end
-        for _, parent in ipairs({World,playerGui}) do
-            for _, object in ipairs(parent:GetDescendants()) do
-                if object:IsA("BillboardGui") or object:IsA("SurfaceGui") then
-                    -- One malformed/unloaded GUI must not abort NPC discovery.
-                    pcall(inspect,object)
-                end
-            end
+
+        if not markerGuiCacheReady then return end
+        local processed = 0
+        for gui in pairs(markerGuiCache) do
+            processed = processed + 1
+            pcall(inspect, gui)
+            if processed % 80 == 0 then task.wait() end
         end
     end
 
@@ -3331,18 +3360,18 @@ end)
 end
 
 local C = {
-    panel = Color3.fromRGB(5, 14, 23),
-    surface = Color3.fromRGB(10, 25, 38),
-    raised = Color3.fromRGB(14, 36, 52),
-    line = Color3.fromRGB(30, 67, 88),
-    text = Color3.fromRGB(235, 248, 255),
-    muted = Color3.fromRGB(149, 177, 202),
-    dim = Color3.fromRGB(91, 125, 151),
-    accent = Color3.fromRGB(24, 207, 255),
-    bright = Color3.fromRGB(145, 234, 255),
-    green = Color3.fromRGB(55, 238, 147),
-    amber = Color3.fromRGB(255, 201, 96),
-    red = Color3.fromRGB(255, 103, 127),
+    panel = Color3.fromRGB(3, 4, 12),
+    surface = Color3.fromRGB(7, 8, 20),
+    raised = Color3.fromRGB(12, 11, 30),
+    line = Color3.fromRGB(47, 35, 88),
+    text = Color3.fromRGB(241, 239, 255),
+    muted = Color3.fromRGB(164, 157, 196),
+    dim = Color3.fromRGB(93, 83, 135),
+    accent = Color3.fromRGB(118, 76, 255),
+    bright = Color3.fromRGB(196, 178, 255),
+    green = Color3.fromRGB(63, 235, 171),
+    amber = Color3.fromRGB(255, 193, 100),
+    red = Color3.fromRGB(255, 91, 135),
 }
 local W, H = 1080, 800
 local function make(className, parent, properties)
@@ -3387,6 +3416,67 @@ local function button(parent, name, text, x, y, width, height, color, size)
     corner(object, 8)
     return object
 end
+-- Geometric VOID glyphs: these are built from local Frames/lines rather than emoji fonts.
+local voidGlyphParts = setmetatable({}, {__mode = "k"})
+local function voidGlyph(parent, name, kind, x, y, size, color)
+    local rootGlyph = frame(parent, name, x, y, size, size, Color3.new(1,1,1), 0)
+    rootGlyph.BackgroundTransparency = 1
+    rootGlyph.Active = false
+    local parts = {}
+    local function part(px, py, pw, ph, rot, radius)
+        local p = frame(rootGlyph, name .. "Part" .. tostring(#parts + 1), px, py, pw, ph, color, radius or 2)
+        p.BackgroundTransparency = 0.05
+        p.Rotation = rot or 0
+        p.Active = false
+        parts[#parts + 1] = p
+        return p
+    end
+    local mid = math.floor(size/2)
+    if kind == "skills" then
+        part(7, mid-2, size-14, 3, 42, 2)
+        part(7, mid-2, size-14, 3, -42, 2)
+        part(mid-3, mid-3, 6, 6, 0, 3)
+    elseif kind == "esp" then
+        local ring = part(5, 9, size-10, size-18, 0, math.floor(size/2))
+        ring.BackgroundTransparency = 1
+        stroke(ring, color, 0.05, 2)
+        part(mid-2, mid-2, 4, 4, 0, 2)
+    elseif kind == "health" then
+        part(mid-2, 5, 4, size-10, 0, 2)
+        part(5, mid-2, size-10, 4, 0, 2)
+        part(mid-5, mid-5, 10, 10, 45, 2)
+    elseif kind == "farm" then
+        local diamond = part(7, 7, size-14, size-14, 45, 3)
+        diamond.BackgroundTransparency = 1
+        stroke(diamond, color, 0.05, 2)
+        part(mid-3, mid-3, 6, 6, 0, 3)
+    elseif kind == "move" then
+        part(5, mid-2, size-13, 4, 0, 2)
+        part(size-11, 6, 4, size-12, 45, 2)
+        part(size-11, size-10, 4, size-12, -45, 2)
+    elseif kind == "system" then
+        local ring = part(7, 7, size-14, size-14, 0, math.floor(size/2))
+        ring.BackgroundTransparency = 1
+        stroke(ring, color, 0.05, 2)
+        part(mid-3, mid-3, 6, 6, 0, 3)
+        part(mid-2, 2, 4, 8, 0, 2)
+        part(mid-2, size-10, 4, 8, 0, 2)
+        part(2, mid-2, 8, 4, 0, 2)
+        part(size-10, mid-2, 8, 4, 0, 2)
+    end
+    voidGlyphParts[rootGlyph] = parts
+    return rootGlyph
+end
+local function tintVoidGlyph(glyph, color)
+    local parts = glyph and voidGlyphParts[glyph]
+    if not parts then return end
+    for _, p in ipairs(parts) do
+        p.BackgroundColor3 = color
+        local st = p:FindFirstChildOfClass("UIStroke")
+        if st then st.Color = color end
+    end
+end
+
 local function animate(object, properties, instant)
     if tweens[object] then tweens[object]:Cancel() end
     if instant then
@@ -3549,15 +3639,15 @@ local shadow = frame(holder, "Shadow", -7, 9, W + 14, H + 14, Color3.new(0, 0, 0
 shadow.BackgroundTransparency = 0.48
 local halo = frame(holder, "EdgeGlow", -2, -2, W + 4, H + 4, C.accent, 16)
 halo.BackgroundTransparency = 0.88
-local panel = frame(holder, "Panel", 0, 0, W, H, C.panel, 14)
+local panel = frame(holder, "Panel", 0, 0, W, H, C.panel, 18)
 panel.Active, panel.ClipsDescendants = true, true
-stroke(panel, C.accent, 0.16, 1)
+stroke(panel, C.accent, 0.30, 1)
 make("UIGradient", panel, {
     Rotation = 35,
     Color = ColorSequence.new({
         ColorSequenceKeypoint.new(0, Color3.fromRGB(10, 26, 39)),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(5, 15, 24)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(3, 10, 18)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(5, 3, 15)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(10, 4, 25)),
     }),
 })
 local accentLine = frame(panel, "AccentLine", 0, 58, W, 1, C.accent)
@@ -3574,29 +3664,35 @@ local logo = frame(header, "Logo", 18, 13, 32, 32, C.surface, 7)
 stroke(logo, C.accent, 0.08, 1)
 make("UIGradient", logo, {
     Rotation = 45,
-    Color = ColorSequence.new(Color3.fromRGB(11, 66, 82), Color3.fromRGB(19, 201, 245)),
+    Color = ColorSequence.new(Color3.fromRGB(25, 10, 64), Color3.fromRGB(132, 82, 255)),
 })
 local logoText = label(logo, "Mark", "V", 0, 0, 32, 32, 19, C.text, Enum.Font.GothamBlack)
 logoText.TextXAlignment = Enum.TextXAlignment.Center
-local brand = label(header, "Title", "G A M E   C O N T R O L", 68, 11, 300, 22, 13, C.text, Enum.Font.GothamBold)
-label(header, "Edition", "P A N E L", 369, 11, 120, 22, 12, C.accent, Enum.Font.GothamBold)
-label(header, "SubTitle", "VOID AUTOMATION SUITE", 68, 32, 280, 15, 8, C.dim, Enum.Font.GothamMedium)
+local brand = label(header, "Title", "V O I D   N E X U S", 68, 9, 300, 24, 15, C.text, Enum.Font.GothamBlack)
+label(header, "Edition", "CONTROL CORE", 370, 10, 150, 22, 10, C.accent, Enum.Font.GothamBold)
+label(header, "SubTitle", "SPACE AUTOMATION // LOCAL CLIENT", 68, 32, 330, 15, 8, C.dim, Enum.Font.GothamMedium)
 UI.badge = button(panel, "HeaderToggle", "OFF", W - 238, 17, 82, 25, C.surface, 10)
 stroke(UI.badge, C.line, 0.3)
 local minimize = button(panel, "Minimize", "-", W - 140, 15, 32, 28, C.surface, 19)
 local close = button(panel, "Unload", "x", W - 94, 15, 32, 28, C.surface, 15)
 hover(minimize, C.muted, C.text)
 hover(close, C.muted, C.red)
-local tabs = frame(panel, "Tabs", 14, 76, 172, 402, C.surface, 12)
-stroke(tabs, C.line, 0.34)
-label(tabs, "MenuTitle", "NAVIGATION", 14, 8, 138, 16, 9, C.dim, Enum.Font.GothamBold)
+local tabs = frame(panel, "Tabs", 14, 76, 184, 402, C.surface, 14)
+stroke(tabs, C.line, 0.24)
+make("UIGradient", tabs, {
+    Rotation = 90,
+    Color = ColorSequence.new(Color3.fromRGB(9,8,23), Color3.fromRGB(4,5,14)),
+})
+label(tabs, "MenuTitle", "VOID CHANNELS", 16, 10, 150, 16, 9, C.bright, Enum.Font.GothamBold)
+local navRail = frame(tabs, "VoidRail", 178, 32, 1, 340, C.accent, 0)
+navRail.BackgroundTransparency = 0.65
 
-UI.skillsTab = button(tabs, "SkillsTab", "   ⚔   Skills", 10, 32, 152, 52, C.raised, 12)
-UI.espTab = button(tabs, "ESPTab", "   ◉   ESP", 10, 92, 152, 52, C.surface, 12)
-UI.healthTab = button(tabs, "HealthTab", "   ✚   Health", 10, 152, 152, 52, C.surface, 12)
-UI.farmTab = button(tabs, "FarmTab", "   ♨   Farm", 10, 212, 152, 52, C.surface, 12)
-UI.moveTab = button(tabs, "MoveTab", "   ➜   Move", 10, 272, 152, 52, C.surface, 12)
-UI.systemTab = button(tabs, "SystemTab", "   ⚙   System", 10, 332, 152, 52, C.surface, 12)
+UI.skillsTab = button(tabs, "SkillsTab", "     Skills", 10, 32, 164, 52, C.raised, 12)
+UI.espTab = button(tabs, "ESPTab", "     ESP", 10, 92, 164, 52, C.surface, 12)
+UI.healthTab = button(tabs, "HealthTab", "     Health", 10, 152, 164, 52, C.surface, 12)
+UI.farmTab = button(tabs, "FarmTab", "     Farm", 10, 212, 164, 52, C.surface, 12)
+UI.moveTab = button(tabs, "MoveTab", "     Move", 10, 272, 164, 52, C.surface, 12)
+UI.systemTab = button(tabs, "SystemTab", "     System", 10, 332, 164, 52, C.surface, 12)
 
 UI.navStrokes, UI.navBars = {}, {}
 for _, entry in ipairs({
@@ -3609,6 +3705,15 @@ for _, entry in ipairs({
     UI.navStrokes[key] = stroke(tab, C.accent, 0.86, 1)
     UI.navBars[key] = frame(tab, "ActiveBar", 0, 6, 4, 40, C.accent, 2)
 end
+
+UI.navGlyphs = {
+    Skills = voidGlyph(UI.skillsTab, "SkillsGlyph", "skills", 14, 14, 24, C.dim),
+    ESP = voidGlyph(UI.espTab, "ESPGlyph", "esp", 14, 14, 24, C.dim),
+    Health = voidGlyph(UI.healthTab, "HealthGlyph", "health", 14, 14, 24, C.dim),
+    Farm = voidGlyph(UI.farmTab, "FarmGlyph", "farm", 14, 14, 24, C.dim),
+    Move = voidGlyph(UI.moveTab, "MoveGlyph", "move", 14, 14, 24, C.dim),
+    System = voidGlyph(UI.systemTab, "SystemGlyph", "system", 14, 14, 24, C.dim),
+}
 
 for key, tab in pairs({
     Skills = UI.skillsTab, ESP = UI.espTab, Health = UI.healthTab,
@@ -3626,7 +3731,7 @@ for key, tab in pairs({
     end)
 end
 
-local sidebarInfo = frame(panel, "SidebarInfo", 14, 492, 172, 230, C.surface, 12)
+local sidebarInfo = frame(panel, "SidebarInfo", 14, 492, 184, 230, C.surface, 14)
 stroke(sidebarInfo, C.line, 0.45)
 label(sidebarInfo, "Label", "SESSION", 14, 12, 138, 15, 9, C.dim, Enum.Font.GothamBold)
 UI.sidebarState = label(sidebarInfo, "State", "CONNECTED", 14, 36, 138, 18, 11, C.green, Enum.Font.GothamBold)
@@ -3987,7 +4092,7 @@ do
             item.ZIndex=22; item.TextTruncate=Enum.TextTruncate.AtEnd
             item.Activated:Connect(function() picker.Visible=false; Farm.choose(key) end)
         end
-        row("Auto nearest — loaded NPCs",nil,0)
+        row("Auto nearest - loaded NPCs",nil,0)
         for i,entry in ipairs(Farm.remembered) do
             local hp,_,_,root=Farm.read(entry.live)
             local state=hp and (hp<=0 and "dead" or (root and "loaded" or "partial")) or "unloaded"
@@ -4067,7 +4172,9 @@ do
             ColorSequenceKeypoint.new(1, Color3.fromRGB(6, 20, 32)),
         }),
     })
-    local farmIcon = label(pageHeader, "Icon", "♨", 20, 16, 48, 48, 30, C.accent, Enum.Font.GothamBold)
+    local farmIcon = label(pageHeader, "Icon", "", 20, 16, 48, 48, 30, C.accent, Enum.Font.GothamBold)
+farmIcon.Visible = false
+voidGlyph(pageHeader, "FarmHeaderGlyph", "farm", 22, 18, 42, C.accent)
     farmIcon.TextXAlignment = Enum.TextXAlignment.Center
     label(pageHeader, "Title", "Farm", 76, 13, 260, 34, 27, C.text, Enum.Font.GothamBold)
     UI.farmHint = label(pageHeader, "Subtitle", "Automate farming, bosses and loot collection.", 78, 45, 560, 22, 12, C.muted, Enum.Font.GothamMedium)
@@ -4085,9 +4192,11 @@ do
     -- General Farming.
     local general = refCard("GeneralFarming", 14, 96, pageWidth - 28, 236, C.surface, 11)
     local generalTop = frame(general, "Top", 0, 0, pageWidth - 28, 44, C.raised, 11)
-    label(generalTop, "Icon", "⚙", 18, 6, 28, 30, 18, C.accent, Enum.Font.GothamBold)
+    local generalIcon = label(generalTop, "Icon", "", 18, 6, 28, 30, 18, C.accent, Enum.Font.GothamBold)
+generalIcon.Visible = false
+voidGlyph(generalTop, "GeneralGlyph", "system", 18, 8, 24, C.accent)
     label(generalTop, "Title", "General Farming", 54, 7, 280, 28, 15, C.text, Enum.Font.GothamBold)
-    label(generalTop, "Arrow", "⌃", pageWidth - 78, 5, 32, 30, 18, C.bright, Enum.Font.GothamBold)
+    label(generalTop, "Arrow", "+", pageWidth - 78, 5, 32, 30, 18, C.bright, Enum.Font.GothamBold)
 
     local splitX = math.floor((pageWidth - 28) * 0.48)
     local divider = frame(general, "Divider", splitX, 58, 1, 160, C.line)
@@ -4143,7 +4252,7 @@ do
     end)
 
     label(general, "MethodTitle", "Farm Method", rightX, 194, 180, 22, 12, C.text, Enum.Font.GothamBold)
-    local method = button(general, "Method", "Nearest                             ⌄",
+    local method = button(general, "Method", "Nearest                             +",
         rightX + 164, 191, rightW - 174, 34, C.panel, 11)
     method.TextColor3 = C.text
     method.TextXAlignment = Enum.TextXAlignment.Left
@@ -4152,9 +4261,11 @@ do
     -- Target Settings.
     local targetCard = refCard("TargetSettings", 14, 344, pageWidth - 28, 104, C.surface, 11)
     local targetTop = frame(targetCard, "Top", 0, 0, pageWidth - 28, 40, C.raised, 11)
-    label(targetTop, "Icon", "◎", 18, 5, 30, 28, 18, C.accent, Enum.Font.GothamBold)
+    local targetIcon = label(targetTop, "Icon", "", 18, 5, 30, 28, 18, C.accent, Enum.Font.GothamBold)
+targetIcon.Visible = false
+voidGlyph(targetTop, "TargetGlyph", "esp", 18, 7, 24, C.accent)
     label(targetTop, "Title", "Target Settings", 54, 5, 260, 28, 14, C.text, Enum.Font.GothamBold)
-    label(targetTop, "Arrow", "⌃", pageWidth - 78, 5, 32, 28, 18, C.bright, Enum.Font.GothamBold)
+    label(targetTop, "Arrow", "+", pageWidth - 78, 5, 32, 28, 18, C.bright, Enum.Font.GothamBold)
 
     label(targetCard, "SelectTitle", "Select Enemies", 22, 49, 180, 20, 11, C.text, Enum.Font.GothamBold)
     label(targetCard, "SelectHint", "Choose which enemies to farm.", 22, 68, 210, 18, 9, C.muted)
@@ -4168,7 +4279,7 @@ do
     targetDivider.BackgroundTransparency = 0.3
     label(targetCard, "PriorityTitle", "Priority", 496, 49, 140, 20, 11, C.text, Enum.Font.GothamBold)
     label(targetCard, "PriorityHint", "Target priority type.", 496, 68, 160, 18, 9, C.muted)
-    local priority = button(targetCard, "Priority", "Nearest                    ⌄",
+    local priority = button(targetCard, "Priority", "Nearest                    +",
         pageWidth - 250, 53, 208, 34, C.panel, 11)
     priority.TextColor3 = C.text
     priority.TextXAlignment = Enum.TextXAlignment.Left
@@ -4182,9 +4293,11 @@ do
     -- Advanced accordion.
     local advancedBar = button(ref, "AdvancedBar", "", 14, 460, pageWidth - 28, 44, C.surface, 11)
     stroke(advancedBar, C.line, 0.22)
-    label(advancedBar, "Icon", "◇", 18, 6, 28, 28, 18, C.muted, Enum.Font.GothamBold)
+    local advancedIcon = label(advancedBar, "Icon", "", 18, 6, 28, 28, 18, C.muted, Enum.Font.GothamBold)
+advancedIcon.Visible = false
+voidGlyph(advancedBar, "AdvancedGlyph", "skills", 18, 8, 24, C.muted)
     label(advancedBar, "Title", "Advanced Options", 54, 6, 260, 28, 13, C.text, Enum.Font.GothamBold)
-    UI.advancedArrow = label(advancedBar, "Arrow", "⌄", pageWidth - 76, 5, 30, 30, 18, C.bright, Enum.Font.GothamBold)
+    UI.advancedArrow = label(advancedBar, "Arrow", "+", pageWidth - 76, 5, 30, 30, 18, C.bright, Enum.Font.GothamBold)
 
     local advancedContent = refCard("AdvancedContent", 14, 510, pageWidth - 28, 0, C.surface, 11)
     advancedContent.Visible = false
@@ -4231,9 +4344,11 @@ do
     -- Filters accordion.
     local filterBar = button(ref, "FilterBar", "", 14, 516, pageWidth - 28, 44, C.surface, 11)
     stroke(filterBar, C.line, 0.22)
-    label(filterBar, "Icon", "☷", 18, 6, 28, 28, 18, C.muted, Enum.Font.GothamBold)
+    local filterIcon = label(filterBar, "Icon", "", 18, 6, 28, 28, 18, C.muted, Enum.Font.GothamBold)
+filterIcon.Visible = false
+voidGlyph(filterBar, "FilterGlyph", "health", 18, 8, 24, C.muted)
     label(filterBar, "Title", "Filters", 54, 6, 260, 28, 13, C.text, Enum.Font.GothamBold)
-    UI.filterArrow = label(filterBar, "Arrow", "⌄", pageWidth - 76, 5, 30, 30, 18, C.bright, Enum.Font.GothamBold)
+    UI.filterArrow = label(filterBar, "Arrow", "+", pageWidth - 76, 5, 30, 30, 18, C.bright, Enum.Font.GothamBold)
 
     local filterContent = refCard("FilterContent", 14, 566, pageWidth - 28, 0, C.surface, 11)
     filterContent.Visible = false
@@ -4246,7 +4361,9 @@ do
     -- Status card.
     local statusCard = refCard("ReferenceStatus", 14, 572, pageWidth - 28, 96, C.surface, 11)
     local statusTop = frame(statusCard, "Top", 0, 0, pageWidth - 28, 38, C.raised, 11)
-    label(statusTop, "Icon", "▥", 18, 4, 28, 28, 16, C.muted, Enum.Font.GothamBold)
+    local statusIcon = label(statusTop, "Icon", "", 18, 4, 28, 28, 16, C.muted, Enum.Font.GothamBold)
+statusIcon.Visible = false
+voidGlyph(statusTop, "StatusGlyph", "move", 18, 6, 24, C.muted)
     label(statusTop, "Title", "Status", 54, 4, 160, 28, 13, C.text, Enum.Font.GothamBold)
     UI.refRunDot = frame(statusTop, "Dot", pageWidth - 155, 14, 7, 7, C.green, 4)
     UI.farmStatus = label(statusTop, "FarmStatus", "Running", pageWidth - 138, 5, 112, 26, 10, C.green, Enum.Font.GothamBold)
@@ -4290,7 +4407,7 @@ do
             end)
         end
 
-        row("Auto nearest — loaded NPCs", nil, 0)
+        row("Auto nearest - loaded NPCs", nil, 0)
         for i, entry in ipairs(Farm.remembered) do
             local hp, _, _, rootPart = Farm.read(entry.live)
             local stateText = hp and (hp <= 0 and "dead" or (rootPart and "loaded" or "partial")) or "unloaded"
@@ -4318,8 +4435,8 @@ do
 
         advancedContent.Visible = advancedOpen
         filterContent.Visible = filterOpen
-        UI.advancedArrow.Text = advancedOpen and "⌃" or "⌄"
-        UI.filterArrow.Text = filterOpen and "⌃" or "⌄"
+        UI.advancedArrow.Text = advancedOpen and "-" or "+"
+        UI.filterArrow.Text = filterOpen and "-" or "+"
 
         animate(advancedContent, {Size = UDim2.fromOffset(pageWidth - 28, advH)}, not animated)
         animate(filterBar, {Position = UDim2.fromOffset(14, filterY)}, not animated)
@@ -4582,16 +4699,16 @@ fxLayer.BackgroundTransparency = 1
 fxLayer.Active = false
 fxLayer.ZIndex = 0
 
-local fxTint = frame(fxLayer, "VoidTint", 0, 0, W, H, Color3.fromRGB(2, 10, 18), 0)
+local fxTint = frame(fxLayer, "VoidTint", 0, 0, W, H, Color3.fromRGB(3, 2, 12), 0)
 fxTint.BackgroundTransparency = 0.18
 fxTint.ZIndex = 0
 
 local fxGradient = make("UIGradient", fxTint, {
     Rotation = 25,
     Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(7, 27, 43)),
-        ColorSequenceKeypoint.new(0.45, Color3.fromRGB(3, 13, 24)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(9, 7, 27)),
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(20, 8, 42)),
+        ColorSequenceKeypoint.new(0.45, Color3.fromRGB(5, 3, 15)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(18, 5, 32)),
     }),
     Transparency = NumberSequence.new({
         NumberSequenceKeypoint.new(0, 0.10),
@@ -4626,8 +4743,8 @@ local function makeCore(name, x, y, size, color)
     return core, coreStroke
 end
 local coreA, coreAStroke = makeCore("VoidCoreA", -120, 90, 330, C.accent)
-local coreB, coreBStroke = makeCore("VoidCoreB", W - 250, H - 270, 390, Color3.fromRGB(99, 91, 255))
-local coreC, coreCStroke = makeCore("VoidCoreC", W * 0.38, H * 0.35, 220, Color3.fromRGB(55, 155, 255))
+local coreB, coreBStroke = makeCore("VoidCoreB", W - 250, H - 270, 390, Color3.fromRGB(132, 82, 255))
+local coreC, coreCStroke = makeCore("VoidCoreC", W * 0.38, H * 0.35, 220, Color3.fromRGB(76, 62, 210))
 
 -- Orbiting rings give the panel a subtle animated "reactor" look.
 local orbit = frame(fxLayer, "Orbit", W - 330, 120, 250, 250, Color3.new(1, 1, 1), 125)
@@ -4638,19 +4755,19 @@ local orbitStroke = stroke(orbit, C.accent, 0.79, 2)
 local orbit2 = frame(fxLayer, "Orbit2", W - 375, 75, 340, 340, Color3.new(1, 1, 1), 170)
 orbit2.BackgroundTransparency = 1
 orbit2.ZIndex = 0
-local orbit2Stroke = stroke(orbit2, Color3.fromRGB(101, 94, 255), 0.88, 1)
+local orbit2Stroke = stroke(orbit2, Color3.fromRGB(104, 66, 220), 0.88, 1)
 
 local orbit3 = frame(fxLayer, "Orbit3", 70, H - 285, 190, 190, Color3.new(1, 1, 1), 95)
 orbit3.BackgroundTransparency = 1
 orbit3.ZIndex = 0
-local orbit3Stroke = stroke(orbit3, Color3.fromRGB(54, 145, 255), 0.9, 1)
+local orbit3Stroke = stroke(orbit3, Color3.fromRGB(77, 55, 190), 0.9, 1)
 
 -- Diagonal energy beams.
 local beamA = frame(fxLayer, "BeamA", -140, 150, 420, 2, C.accent, 2)
 beamA.Rotation = 19
 beamA.BackgroundTransparency = 0.82
 beamA.ZIndex = 0
-local beamB = frame(fxLayer, "BeamB", W - 350, 490, 470, 2, Color3.fromRGB(105, 94, 255), 2)
+local beamB = frame(fxLayer, "BeamB", W - 350, 490, 470, 2, Color3.fromRGB(118, 70, 240), 2)
 beamB.Rotation = -17
 beamB.BackgroundTransparency = 0.86
 beamB.ZIndex = 0
@@ -4674,9 +4791,42 @@ local scanLine = frame(fxLayer, "ScanLine", 0, -3, W, 2, C.bright, 2)
 scanLine.BackgroundTransparency = 0.72
 scanLine.ZIndex = 0
 
-local scanLine2 = frame(fxLayer, "ScanLine2", 0, H * 0.62, W, 1, Color3.fromRGB(92, 117, 255), 1)
+local scanLine2 = frame(fxLayer, "ScanLine2", 0, H * 0.62, W, 1, Color3.fromRGB(92, 52, 205), 1)
 scanLine2.BackgroundTransparency = 0.86
 scanLine2.ZIndex = 0
+
+-- Deep-space starfield and a central void well. The stars are deliberately
+-- lightweight UI frames rather than particle emitters, so they do not touch
+-- Workspace physics or replication.
+local starLayer = frame(fxLayer, "StarLayer", 0, 0, W, H, Color3.new(1,1,1), 0)
+starLayer.BackgroundTransparency = 1
+starLayer.ZIndex = 0
+local stars = {}
+local starSeed = {
+    {42,72,2},{96,145,1},{156,102,2},{228,54,1},{287,132,2},{352,82,1},
+    {418,164,2},{488,74,1},{552,126,2},{625,58,1},{704,110,2},{781,70,1},
+    {852,154,2},{924,88,1},{1004,136,2},{1018,254,1},{940,322,2},{870,244,1},
+    {795,386,2},{716,300,1},{646,418,2},{570,356,1},{496,444,2},{422,318,1},
+    {340,398,2},{260,332,1},{180,450,2},{112,360,1},{54,520,2},{972,520,1},
+    {842,610,2},{690,650,1},{540,610,2},{380,670,1},{218,610,2},{76,700,1},
+}
+for i, p in ipairs(starSeed) do
+    local star = frame(starLayer, "Star" .. i, p[1], p[2], p[3], p[3], C.bright, p[3])
+    star.BackgroundTransparency = 0.35 + ((i % 4) * 0.1)
+    stars[#stars + 1] = star
+end
+
+local voidWell = frame(fxLayer, "VoidWell", W/2 - 105, H/2 - 105, 210, 210, Color3.fromRGB(1,1,5), 105)
+voidWell.BackgroundTransparency = 0.10
+voidWell.ZIndex = 0
+local wellOuter = frame(fxLayer, "VoidWellOuter", W/2 - 150, H/2 - 150, 300, 300, Color3.new(1,1,1), 150)
+wellOuter.BackgroundTransparency = 1
+wellOuter.ZIndex = 0
+local wellStroke = stroke(wellOuter, C.accent, 0.88, 2)
+local wellInner = frame(fxLayer, "VoidWellInner", W/2 - 124, H/2 - 124, 248, 248, Color3.new(1,1,1), 124)
+wellInner.BackgroundTransparency = 1
+wellInner.ZIndex = 0
+local wellInnerStroke = stroke(wellInner, Color3.fromRGB(82, 46, 190), 0.92, 1)
 
 -- Bottom-right resize control.
 local resizeGrip = frame(panel, "ResizeGrip", W - 48, H - 48, 44, 44, Color3.new(1, 1, 1), 10)
@@ -4715,6 +4865,46 @@ connect(resizeGrip.MouseLeave, function()
 end)
 
 -- Ambient loops.
+task.spawn(function()
+    while State.alive and starLayer.Parent do
+        for i, star in ipairs(stars) do
+            if not star.Parent then break end
+            local target = 0.25 + ((i % 5) * 0.12)
+            local tw = TweenService:Create(star,
+                TweenInfo.new(1.3 + (i % 4) * 0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 0, true),
+                {BackgroundTransparency = target})
+            tw:Play()
+        end
+        task.wait(2.8)
+    end
+end)
+
+task.spawn(function()
+    while State.alive and voidWell.Parent do
+        local tw = TweenService:Create(voidWell,
+            TweenInfo.new(2.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 0, true),
+            {Size = UDim2.fromOffset(224,224), Position = UDim2.fromOffset(W/2-112,H/2-112)})
+        tw:Play()
+        tw.Completed:Wait()
+        if not State.alive then break end
+        local tw2 = TweenService:Create(wellStroke,
+            TweenInfo.new(1.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 0, true),
+            {Transparency = 0.78})
+        tw2:Play()
+        tw2.Completed:Wait()
+    end
+end)
+
+task.spawn(function()
+    while State.alive and fxLayer.Parent do
+        local tw = TweenService:Create(wellInner,
+            TweenInfo.new(11, Enum.EasingStyle.Linear), {Rotation = wellInner.Rotation - 360})
+        tw:Play()
+        tw.Completed:Wait()
+        wellInner.Rotation = 0
+    end
+end)
+
 task.spawn(function()
     while State.alive and fxLayer.Parent do
         local tween = TweenService:Create(orbit,
@@ -4898,6 +5088,9 @@ render = function()
     UI.moveTab.TextColor3 = State.tab == "Move" and C.bright or C.dim
     UI.systemTab.BackgroundColor3 = State.tab == "System" and C.raised or C.surface
     UI.systemTab.TextColor3 = State.tab == "System" and C.bright or C.dim
+    for key, glyph in pairs(UI.navGlyphs or {}) do
+        tintVoidGlyph(glyph, State.tab == key and C.bright or C.dim)
+    end
     for key, navStroke in pairs(UI.navStrokes) do
         local selected = State.tab == key
         navStroke.Transparency = selected and 0.08 or 0.86
@@ -4945,7 +5138,7 @@ render = function()
     UI.bossSaveStatus.Text=Farm.configStatus
     UI.bossDiscoveryStatus.Text=Farm.pendingDiscovery and "First-run discovery starts shortly..." or Farm.discoveryStatus
     UI.farmHint.Text = Settings.AutoBoss
-        and string.format("Auto Boss active • %d saved locations • same-boss respawn resume enabled.", #Farm.remembered)
+        and string.format("Auto Boss active / %d saved locations / same-boss respawn resume enabled.", #Farm.remembered)
         or "Automate farming, bosses and loot collection."
     UI.farmCount.Text = tostring(Farm.aliveCount or 0)
     local remembered = Farm.pinned and Farm.catalog[Farm.pinned]
@@ -5310,7 +5503,7 @@ end)
 task.spawn(function()
     while State.alive do
         render()
-        task.wait(0.12)
+        task.wait(0.18)
     end
 end)
 task.spawn(function()

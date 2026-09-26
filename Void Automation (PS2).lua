@@ -11,7 +11,7 @@ local Settings = {
     StaticMapScan = true, StaticScanRange = 500000,
     AutoRejoin = true, AutoExecute = true,
     PrivateServerMap = "Ouwigahara", PrivateJoinHold = 1.35,
-    NoClip = true, FlyEnabled = false, FlySpeed = 85,
+    NoClip = false, FlyEnabled = false, FlySpeed = 85,
     NoClipWorldRadius = 100, NoClipWorldScanInterval = 0.20,
     NoClipStopLift = 10, NoClipStopSettle = 1.00,
     SpeedEnabled = false, WalkSpeed = 32,
@@ -1942,6 +1942,9 @@ do
         Farm.fault = nil
         Farm.nextScan = 0
         if Settings.AutoBoss then
+            -- Auto Boss owns the automatic NoClip state.
+            Settings.NoClip = true
+            Movement.updateTBlock()
 
             Settings.BossAutoSave = true
             Settings.FarmEnabled = true
@@ -2326,6 +2329,9 @@ do
             resetAutoBossRoute(true)
             Farm.fault = "Farming stopped. Toggle on to retry."
             Farm.release(false)
+            local character = Player.Character
+            local rootPart = character and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart)
+            Movement.prepareStopLanding(character, rootPart)
             Farm.status, Farm.detail = "ERROR", Farm.fault
             warn("AutoSkills Farm: " .. tostring(err))
         end
@@ -2800,8 +2806,8 @@ local Movement = {
     flyHumanoid = nil, flyAutoRotate = nil,
     stopLiftToken = 0,
     tBlocked = false,
-    status = "NOCLIP ON",
-    detail = "No-clip is active automatically. T is blocked while No Clip is on.",
+    status = "MOVEMENT",
+    detail = "No Clip activates automatically only while Auto Boss is active.",
 }
 
 local function movementCharacter()

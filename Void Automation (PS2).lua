@@ -496,7 +496,7 @@ local Farm = {catalog = {}, remembered = {}, pinned = nil, records = {}, selecte
     autoVisited = {}, autoCurrent = nil, autoLastPath = nil, autoArrivedAt = 0,
     autoCombatAt = 0, autoLastProgressAt = 0, autoLastHP = nil, autoDefeated = false,
     autoRespawnResume = false, autoResumePath = nil,
-    autoCycles = 0, autoSkipped = 0, travelHealth = nil, autoBlocked = {},
+    autoCycles = 0, autoSkipped = 0, travelHealth = nil,
     guardian = {lastHealth = nil, damageSince = 0, damageBase = nil, lastPosition = nil,
         lastPositionAt = 0, stuckSince = 0, lostSince = 0, verifyAt = 0, recoveries = 0,
         lastAction = "STANDBY", lastActionAt = 0}
@@ -1700,23 +1700,15 @@ do
         g.lastHealth, g.damageSince, g.damageBase = nil, 0, nil
         g.lastPosition, g.lastPositionAt, g.stuckSince, g.lostSince = nil, 0, 0, 0
         g.verifyAt, g.recoveries, g.lastAction, g.lastActionAt = 0, 0, "STANDBY", 0
-        if clearLast then
-            Farm.autoLastPath = nil
-            Farm.autoBlocked = {}
-        end
+        if clearLast then Farm.autoLastPath = nil end
     end
     local function autoBossLocation(entry)
         return entry and (entry.spawn or entry.position) or nil
     end
     local function autoBossEligible(entry)
         if not entry or not autoBossLocation(entry) then return false end
-        if Farm.autoBlocked[entry.path] then return false end
         if entry.maximum and not attackHealthAllowed(entry.maximum) then return false end
         return true
-    end
-    local function blockAutoBossEntry(entry, reason)
-        if not entry or not entry.path then return end
-        Farm.autoBlocked[entry.path] = {reason = reason or "ENVIRONMENTAL HAZARD", at = os.clock()}
     end
     local function findBossNearSavedLocation(entry)
         if not entry then return nil end
@@ -1798,10 +1790,6 @@ do
     end
     local function advanceAutoBoss(reason, rootPart, skipped)
         local previous = Farm.autoCurrent and Farm.catalog[Farm.autoCurrent]
-        local reasonText = string.lower(tostring(reason or ""))
-        if previous and (reasonText:find("damage", 1, true) or reasonText:find("environmental", 1, true) or reasonText:find("snow", 1, true)) then
-            blockAutoBossEntry(previous, reason)
-        end
         if skipped then Farm.autoSkipped = Farm.autoSkipped + 1 end
         Farm.stopM1()
         Farm.restoreHitbox()
@@ -2047,27 +2035,6 @@ do
             or not rootPart or not rootPart:IsA("BasePart") or rootPart.Anchored or humanoid.Sit or humanoid.SeatPart then
             pause("WAITING", "Waiting for your living, unseated character."); return
         end
-
-        -- Hazard watchdog: check health before the saved-location travel branch can return.
-        -- This catches snow/zone damage even when no boss is currently loaded. The affected
-        -- location is blacklisted for this Auto Boss session so the route cannot immediately
-        -- cycle back into the same damaging area.
-        if Settings.AutoBoss and Farm.autoCurrent and not Farm.autoEngaged then
-            local g = Farm.guardian
-            if g.lastHealth ~= nil and humanoid.Health < g.lastHealth - 0.01 then
-                local entry = Farm.catalog[Farm.autoCurrent]
-                local _, _, _, liveRoot = Farm.read(Farm.selected)
-                if entry and not liveRoot then
-                    blockAutoBossEntry(entry, "Environmental damage / hazardous zone")
-                    g.lastHealth = humanoid.Health
-                    g.lastAction, g.lastActionAt = "HAZARD LOCATION SKIPPED", os.clock()
-                    advanceAutoBoss("Guardian: environmental damage detected with no boss", rootPart, true)
-                    return
-                end
-            end
-            g.lastHealth = humanoid.Health
-        end
-
         if Settings.AutoBoss then
             local entry
 
@@ -4375,11 +4342,9 @@ connect(RunService.RenderStepped, function()
         star.object.BackgroundTransparency = 0.25 + (math.sin(t * star.twinkle + star.phase) + 1) * 0.28
     end
 
-    -- Keep the orbit containers stationary. The individual segments are rotated below
-    -- around the true center, which keeps the Blackhole effect aligned while resizing.
-    BH.backA.Rotation = 0
-    BH.backB.Rotation = 0
-    BH.front.Rotation = 0
+    BH.backA.Rotation = (t * 6) % 360
+    BH.backB.Rotation = (-t * 4.4) % 360
+    BH.front.Rotation = (-t * 7.5) % 360
 
     local pulse = (math.sin(t * 1.25) + 1) * 0.5
     local glowSize = (82 + math.floor(pulse * 18)) * coreScale
@@ -4390,14 +4355,6 @@ connect(RunService.RenderStepped, function()
     BH.core.Size = UDim2.fromOffset(coreSize, coreSize)
     BH.horizonSilver.Size = UDim2.fromOffset(horizonSize, horizonSize)
     BH.horizonPurple.Size = UDim2.fromOffset(horizonSize, horizonSize)
-    local glowCorner = BH.coreGlow:FindFirstChildOfClass("UICorner")
-    if glowCorner then glowCorner.CornerRadius = UDim.new(0, math.floor(glowSize * 0.5)) end
-    local coreCorner = BH.core:FindFirstChildOfClass("UICorner")
-    if coreCorner then coreCorner.CornerRadius = UDim.new(0, math.floor(coreSize * 0.5)) end
-    local silverCorner = BH.horizonSilver:FindFirstChildOfClass("UICorner")
-    if silverCorner then silverCorner.CornerRadius = UDim.new(0, math.floor(horizonSize * 0.5)) end
-    local purpleCorner = BH.horizonPurple:FindFirstChildOfClass("UICorner")
-    if purpleCorner then purpleCorner.CornerRadius = UDim.new(0, math.floor(horizonSize * 0.5)) end
     BH.silverStroke.Transparency = 0.16 + pulse * 0.18
     BH.purpleStroke.Transparency = 0.28 + (1 - pulse) * 0.20
 
@@ -4406,15 +4363,9 @@ connect(RunService.RenderStepped, function()
         orbit.Position = UDim2.fromOffset(cx, cy)
     end
 
-    local ringSpeeds = {
-        [BH.backRing1] = math.rad(6),
-        [BH.backRing2] = math.rad(-4.4),
-        [BH.frontRing] = math.rad(-7.5),
-    }
     for _, ring in ipairs({BH.backRing1, BH.backRing2, BH.frontRing}) do
-        local rotationPhase = t * (ringSpeeds[ring] or 0)
         for _, seg in ipairs(ring.segments) do
-            local angle = seg.angle + rotationPhase
+            local angle = seg.angle
             local rx, ry = ring.rx * scale, ring.ry
             local x = cx + math.cos(angle) * rx
             local y = cy + math.sin(angle) * ry
@@ -4860,6 +4811,10 @@ local function applyWindowWidth(width)
     setObjectWidth(voidFX, windowWidth)
     if System.theme == "Blackhole" then
         BH.hero.Size = UDim2.fromOffset(windowWidth, 152)
+        -- Keep the Blackhole hero background synced with the resized UI.
+        -- The atmosphere used to remain at the original 420px width, creating
+        -- the visible vertical black-background seam after resizing.
+        BH.atmosphere.Size = UDim2.fromOffset(windowWidth, 152)
         BH.backA.Size = UDim2.fromOffset(windowWidth, 152)
         BH.backB.Size = UDim2.fromOffset(windowWidth, 152)
         BH.front.Size = UDim2.fromOffset(windowWidth, 152)
@@ -5058,6 +5013,7 @@ function Theme.apply(themeName)
         BH.hero.Visible = true
         BH.hero.Position = UDim2.fromOffset(0, 64)
         BH.hero.Size = UDim2.fromOffset(windowWidth, 152)
+        BH.atmosphere.Size = UDim2.fromOffset(windowWidth, 152)
         BH.hero.BackgroundColor3 = C.black
         BH.heroStroke.Color = C.line
         BH.heroStroke.Transparency = 0.82

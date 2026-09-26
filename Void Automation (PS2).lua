@@ -6090,7 +6090,7 @@ Title.Font = Enum.Font.GothamBold
 Title.TextSize = 11
 Title.TextColor3 = Color3.fromRGB(235, 249, 255)
 Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Text = "SLAYERS 2 • AUTO JOIN V10"
+Title.Text = "SLAYERS 2 • AUTO JOIN V11"
 Title.Parent = Card
 
 local Status = Instance.new("TextLabel")
@@ -6816,11 +6816,42 @@ task.spawn(function()
                     lastAction = 0
                     ownerAttempts = 0
                     setStatus("OUWLAND selected • private panel detected")
-                elseif os.clock() - lastAction >= 1.00 then
+                elseif mapAttempts < 3 and os.clock() - lastAction >= 1.35 then
                     lastAction = os.clock()
                     mapAttempts = mapAttempts + 1
-                    setStatus("OUWLAND • selection attempt " .. tostring(mapAttempts))
+
+                    setStatus(
+                        "OUWLAND • click "
+                        .. tostring(mapAttempts)
+                        .. "/3"
+                    )
+
                     doMap()
+
+                    -- Give the game enough time to reveal the private panel
+                    -- before another toggle-click is allowed.
+                    task.wait(1.10)
+
+                    if privateJoinContextVisible() then
+                        stage = "owner"
+                        lastAction = 0
+                        ownerAttempts = 0
+                        setStatus("OUWLAND selected • private panel detected")
+                    elseif mapAttempts >= 3 then
+                        -- Ouwland toggles selection on each click:
+                        -- 1 = selected, 2 = deselected, 3 = selected.
+                        -- Never click it a fourth time, because that would
+                        -- deselect the map again.
+                        setStatus("OUWLAND • 3/3 clicks sent • waiting for private panel")
+                    end
+                elseif mapAttempts >= 3 then
+                    -- Hard cap: absolutely no more Ouwland clicks.
+                    if privateJoinContextVisible() then
+                        stage = "owner"
+                        lastAction = 0
+                        ownerAttempts = 0
+                        setStatus("OUWLAND selected • private panel detected")
+                    end
                 end
 
             elseif stage == "owner" then

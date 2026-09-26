@@ -109,6 +109,8 @@ local slot = "__AutoSkills_ZXCVB"
 local previous = environment[slot]
 if type(previous) == "table" and type(previous.Stop) == "function" then previous.Stop() end
 
+local SLAYERS2_LOBBY_PLACE_ID = 16205713724
+
 -- ============================================================
 -- LOBBY-ONLY MODE
 -- If the script starts on the PLAY / Ouwland lobby UI, NOTHING
@@ -298,45 +300,151 @@ local function lobbyMouseClickAt(point, hold)
     end)
 end
 
+local function lobbyInputConnections(object)
+    local getter = type(getconnections) == "function" and getconnections
+        or (type(environment.getconnections) == "function" and environment.getconnections)
+        or nil
+
+    if type(getter) ~= "function" or not object then return false end
+
+    local didCall = false
+    local fakeDown = {
+        UserInputType = Enum.UserInputType.MouseButton1,
+        UserInputState = Enum.UserInputState.Begin,
+        KeyCode = Enum.KeyCode.Unknown,
+        Position = Vector3.new(0, 0, 0),
+    }
+    local fakeUp = {
+        UserInputType = Enum.UserInputType.MouseButton1,
+        UserInputState = Enum.UserInputState.End,
+        KeyCode = Enum.KeyCode.Unknown,
+        Position = Vector3.new(0, 0, 0),
+    }
+
+    for _, candidate in ipairs(lobbyAncestors(object)) do
+        for _, pair in ipairs({
+            {candidate.InputBegan, fakeDown},
+            {candidate.InputEnded, fakeUp},
+        }) do
+            local okConnections, connections = pcall(getter, pair[1])
+            if okConnections and type(connections) == "table" then
+                for _, connection in ipairs(connections) do
+                    local fn = connection.Function
+                    if type(fn) == "function" then
+                        local ok = pcall(fn, pair[2])
+                        didCall = didCall or ok
+                    end
+                end
+            end
+        end
+    end
+
+    return didCall
+end
+
+local function lobbyKeyboardActivate(object)
+    if not object or not object.Parent then return false end
+
+    local candidate
+    for _, ancestor in ipairs(lobbyAncestors(object)) do
+        if ancestor:IsA("GuiButton") and ancestor.Selectable then
+            candidate = ancestor
+            break
+        end
+    end
+    candidate = candidate or object
+
+    local oldSelected = GuiService.SelectedObject
+    local ok = pcall(function()
+        if candidate:IsA("GuiObject") then
+            GuiService.SelectedObject = candidate
+        end
+        task.wait(0.03)
+        VirtualInput:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+        task.wait(0.06)
+        VirtualInput:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+        GuiService.SelectedObject = oldSelected
+    end)
+
+    return ok
+end
+
 local function lobbyClick(object, hold, fireDirect)
     if not object or not object.Parent then return false end
 
-    local direct = false
+    local succeeded = false
+
     if fireDirect ~= false then
-        direct = lobbyFireSignals(object)
+        succeeded = lobbyFireSignals(object) or succeeded
+        succeeded = lobbyInputConnections(object) or succeeded
+        succeeded = lobbyKeyboardActivate(object) or succeeded
     end
 
+    -- First click the exact visible label/button.
     local point = object.AbsolutePosition + object.AbsoluteSize / 2
-    local physical = lobbyMouseClickAt(point, hold)
+    succeeded = lobbyMouseClickAt(point, hold) or succeeded
 
-    return direct or physical
+    -- Then try the first few visible ancestors. This is important for Slayers 2:
+    -- labels such as PLAY/Ouwland can sit inside a larger input-catching frame.
+    local tried = 0
+    for _, ancestor in ipairs(lobbyAncestors(object)) do
+        if ancestor ~= object and tried < 4 then
+            local size = ancestor.AbsoluteSize
+            if size.X >= object.AbsoluteSize.X and size.Y >= object.AbsoluteSize.Y then
+                tried = tried + 1
+                local ancestorPoint = ancestor.AbsolutePosition + size / 2
+                lobbyMouseClickAt(ancestorPoint, hold)
+            end
+        end
+    end
+
+    return succeeded
 end
 
 local function lobbyClickMapCard(mapLabel)
-    if not mapLabel or not mapLabel.Parent then return false end
+    if mapLabel and mapLabel.Parent then
+        lobbyClick(mapLabel, 0.10, true)
+    end
 
-    -- Try the Ouwland text / any actual ancestor button first.
-    lobbyFireSignals(mapLabel)
-    lobbyClick(mapLabel, 0.10, false)
-
-    -- The screenshot's selectable artwork/card is BELOW the "Ouwland" text.
-    -- Also click a scaled point inside that card in case the label itself is not
-    -- the hit target.
     local viewport = World.CurrentCamera and World.CurrentCamera.ViewportSize
         or Vector2.new(1920, 1080)
 
-    local pos = mapLabel.AbsolutePosition
-    local size = mapLabel.AbsoluteSize
-
-    local cardPoint = Vector2.new(
-        math.clamp(pos.X + math.max(120, size.X * 1.7), 4, viewport.X - 4),
-        math.clamp(pos.Y + math.max(160, size.Y * 7.0), 4, viewport.Y - 4)
+    -- Supplied screenshot: Ouwland card center is roughly 17% across / 43% down.
+    -- This fallback is independent of the internal GUI hierarchy.
+    local screenshotPoint = Vector2.new(
+        math.clamp(viewport.X * 0.17, 4, viewport.X - 4),
+        math.clamp(viewport.Y * 0.43, 4, viewport.Y - 4)
     )
 
     task.wait(0.08)
-    lobbyMouseClickAt(cardPoint, 0.10)
+    lobbyMouseClickAt(screenshotPoint, 0.12)
 
     return true
+end
+
+local function lobbyViewportPoint(xFraction, yFraction)
+    local viewport = World.CurrentCamera and World.CurrentCamera.ViewportSize
+        or Vector2.new(1920, 1080)
+
+    return Vector2.new(
+        math.clamp(viewport.X * xFraction, 4, viewport.X - 4),
+        math.clamp(viewport.Y * yFraction, 4, viewport.Y - 4)
+    )
+end
+
+local function lobbyFallbackPlayClick()
+    -- PLAY appears in the upper-left menu in the supplied screenshot.
+    lobbyMouseClickAt(lobbyViewportPoint(0.055, 0.075), 0.10)
+end
+
+local function lobbyFallbackOwnerClick()
+    -- Supplied 1291x932 screenshot center of "Private server owner".
+    return lobbyViewportPoint(0.615, 0.862)
+end
+
+local function lobbyFallbackJoinClick(hold)
+    -- Supplied 1291x932 screenshot center of JOIN.
+    return lobbyMouseClickAt(lobbyViewportPoint(0.615, 0.916), hold or 3.5)
 end
 
 local function lobbyLoadOwner()
@@ -366,22 +474,57 @@ local function lobbyLoadOwner()
 end
 
 local function lobbyFillOwner(box, owner)
-    if not box or not box.Parent then return false end
     owner = tostring(owner or Player.Name)
 
-    local ok = pcall(function()
-        box:CaptureFocus()
-        task.wait(0.05)
+    if box and box.Parent then
+        local ok = pcall(function()
+            local point = box.AbsolutePosition + box.AbsoluteSize / 2
+            lobbyMouseClickAt(point, 0.06)
+            box:CaptureFocus()
+            task.wait(0.05)
 
-        -- Property assignment triggers Text changed listeners used by many menus.
-        box.Text = owner
-        box.CursorPosition = #owner + 1
+            box.Text = owner
+            box.CursorPosition = #owner + 1
 
-        task.wait(0.08)
-        box:ReleaseFocus(false)
+            -- Trigger common textbox submit/focus handlers.
+            task.wait(0.10)
+            box:ReleaseFocus(false)
+        end)
+
+        if ok then return true end
+    end
+
+    -- Geometry fallback if the TextBox is wrapped/obfuscated.
+    local point = lobbyFallbackOwnerClick()
+    lobbyMouseClickAt(point, 0.06)
+    task.wait(0.06)
+
+    -- Best-effort Ctrl+A and text injection. Direct TextBox assignment above is
+    -- preferred, but this helps if the visible field is backed by another control.
+    pcall(function()
+        VirtualInput:SendKeyEvent(true, Enum.KeyCode.LeftControl, false, game)
+        VirtualInput:SendKeyEvent(true, Enum.KeyCode.A, false, game)
+        VirtualInput:SendKeyEvent(false, Enum.KeyCode.A, false, game)
+        VirtualInput:SendKeyEvent(false, Enum.KeyCode.LeftControl, false, game)
     end)
 
-    return ok
+    local clipboard = type(setclipboard) == "function" and setclipboard
+        or (type(environment.setclipboard) == "function" and environment.setclipboard)
+        or nil
+
+    if type(clipboard) == "function" then
+        pcall(clipboard, owner)
+        task.wait(0.03)
+        pcall(function()
+            VirtualInput:SendKeyEvent(true, Enum.KeyCode.LeftControl, false, game)
+            VirtualInput:SendKeyEvent(true, Enum.KeyCode.V, false, game)
+            VirtualInput:SendKeyEvent(false, Enum.KeyCode.V, false, game)
+            VirtualInput:SendKeyEvent(false, Enum.KeyCode.LeftControl, false, game)
+        end)
+        return true
+    end
+
+    return false
 end
 
 local function lobbyQueueGameplayScript()
@@ -408,18 +551,22 @@ end)
 end
 
 local function detectLobbyForStartup()
-    -- Private gameplay should never enter lobby-only mode.
+    -- The user supplied the real Slayers 2 lobby PlaceId. This is now the
+    -- authoritative check, so executing before the menu finishes loading works.
+    if tonumber(game.PlaceId) == SLAYERS2_LOBBY_PLACE_ID then
+        return true
+    end
+
+    -- Fallback for alternate lobby places/copies using the same menu.
     if tostring(game.PrivateServerId or "") ~= "" then
         return false
     end
 
-    -- Give the lobby UI a little time to render before deciding.
-    local deadline = os.clock() + 7
-
+    local deadline = os.clock() + 3
     repeat
         local detected = lobbySignature()
         if detected then return true end
-        task.wait(0.15)
+        task.wait(0.10)
     until os.clock() >= deadline
 
     return false
@@ -428,8 +575,56 @@ end
 if detectLobbyForStartup() then
     local lobbyController = {alive = true}
 
+    local lobbyGui = Instance.new("ScreenGui")
+    lobbyGui.Name = "AutoSkillsLobbyJoin"
+    lobbyGui.ResetOnSpawn = false
+    lobbyGui.IgnoreGuiInset = true
+    lobbyGui.DisplayOrder = 999999
+    lobbyGui.Parent = playerGui
+
+    local lobbyStatusFrame = Instance.new("Frame")
+    lobbyStatusFrame.Name = "Status"
+    lobbyStatusFrame.AnchorPoint = Vector2.new(1, 0)
+    lobbyStatusFrame.Position = UDim2.new(1, -18, 0, 18)
+    lobbyStatusFrame.Size = UDim2.fromOffset(300, 54)
+    lobbyStatusFrame.BackgroundColor3 = Color3.fromRGB(7, 18, 28)
+    lobbyStatusFrame.BackgroundTransparency = 0.10
+    lobbyStatusFrame.BorderSizePixel = 0
+    lobbyStatusFrame.Parent = lobbyGui
+
+    local lobbyCorner = Instance.new("UICorner")
+    lobbyCorner.CornerRadius = UDim.new(0, 10)
+    lobbyCorner.Parent = lobbyStatusFrame
+
+    local lobbyStroke = Instance.new("UIStroke")
+    lobbyStroke.Color = Color3.fromRGB(24, 207, 255)
+    lobbyStroke.Transparency = 0.2
+    lobbyStroke.Thickness = 1
+    lobbyStroke.Parent = lobbyStatusFrame
+
+    local lobbyStatusLabel = Instance.new("TextLabel")
+    lobbyStatusLabel.Name = "Label"
+    lobbyStatusLabel.Position = UDim2.fromOffset(14, 7)
+    lobbyStatusLabel.Size = UDim2.fromOffset(272, 40)
+    lobbyStatusLabel.BackgroundTransparency = 1
+    lobbyStatusLabel.Font = Enum.Font.GothamMedium
+    lobbyStatusLabel.TextSize = 11
+    lobbyStatusLabel.TextColor3 = Color3.fromRGB(225, 244, 255)
+    lobbyStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    lobbyStatusLabel.TextWrapped = true
+    lobbyStatusLabel.Text = "AUTO JOIN • waiting for Slayers 2 lobby UI..."
+    lobbyStatusLabel.Parent = lobbyStatusFrame
+
+    local function lobbySetStatus(message)
+        if lobbyStatusLabel and lobbyStatusLabel.Parent then
+            lobbyStatusLabel.Text = "AUTO JOIN • " .. tostring(message)
+        end
+        print("AutoSkills Lobby: " .. tostring(message))
+    end
+
     function lobbyController.Stop()
         lobbyController.alive = false
+        if lobbyGui then pcall(function() lobbyGui:Destroy() end) end
     end
 
     environment[slot] = lobbyController
@@ -437,77 +632,101 @@ if detectLobbyForStartup() then
 
     local privateOwner = lobbyLoadOwner()
 
-    print("AutoSkills: LOBBY MODE - only private-server auto join is running.")
+    print("AutoSkills: Slayers 2 lobby PlaceId detected - ONLY Auto Join is running.")
 
     task.spawn(function()
-        local lastPlay = 0
-        local lastMap = 0
-        local lastOwner = 0
-        local lastJoin = 0
+        local stage = "play"
+        local lastAction = 0
+        local privateOwner = lobbyLoadOwner()
+
+        lobbySetStatus("lobby detected • owner: " .. privateOwner)
 
         while lobbyController.alive do
             local _, play, map, ownerBox, join = lobbySignature()
 
-            -- SCREEN 1: PLAY / CUSTOMIZE / HUB / SLOTS.
-            if play and not ownerBox and not join then
-                if os.clock() - lastPlay >= 1.2 then
-                    lastPlay = os.clock()
-                    print("AutoSkills Lobby: clicking PLAY")
-                    lobbyClick(play, 0.10, true)
-                end
-
-                task.wait(0.12)
-                continue
+            -- Detect later screens regardless of current stage.
+            if ownerBox or join then
+                stage = "owner"
+            elseif map and stage ~= "owner" and stage ~= "join" then
+                stage = "map"
+            elseif play and stage == "play" then
+                stage = "play"
             end
 
-            -- SCREEN 2. If Ouwland is visible but the private controls are not,
-            -- select its artwork/card.
-            if map and not ownerBox and not join then
-                if os.clock() - lastMap >= 1.2 then
-                    lastMap = os.clock()
-                    print("AutoSkills Lobby: selecting Ouwland")
+            if stage == "play" then
+                if os.clock() - lastAction >= 0.85 then
+                    lastAction = os.clock()
+                    lobbySetStatus("clicking PLAY")
+
+                    if play then
+                        lobbyClick(play, 0.10, true)
+                    end
+
+                    -- Always send the supplied-screen coordinate fallback too.
+                    lobbyFallbackPlayClick()
+                end
+
+                -- Once Ouwland/private controls exist, progress.
+                map = lobbyFindMap()
+                ownerBox = lobbyFindOwnerBox()
+                join = lobbyFindJoin()
+                if map or ownerBox or join then
+                    stage = map and "map" or "owner"
+                    lastAction = 0
+                end
+
+            elseif stage == "map" then
+                if os.clock() - lastAction >= 0.90 then
+                    lastAction = os.clock()
+                    lobbySetStatus("selecting Ouwland")
+
+                    map = lobbyFindMap() or map
                     lobbyClickMapCard(map)
                 end
 
-                task.wait(0.12)
-                continue
-            end
+                ownerBox = lobbyFindOwnerBox()
+                join = lobbyFindJoin()
+                if ownerBox or join then
+                    stage = "owner"
+                    lastAction = 0
+                end
 
-            -- Some builds show the owner/JOIN controls at the same time as the
-            -- Ouwland card. A single card click is still sent before filling it.
-            if map and ownerBox and lastMap == 0 then
-                lastMap = os.clock()
-                lobbyClickMapCard(map)
-                task.wait(0.25)
-            end
+            elseif stage == "owner" then
+                if os.clock() - lastAction >= 1.00 then
+                    lastAction = os.clock()
+                    ownerBox = lobbyFindOwnerBox()
 
-            if ownerBox then
-                local current = lobbyNormalize(ownerBox.Text)
-                local wanted = lobbyNormalize(privateOwner)
-
-                if current ~= wanted or os.clock() - lastOwner >= 6 then
-                    lastOwner = os.clock()
-                    print("AutoSkills Lobby: entering private server owner " .. privateOwner)
+                    lobbySetStatus("entering PS owner: " .. privateOwner)
                     lobbyFillOwner(ownerBox, privateOwner)
 
-                    -- Give the game's owner lookup/validation time to update JOIN.
-                    task.wait(0.75)
+                    -- Give Slayers 2 time to validate the private-server owner.
+                    task.wait(0.80)
+
+                    join = lobbyFindJoin()
+                    if join then
+                        stage = "join"
+                        lastAction = 0
+                    end
+                end
+
+            elseif stage == "join" then
+                if os.clock() - lastAction >= 4.5 then
+                    lastAction = os.clock()
+                    join = lobbyFindJoin()
+
+                    lobbySetStatus("holding JOIN")
+
+                    if join then
+                        lobbyClick(join, 3.5, false)
+                    else
+                        lobbyFallbackJoinClick(3.5)
+                    end
+
+                    lobbySetStatus("JOIN sent • waiting for teleport")
                 end
             end
 
-            join = lobbyFindJoin() or join
-
-            if join and ownerBox and lobbyNormalize(ownerBox.Text) == lobbyNormalize(privateOwner) then
-                if os.clock() - lastJoin >= 5 then
-                    lastJoin = os.clock()
-                    print("AutoSkills Lobby: holding JOIN")
-
-                    -- JOIN is explicitly hold-to-join. Do not firesignal it.
-                    lobbyClick(join, 3.5, false)
-                end
-            end
-
-            task.wait(0.12)
+            task.wait(0.10)
         end
     end)
 

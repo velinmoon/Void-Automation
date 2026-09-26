@@ -6,7 +6,7 @@ local Settings = {
     BossAutoSave = true, BossFirstDiscovery = false, BossGridSearch = true,
     BossDwell = 1.5, BossGridRadius = 2048,
     AutoBoss = false, BossAutoRange = 500000, BossLocalScanRadius = 2500, BossNoAttackTimeout = 5,
-    GuardianDamageTimeout = 0.45, GuardianStuckTimeout = 6, GuardianCombatStallTimeout = 25,
+    GuardianDamageTimeout = 0.75, GuardianStuckTimeout = 6, GuardianCombatStallTimeout = 25,
     GuardianVerifyInterval = 1.0, GuardianMaxRecoveries = 1,
     StaticMapScan = true, StaticScanRange = 500000,
     AutoRejoin = true, AutoExecute = true,
@@ -493,7 +493,7 @@ local System
 local BUILT_IN_BOSS_SEED_CODE = "__AUTOSKILLS_BOSS_SEED_PLACEHOLDER__"
 local Farm = {catalog = {}, remembered = {}, pinned = nil, records = {}, selected = nil, nextScan = 0, status = "OFF",
     detail = "Select a target, then enable Auto farm.", count = 0, aliveCount = 0,
-    autoVisited = {}, autoCurrent = nil, autoLastPath = nil, autoArrivedAt = 0,
+    autoVisited = {}, autoUnsafe = {}, autoCurrent = nil, autoLastPath = nil, autoArrivedAt = 0,
     autoCombatAt = 0, autoLastProgressAt = 0, autoLastHP = nil, autoDefeated = false,
     autoRespawnResume = false, autoResumePath = nil,
     autoCycles = 0, autoSkipped = 0, travelHealth = nil,
@@ -1687,6 +1687,7 @@ do
     end
     local function resetAutoBossRoute(clearLast)
         Farm.autoVisited = {}
+        Farm.autoUnsafe = {}
         Farm.autoCurrent = nil
         Farm.autoArrivedAt = 0
         Farm.autoCombatAt = 0
@@ -1750,6 +1751,7 @@ do
             for _, entry in ipairs(Farm.remembered) do
                 local location = autoBossLocation(entry)
                 if autoBossEligible(entry) and not Farm.autoVisited[entry.path]
+                    and not Farm.autoUnsafe[entry.path]
                     and (not excludeLast or entry.path ~= Farm.autoLastPath) then
                     local distance = (location - position).Magnitude
                     if distance <= Settings.BossAutoRange and (not bestDistance or distance < bestDistance) then
@@ -1790,6 +1792,15 @@ do
     end
     local function advanceAutoBoss(reason, rootPart, skipped)
         local previous = Farm.autoCurrent and Farm.catalog[Farm.autoCurrent]
+        local reasonText = tostring(reason or "")
+        -- Environmental damage with no confirmed boss (snow/acid/lava/zone hazards)
+        -- makes that saved location unsafe for the current Auto Boss route. Do not
+        -- immediately pick the same location again and trap the character there.
+        if previous and (reasonText:find("environmental damage", 1, true)
+            or reasonText:find("DAMAGE WITHOUT COMBAT", 1, true)
+            or reasonText:find("player taking damage", 1, true)) then
+            Farm.autoUnsafe[previous.path] = true
+        end
         if skipped then Farm.autoSkipped = Farm.autoSkipped + 1 end
         Farm.stopM1()
         Farm.restoreHitbox()
@@ -2035,17 +2046,6 @@ do
             or not rootPart or not rootPart:IsA("BasePart") or rootPart.Anchored or humanoid.Sit or humanoid.SeatPart then
             pause("WAITING", "Waiting for your living, unseated character."); return
         end
-
-        -- Run the environmental-damage watchdog before boss acquisition. This prevents
-        -- Auto Boss from sitting at an empty snow/biome location while the character takes damage.
-        if Settings.AutoBoss and not Farm.autoEngaged then
-            if guardianObservePlayer(humanoid, rootPart, false) then
-                Farm.guardian.lastAction, Farm.guardian.lastActionAt = "ENVIRONMENT DAMAGE", os.clock()
-                advanceAutoBoss("Guardian: environmental damage detected before boss acquisition", rootPart, true)
-                return
-            end
-        end
-
         if Settings.AutoBoss then
             local entry
 
@@ -2094,6 +2094,20 @@ do
             return
         end
         local hp, maximum, _, targetRoot = Farm.read(Farm.selected)
+
+        -- Check for environmental damage BEFORE the travel/teleport branch. This is
+        -- important for hazard biomes: if no qualifying boss is actually loaded at
+        -- the saved point, a snow/zone damage tick must make Auto Boss abandon that
+        -- point instead of repeatedly holding the character there.
+        if Settings.AutoBoss and not Farm.autoEngaged then
+            local hasValidBoss = hp and hp > 0 and targetRoot and attackHealthAllowed(maximum)
+            if not hasValidBoss and guardianObservePlayer(humanoid, rootPart, false) then
+                Farm.guardian.lastAction, Farm.guardian.lastActionAt = "ENVIRONMENTAL DAMAGE", os.clock()
+                advanceAutoBoss("Guardian: environmental damage at empty boss location", rootPart, true)
+                return
+            end
+        end
+
         if hp and hp <= 0 and lastTargetPosition then
             beginLoot(lastTargetPosition)
             if stepLoot(character, rootPart) then return end
@@ -2194,12 +2208,6 @@ do
 
         if Settings.AutoBoss then
             local engaged = Farm.autoEngaged == true
-            if guardianObservePlayer(humanoid, rootPart, engaged) then
-                Farm.guardian.lastAction, Farm.guardian.lastActionAt = "DAMAGE WITHOUT COMBAT", os.clock()
-                advanceAutoBoss("Guardian: player taking damage with no boss being damaged", rootPart, true)
-                return
-            end
-
             local entry = Farm.autoCurrent and Farm.catalog[Farm.autoCurrent] or nil
             if entry and guardianObserveTravel(rootPart, entry, targetRoot, engaged) then
                 Farm.guardian.lastAction, Farm.guardian.lastActionAt = "TRAVEL STUCK", os.clock()
@@ -3044,7 +3052,7 @@ System = {
     directTriedAt = 0,
     menuNextAt = 0,
     menuStage = "idle",
-    theme = "Blackhole",
+    theme = "Default",
 }
 
 do
@@ -3074,8 +3082,7 @@ do
         if type(data.StaticMapScan) == "boolean" then Settings.StaticMapScan = data.StaticMapScan end
         if type(data.AutoRejoin) == "boolean" then Settings.AutoRejoin = data.AutoRejoin end
         if type(data.AutoExecute) == "boolean" then Settings.AutoExecute = data.AutoExecute end
-        -- Blackhole V1 is the only available theme. Legacy theme prefs are migrated.
-        System.theme = "Blackhole"
+        if data.Theme == "Blackhole" or data.Theme == "Default" then System.theme = data.Theme end
         if finiteText(data.PrivateServerMap, 80) then Settings.PrivateServerMap = data.PrivateServerMap end
         if finiteText(data.TargetGameId, 40) then System.targetGameId = data.TargetGameId end
         if finiteText(data.LastPrivateJob, 120) then System.lastPrivateJob = data.LastPrivateJob end
@@ -4205,7 +4212,7 @@ connect(RunService.RenderStepped, function()
 end)
 
 
--- BLACKHOLE V1 visual preset hero.
+-- BLACKHOLE V1 visual preset hero. Hidden unless the saved Theme is Blackhole.
 local BH = {}
 BH.hero = frame(panel, "BlackholeHero", 0, 64, W, 152, C.black, 0)
 BH.hero.ZIndex = 4
@@ -4275,14 +4282,6 @@ BH.horizonPurple.Position = UDim2.fromOffset(W * 0.5, 76)
 BH.horizonPurple.BackgroundTransparency = 1
 BH.horizonPurple.ZIndex = 5
 BH.purpleStroke = stroke(BH.horizonPurple, Color3.fromRGB(122,63,242), 0.28, 1.2)
-local function setCircleCorner(object)
-    local c = object and object:FindFirstChildOfClass("UICorner")
-    if c then c.CornerRadius = UDim.new(1, 0) end
-end
-setCircleCorner(BH.coreGlow)
-setCircleCorner(BH.core)
-setCircleCorner(BH.horizonSilver)
-setCircleCorner(BH.horizonPurple)
 
 BH.front = frame(BH.hero, "FrontOrbit", 0, 0, W, 152, Color3.new(1,1,1), 0)
 BH.front.BackgroundTransparency = 1
@@ -4343,10 +4342,11 @@ connect(RunService.RenderStepped, function()
     local dt = math.min(now - BH.last, 0.05)
     BH.last = now
     local t = now - BH.clock
-    local heroWidth = math.max(420, BH.hero.AbsoluteSize.X)
-    -- The HTML reference uses a 300px-wide hero. Keep the orbit field proportional
-    -- to the resized Roblox hero while keeping the fixed-height panel usable.
-    local scale = math.max(0.65, heroWidth / W)
+    local heroWidth = math.max(W, math.floor((BH.hero.AbsoluteSize.X > 0 and BH.hero.AbsoluteSize.X or windowWidth) + 0.5), math.floor(windowWidth + 0.5))
+    -- Keep every Blackhole layer centered inside the resized hero. Orbit segments are
+    -- positioned relative to their orbit container's center (not the hero's absolute
+    -- coordinates), preventing them from drifting off-screen when the panel widens.
+    local scale = heroWidth / W
     local cx = heroWidth * 0.5
     local cy = 76
     local coreScale = math.clamp(0.92 + (heroWidth / 420) * 0.28, 0.92, 1.65)
@@ -4375,10 +4375,6 @@ connect(RunService.RenderStepped, function()
     BH.core.Size = UDim2.fromOffset(coreSize, coreSize)
     BH.horizonSilver.Size = UDim2.fromOffset(horizonSize, horizonSize)
     BH.horizonPurple.Size = UDim2.fromOffset(horizonSize, horizonSize)
-    setCircleCorner(BH.coreGlow)
-    setCircleCorner(BH.core)
-    setCircleCorner(BH.horizonSilver)
-    setCircleCorner(BH.horizonPurple)
     BH.silverStroke.Transparency = 0.16 + pulse * 0.18
     BH.purpleStroke.Transparency = 0.28 + (1 - pulse) * 0.20
 
@@ -4388,15 +4384,22 @@ connect(RunService.RenderStepped, function()
     end
 
     for _, ring in ipairs({BH.backRing1, BH.backRing2, BH.frontRing}) do
+        -- Keep the ellipse inside the hero at every width. The segment positions are
+        -- LOCAL to the orbit container, whose AnchorPoint/Position already define the
+        -- center. This fixes the double-center offset that caused the rings to fly
+        -- toward the top/right when the UI was resized.
+        local rx = math.min(ring.rx * scale, heroWidth * 0.46)
+        local ringScale = rx / ring.rx
+        local ry = ring.ry * math.max(1, math.min(scale, 2.2))
         for _, seg in ipairs(ring.segments) do
             local angle = seg.angle
-            local rx, ry = ring.rx * scale, ring.ry
-            local x = cx + math.cos(angle) * rx
-            local y = cy + math.sin(angle) * ry
+            local x = math.cos(angle) * rx
+            local y = math.sin(angle) * ry
             local tx, ty = -rx * math.sin(angle), ry * math.cos(angle)
             local rotation = math.deg(math.atan2(ty, tx))
-            seg.seg.Size = UDim2.fromOffset(math.floor(seg.length * scale), seg.width)
-            seg.glow.Size = UDim2.fromOffset(math.floor(seg.length * scale) + 8, seg.width + 6)
+            local length = math.max(14, math.floor(seg.length * ringScale))
+            seg.seg.Size = UDim2.fromOffset(length, seg.width)
+            seg.glow.Size = UDim2.fromOffset(length + 8, seg.width + 6)
             seg.seg.Position = UDim2.fromOffset(x, y)
             seg.seg.Rotation = rotation
             seg.glow.Position = UDim2.fromOffset(x, y)
@@ -4628,6 +4631,17 @@ connect(scanButton.Activated, function()
     if Farm.staticMapScan then Farm.staticMapScan(true) end
     render()
 end)
+local friendButton = button(systemPage, "FriendReady", "BUILD FRIEND SCRIPT", 16, 396, 164, 30, C.panel2, 9)
+friendButton.TextColor3 = C.violet2
+stroke(friendButton, C.violet2, 0.55, 1)
+UI.friendReadyButton = friendButton
+connect(friendButton.Activated, function()
+    if System and System.writeFriendReady then
+        local ok = System.writeFriendReady()
+        notify(ok and "Friend-ready script built with current boss locations." or "Friend-ready script could not be built yet.")
+    end
+    render()
+end)
 local systemHint = safeText(systemPage, "Hint", "VOID NEXUS  /  LINK STABLE", 16, 336, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
 systemHint.TextXAlignment = Enum.TextXAlignment.Center
 UI.systemStatus = safeText(systemPage, "CompatStatus", "", -100, -100, 1, 1, 1, C.dim)
@@ -4654,7 +4668,7 @@ pageHead(ThemeUI.page, "theme", "THEME", "DISPLAY")
 local themeInfo = frame(ThemeUI.page, "ThemeInfo", 16, 48, W - 32, 54, Color3.fromRGB(18,10,30), 10)
 stroke(themeInfo, C.line, 0.72, 1)
 safeText(themeInfo, "Name", "ACTIVE PRESET", 12, 7, 130, 16, 9, C.faint, Enum.Font.GothamBold)
-ThemeUI.activeLabel = safeText(themeInfo, "Active", "BLACKHOLE V1", 12, 25, 180, 20, 13, C.ink, Enum.Font.GothamBold)
+ThemeUI.activeLabel = safeText(themeInfo, "Active", "DEFAULT", 12, 25, 180, 20, 13, C.ink, Enum.Font.GothamBold)
 ThemeUI.activeLabel.TextStrokeTransparency = 0.88
 safeText(themeInfo, "Desc", "Saved automatically for the next execution.", 160, 17, W - 188, 30, 9, C.faint, Enum.Font.GothamMedium)
 
@@ -4688,10 +4702,13 @@ function ThemeUI.makePreset(y, title, desc, themeName)
     return row, select, rowStroke
 end
 
-ThemeUI.blackholeRow, ThemeUI.blackholeButton = ThemeUI.makePreset(
-    114, "Blackhole V1", "HTML-matched black-hole reactor interface", "Blackhole"
+ThemeUI.defaultRow, ThemeUI.defaultButton = ThemeUI.makePreset(
+    114, "Default", "Original Void Nexus interface", "Default"
 )
-ThemeUI.hint = safeText(ThemeUI.page, "Hint", "Blackhole V1 is the only available theme.", 16, 186, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+ThemeUI.blackholeRow, ThemeUI.blackholeButton = ThemeUI.makePreset(
+    186, "Blackhole V1", "HTML-matched black-hole reactor interface", "Blackhole"
+)
+ThemeUI.hint = safeText(ThemeUI.page, "Hint", "Theme changes are saved immediately.", 16, 258, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
 ThemeUI.hint.TextXAlignment = Enum.TextXAlignment.Center
 
 UI.count = safeText(skillsPage, "Count", "4 / 4 ENABLED", 0, 0, 1, 1, 1, C.dim)
@@ -4920,6 +4937,13 @@ local function fitWindow(centerIfNeeded)
 end
 
 local Theme = {
+    Default = {
+        black = C.black, deep = C.deep, panel = C.panel, panel2 = C.panel2,
+        violet = C.violet, violet2 = C.violet2, magenta = C.magenta, cyan = C.cyan,
+        ink = C.ink, dim = C.dim, faint = C.faint, line = C.line,
+        accent = C.accent, bright = C.bright, muted = C.muted, surface = C.surface,
+        text = C.text, voidDeep = C.voidDeep, toggleOn = C.toggleOn, toggleOff = C.toggleOff,
+    },
     Blackhole = {
         black = Color3.fromRGB(0,0,0),
         deep = Color3.fromRGB(8,8,12),
@@ -4994,44 +5018,73 @@ function Theme.restyleRows()
 end
 
 function Theme.apply(themeName)
-    -- Blackhole V1 is the only theme. Any legacy/invalid value is migrated automatically.
-    themeName = "Blackhole"
+    if themeName ~= "Blackhole" then themeName = "Default" end
     System.theme = themeName
-    Theme.current = Theme.Blackhole
+    local bh = themeName == "Blackhole"
+    Theme.current = bh and Theme.Blackhole or Theme.Default
     Theme.copy(Theme.current)
 
-    Theme.height = 600
-    windowHeight = Theme.height
-    holder.Size = UDim2.fromOffset(windowWidth, windowHeight)
-    shadow.Size = UDim2.fromOffset(windowWidth + 12, windowHeight + 12)
-    panel.Size = UDim2.fromOffset(windowWidth, windowHeight)
-    panel.BackgroundColor3 = C.panel
-    panel.BackgroundTransparency = 0.18
-    panelStroke.Color = C.line
-    panelStroke.Transparency = 0.72
-    panelBackdrop.Visible = false
-    voidFX.Visible = false
-    ticker.Visible = false
-    header.Position = UDim2.fromOffset(0, 0)
-    header.Size = UDim2.fromOffset(windowWidth, 64)
-    headerLine.BackgroundColor3 = C.line
-    headerLine.BackgroundTransparency = 0.70
-    brandTitle.Text = "BLACKHOLE V1"
-    brandTitle.TextColor3 = C.ink
-    header:FindFirstChild("Sub").Text = "REACTOR ONLINE"
-    BH.hero.Visible = true
-    BH.hero.Position = UDim2.fromOffset(0, 64)
-    BH.hero.Size = UDim2.fromOffset(windowWidth, 152)
-    BH.hero.BackgroundColor3 = C.black
-    BH.heroStroke.Color = C.line
-    BH.heroStroke.Transparency = 0.82
-    tabs.Position = UDim2.fromOffset(0, 216)
-    tabs.BackgroundColor3 = C.black
-    tabs.BackgroundTransparency = 0.28
-    content.Position = UDim2.fromOffset(0, 280)
-    content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
-    edgeSheen.BackgroundColor3 = C.cyan
-    BH.atmosphere.BackgroundColor3 = Color3.fromRGB(12,8,20)
+    if bh then
+        Theme.height = 600
+        windowHeight = Theme.height
+        holder.Size = UDim2.fromOffset(windowWidth, windowHeight)
+        shadow.Size = UDim2.fromOffset(windowWidth + 12, windowHeight + 12)
+        panel.Size = UDim2.fromOffset(windowWidth, windowHeight)
+        panel.BackgroundColor3 = C.panel
+        panel.BackgroundTransparency = 0.18
+        panelStroke.Color = C.line
+        panelStroke.Transparency = 0.72
+        panelBackdrop.Visible = false
+        voidFX.Visible = false
+        ticker.Visible = false
+        header.Position = UDim2.fromOffset(0, 0)
+        header.Size = UDim2.fromOffset(windowWidth, 64)
+        headerLine.BackgroundColor3 = C.line
+        headerLine.BackgroundTransparency = 0.70
+        brandTitle.Text = "BLACKHOLE V1"
+        brandTitle.TextColor3 = C.ink
+        header:FindFirstChild("Sub").Text = "REACTOR ONLINE"
+        BH.hero.Visible = true
+        BH.hero.Position = UDim2.fromOffset(0, 64)
+        BH.hero.Size = UDim2.fromOffset(windowWidth, 152)
+        BH.hero.BackgroundColor3 = C.black
+        BH.heroStroke.Color = C.line
+        BH.heroStroke.Transparency = 0.82
+        tabs.Position = UDim2.fromOffset(0, 216)
+        tabs.BackgroundColor3 = C.black
+        tabs.BackgroundTransparency = 0.28
+        content.Position = UDim2.fromOffset(0, 280)
+        content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
+        edgeSheen.BackgroundColor3 = C.cyan
+        BH.atmosphere.BackgroundColor3 = Color3.fromRGB(12,8,20)
+    else
+        Theme.height = H
+        windowHeight = Theme.height
+        holder.Size = UDim2.fromOffset(windowWidth, windowHeight)
+        shadow.Size = UDim2.fromOffset(windowWidth + 12, windowHeight + 12)
+        panel.Size = UDim2.fromOffset(windowWidth, windowHeight)
+        panel.BackgroundColor3 = C.panel
+        panel.BackgroundTransparency = 0.40
+        panelStroke.Color = C.violet2
+        panelStroke.Transparency = 0.28
+        panelBackdrop.Visible = true
+        voidFX.Visible = true
+        ticker.Visible = true
+        header.Position = UDim2.fromOffset(0, 0)
+        header.Size = UDim2.fromOffset(windowWidth, 64)
+        headerLine.BackgroundColor3 = C.violet
+        headerLine.BackgroundTransparency = 0.48
+        brandTitle.Text = "VOID NEXUS"
+        brandTitle.TextColor3 = C.ink
+        header:FindFirstChild("Sub").Text = "CORE LINK STABLE"
+        BH.hero.Visible = false
+        tabs.Position = UDim2.fromOffset(0, 88)
+        tabs.BackgroundColor3 = C.black
+        tabs.BackgroundTransparency = 0.35
+        content.Position = UDim2.fromOffset(0, 152)
+        content.Size = UDim2.fromOffset(windowWidth, windowHeight - 152)
+        edgeSheen.BackgroundColor3 = C.cyan
+    end
 
     brandmark.BackgroundColor3 = C.panel2
     local brandStroke = brandmark:FindFirstChildOfClass("UIStroke")
@@ -5045,7 +5098,7 @@ function Theme.apply(themeName)
     edgeSheenGradient.Color = ColorSequence.new(C.cyan, C.violet2)
 
     for key, tab in pairs(navButtons) do
-        tab.BackgroundColor3 = C.panel2
+        tab.BackgroundColor3 = bh and C.panel2 or Color3.fromRGB(8,4,16)
         local st = UI.navStrokes[key]
         if st then st.Color = C.line end
         local bar = UI.navBars[key]
@@ -5055,21 +5108,31 @@ function Theme.apply(themeName)
     Theme.restyleText()
 
     if ThemeUI.activeLabel then
-        ThemeUI.activeLabel.Text = "BLACKHOLE V1"
+        ThemeUI.activeLabel.Text = bh and "BLACKHOLE V1" or "DEFAULT"
         ThemeUI.activeLabel.TextColor3 = C.ink
     end
+    if ThemeUI.defaultButton then
+        ThemeUI.defaultButton.BackgroundColor3 = bh and C.panel2 or C.violet2
+        ThemeUI.defaultButton.TextColor3 = bh and C.faint or C.ink
+    end
     if ThemeUI.blackholeButton then
-        ThemeUI.blackholeButton.BackgroundColor3 = C.violet2
-        ThemeUI.blackholeButton.TextColor3 = C.ink
+        ThemeUI.blackholeButton.BackgroundColor3 = bh and C.violet2 or C.panel2
+        ThemeUI.blackholeButton.TextColor3 = bh and C.ink or C.faint
+    end
+    if ThemeUI.defaultRow then
+        local st = ThemeUI.defaultRow:FindFirstChildOfClass("UIStroke")
+        if st then st.Color = bh and C.line or C.violet2 end
     end
     if ThemeUI.blackholeRow then
         local st = ThemeUI.blackholeRow:FindFirstChildOfClass("UIStroke")
-        if st then st.Color = C.violet2 end
+        if st then st.Color = bh and C.violet2 or C.line end
     end
-    BH.core.BackgroundColor3 = Color3.new(0,0,0)
-    BH.coreGlow.BackgroundColor3 = Color3.fromRGB(65,35,135)
-    BH.silverStroke.Color = Color3.fromRGB(238,241,251)
-    BH.purpleStroke.Color = Color3.fromRGB(122,63,242)
+    if bh then
+        BH.core.BackgroundColor3 = Color3.new(0,0,0)
+        BH.coreGlow.BackgroundColor3 = Color3.fromRGB(65,35,135)
+        BH.silverStroke.Color = Color3.fromRGB(238,241,251)
+        BH.purpleStroke.Color = Color3.fromRGB(122,63,242)
+    end
 
     applyWindowWidth(windowWidth)
     fitWindow(false)
@@ -5094,7 +5157,7 @@ local function renderPageState()
         or State.tab == "ESP" and (Settings.ESPEnabled and "ESP" or "SYNCED")
         or State.tab == "Health" and (Settings.HealthEscapeEnabled and "HP" or "SYNCED")
         or State.tab == "Move" and (Settings.FlyEnabled and "FLY" or Settings.NoClip and "MOVE" or "SYNCED")
-        or State.tab == "Theme" and "BLACKHOLE"
+        or State.tab == "Theme" and (System.theme == "Blackhole" and "BLACKHOLE" or "DEFAULT")
         or "SYNCED")
     UI.badge.TextColor3 = mainColor
     statusDot.BackgroundColor3 = mainColor
@@ -5144,6 +5207,9 @@ local function renderPageState()
     UI.systemStatusDot.BackgroundColor3 = (Settings.StaticMapScan or Settings.AutoRejoin or Settings.AutoExecute) and C.green or C.faint
     UI.staticScanButton.Text = Farm.staticScanBusy and "SCANNING..." or "SCAN MAP NOW"
     UI.staticScanStatus.Text = Farm.staticScanStatus
+    if UI.friendReadyButton then
+        UI.friendReadyButton.Text = System.friendReadyStatus:find("AutoSkills_FriendReady.lua", 1, true) and "FRIEND SCRIPT READY" or "BUILD FRIEND SCRIPT"
+    end
     UI.rejoinStatus.Text = System.rejoinStatus
     if Input:GetFocusedTextBox() ~= UI.privateMapBox then UI.privateMapBox.Text = Settings.PrivateServerMap end
 
@@ -5249,11 +5315,11 @@ do
         local loadScale = make("UIScale", loadCard, {Scale = 0.88})
         TweenService:Create(loadScale, TweenInfo.new(0.62, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
 
-        local loadTitle = safeText(loadCard, "Title", "BLACKHOLE V1", 0, 16, 326, 22, 17, C.ink, Enum.Font.GothamBold)
+        local loadTitle = safeText(loadCard, "Title", System.theme == "Blackhole" and "BLACKHOLE V1" or "VOID NEXUS", 0, 16, 326, 22, 17, C.ink, Enum.Font.GothamBold)
         loadTitle.TextXAlignment = Enum.TextXAlignment.Center
         loadTitle.ZIndex = 103
 
-        local loadSub = safeText(loadCard, "Sub", "GALACTIC REACTOR", 0, 40, 326, 16, 8, C.dim, Enum.Font.GothamBold)
+        local loadSub = safeText(loadCard, "Sub", System.theme == "Blackhole" and "GALACTIC REACTOR" or "VOID CORE ONLINE", 0, 40, 326, 16, 8, C.dim, Enum.Font.GothamBold)
         loadSub.TextXAlignment = Enum.TextXAlignment.Center
         loadSub.ZIndex = 103
 
@@ -5410,7 +5476,7 @@ do
             {0.37, "IGNITING ACCRETION DISK..."},
             {0.56, "BENDING SPACETIME..."},
             {0.75, "SYNCHRONIZING ORBITAL RINGS..."},
-            {0.90, "BLACKHOLE V1 ONLINE"},
+            {0.90, System.theme == "Blackhole" and "BLACKHOLE V1 ONLINE" or "VOID NEXUS ONLINE"},
         }
 
         local loadAnimConn
@@ -5480,7 +5546,7 @@ do
 
             if progress >= 1 then
                 loadAnimConn:Disconnect()
-                loadStatus.Text = "BLACKHOLE V1 ONLINE"
+                loadStatus.Text = System.theme == "Blackhole" and "BLACKHOLE V1 ONLINE" or "VOID NEXUS ONLINE"
                 task.wait(0.10)
                 if not State.alive then return end
 

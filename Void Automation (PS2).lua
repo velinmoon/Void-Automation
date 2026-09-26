@@ -3663,10 +3663,8 @@ for i = 1, 34 do
 end
 
 -- Fancy falling void stars ------------------------------------------------
--- These are deliberately star-shaped rather than single-point particles.
--- Each glyph has a soft halo, four-point rays, a tiny core and a short tail.
--- The objects live in the same effect layer as the rest of the void field so
--- the entire field can be reflowed when the window is widened.
+-- Stars glow from their own cores/rays.  There is deliberately NO large
+-- background halo behind each star; the light is contained inside the star.
 for i = 1, 42 do
     local size = (i % 7 == 0) and 2.4 or (i % 3 == 0 and 1.8 or 1.35)
     local x = math.random(10, math.max(11, W - 12))
@@ -3675,34 +3673,65 @@ for i = 1, 42 do
     local groupSize = math.floor(18 * size)
     local group = frame(voidFX, "Star" .. i, math.floor(x), math.floor(y), groupSize, groupSize, C.black, math.floor(groupSize / 2))
     group.BackgroundTransparency = 1
-    group.ZIndex = 3
+    group.ZIndex = 4
 
-    local glowSize = math.floor(20 * size)
-    local glow = frame(voidFX, "StarGlow" .. i,
-        math.floor(x + groupSize / 2 - glowSize / 2),
-        math.floor(y + groupSize / 2 - glowSize / 2),
-        glowSize, glowSize, color, math.floor(glowSize / 2))
-    glow.BackgroundTransparency = 0.93
-    glow.ZIndex = 2
+    -- The star itself is built from a soft outer cross, a bright inner cross,
+    -- a hot center and a tiny highlight.  All glow stays inside the glyph.
+    local coreSize = math.max(2, math.floor(3.2 * size))
+    local cx = math.floor(groupSize / 2 - coreSize / 2)
+    local cy = math.floor(groupSize / 2 - coreSize / 2)
+    local core = frame(group, "Core", cx, cy, coreSize, coreSize, color, math.floor(coreSize / 2))
+    core.BackgroundTransparency = 0.03
+    core.ZIndex = 8
 
-    local coreSize = math.max(2, math.floor(3 * size))
-    local core = frame(group, "Core", math.floor(groupSize / 2 - coreSize / 2), math.floor(groupSize / 2 - coreSize / 2), coreSize, coreSize, C.ink, math.floor(coreSize / 2))
+    local hotSize = math.max(1, math.floor(coreSize * 0.45))
+    local hot = frame(group, "HotCore",
+        math.floor(groupSize / 2 - hotSize / 2), math.floor(groupSize / 2 - hotSize / 2),
+        hotSize, hotSize, C.white, math.floor(hotSize / 2))
+    hot.BackgroundTransparency = 0.02
+    hot.ZIndex = 9
+
     local rayLen = math.max(5, math.floor(7 * size))
-    local rayW = math.max(1, math.floor(size))
-    local rayV = frame(group, "RayV", math.floor(groupSize / 2 - rayW / 2), math.floor(groupSize / 2 - rayLen / 2), rayW, rayLen, color, 1)
-    local rayH = frame(group, "RayH", math.floor(groupSize / 2 - rayLen / 2), math.floor(groupSize / 2 - rayW / 2), rayLen, rayW, color, 1)
-    local rayD1 = frame(group, "RayD1", math.floor(groupSize / 2 - rayW / 2), math.floor(groupSize / 2 - rayLen / 2), rayW, rayLen, color, 1)
-    rayD1.Rotation = 45
-    local rayD2 = frame(group, "RayD2", math.floor(groupSize / 2 - rayW / 2), math.floor(groupSize / 2 - rayLen / 2), rayW, rayLen, color, 1)
-    rayD2.Rotation = -45
-    local tailLen = math.floor(10 + size * 8)
-    local tail = frame(group, "Tail", math.floor(groupSize / 2 - 0.5), math.floor(groupSize / 2 + 2), 1, tailLen, color, 1)
-    tail.BackgroundTransparency = 0.45
+    local outerW = math.max(2, math.floor(size * 0.95))
+    local innerW = math.max(1, math.floor(size * 0.48))
+
+    local function makeRay(name, rotation, length, width, rayColor, transparency, z)
+        local ray = frame(group, name,
+            math.floor(groupSize / 2 - width / 2),
+            math.floor(groupSize / 2 - length / 2),
+            width, length, rayColor, math.floor(width / 2))
+        ray.Rotation = rotation
+        ray.BackgroundTransparency = transparency
+        ray.ZIndex = z
+        return ray
+    end
+
+    local outerRays = {
+        makeRay("OuterV", 0, rayLen + 4, outerW, color, 0.55, 5),
+        makeRay("OuterH", 90, rayLen + 4, outerW, color, 0.55, 5),
+        makeRay("OuterD1", 45, rayLen + 3, outerW, color, 0.64, 5),
+        makeRay("OuterD2", -45, rayLen + 3, outerW, color, 0.64, 5),
+    }
+    local innerRays = {
+        makeRay("InnerV", 0, rayLen, innerW, C.white, 0.08, 7),
+        makeRay("InnerH", 90, rayLen, innerW, C.white, 0.08, 7),
+    }
+
+    local tailLen = math.floor(8 + size * 7)
+    local tail = frame(group, "Tail",
+        math.floor(groupSize / 2 - 0.5), math.floor(groupSize / 2 + 2),
+        1, tailLen, color, 1)
+    tail.BackgroundTransparency = 0.58
     tail.Rotation = -18
+    tail.ZIndex = 4
 
     voidStars[#voidStars + 1] = {
-        object = group, glow = glow,
-        core = core, rays = {rayV, rayH, rayD1, rayD2}, tail = tail,
+        object = group,
+        core = core,
+        hot = hot,
+        outerRays = outerRays,
+        innerRays = innerRays,
+        tail = tail,
         x = x, y = y,
         speed = 24 + math.random() * 64,
         drift = -10 + math.random() * 20,
@@ -3770,27 +3799,37 @@ connect(RunService.RenderStepped, function()
             end
             if star.x < -18 then star.x = fxWidth + 10 elseif star.x > fxWidth + 18 then star.x = -10 end
             local pulse = (math.sin(t * star.twinkle + star.phase) + 1) * 0.5
-            local alpha = math.clamp(0.18 - pulse * 0.16, 0.015, 0.28)
+            local rayFade = math.clamp(0.72 - pulse * 0.60, 0.05, 0.72)
+            local innerFade = math.clamp(0.18 - pulse * 0.14, 0.025, 0.18)
             star.object.Position = UDim2.fromOffset(math.floor(star.x), math.floor(star.y))
             star.object.Rotation = math.sin(t * 0.45 + star.phase) * 8 + t * star.spin * 0.015
             star.object.BackgroundTransparency = 1
+
+            -- The glow is the star: brighten the core and rays instead of
+            -- creating a large translucent circle behind it.
             if star.core then
-                star.core.BackgroundTransparency = math.clamp(0.04 + (1 - pulse) * 0.25, 0.02, 0.45)
+                star.core.BackgroundTransparency = math.clamp(0.16 - pulse * 0.14, 0.01, 0.16)
+                star.core.Size = UDim2.fromOffset(
+                    math.max(2, math.floor(3.2 * star.size + pulse * 1.3)),
+                    math.max(2, math.floor(3.2 * star.size + pulse * 1.3))
+                )
             end
-            if star.rays then
-                for n, ray in ipairs(star.rays) do
-                    ray.BackgroundTransparency = math.clamp(alpha + (n == 3 and 0.10 or 0), 0.01, 0.55)
+            if star.hot then
+                star.hot.BackgroundTransparency = math.clamp(0.10 - pulse * 0.08, 0.01, 0.10)
+            end
+            if star.outerRays then
+                for _, ray in ipairs(star.outerRays) do
+                    ray.BackgroundTransparency = rayFade
+                end
+            end
+            if star.innerRays then
+                for _, ray in ipairs(star.innerRays) do
+                    ray.BackgroundTransparency = innerFade
                 end
             end
             if star.tail then
-                star.tail.BackgroundTransparency = math.clamp(0.30 + (1 - pulse) * 0.40, 0.22, 0.78)
-                star.tail.Size = UDim2.fromOffset(1, math.floor(8 + pulse * 14 * star.size))
-            end
-            if star.glow.Parent then
-                local glowSize = star.glow.AbsoluteSize.X
-                star.glow.Position = UDim2.fromOffset(math.floor(star.x + star.object.AbsoluteSize.X / 2 - glowSize / 2), math.floor(star.y + star.object.AbsoluteSize.Y / 2 - glowSize / 2))
-                star.glow.BackgroundTransparency = math.clamp(0.93 - pulse * 0.48, 0.32, 0.94)
-                star.glow.Size = UDim2.fromOffset(math.floor(16 * star.size + pulse * 6), math.floor(16 * star.size + pulse * 6))
+                star.tail.BackgroundTransparency = math.clamp(0.66 - pulse * 0.38, 0.24, 0.66)
+                star.tail.Size = UDim2.fromOffset(1, math.floor(7 + pulse * 13 * star.size))
             end
         end
     end

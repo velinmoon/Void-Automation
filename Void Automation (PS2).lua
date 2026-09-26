@@ -4223,7 +4223,17 @@ local function renderPageState()
     end
     updateTabVisuals()
 end
-render = renderPageState
+-- UI rendering must never be able to kill the combat/Auto Cast worker.
+-- Some Roblox runners can throw when a UI object is temporarily being rebuilt.
+local uiRenderError = nil
+local rawRenderPageState = renderPageState
+render = function()
+    local ok, err = pcall(rawRenderPageState)
+    if not ok then
+        uiRenderError = tostring(err)
+    end
+    return ok
+end
 
 -- Compatibility names expected by the older render/event code are supplied
 -- above, while the actual visible UI remains the HTML-shaped panel.
@@ -4379,70 +4389,98 @@ local function waitResponsive(duration, isHolding)
         task.wait(math.min(0.03, remaining))
     end
 end
-render()
-fitWindow(true)
+pcall(render)
+pcall(function() fitWindow(true) end)
+local skillWorkerAlive = false
+local function runAutoCastCycle(chosen)
+    if not chosen or not State.alive then return end
+
+    local blocked = type(Farm.inventoryOrBlockingUIOpen) == "function"
+        and Farm.inventoryOrBlockingUIOpen(false)
+
+    if blocked and type(Farm.inventorySkillPulse) == "function" then
+        State.heldKey = nil
+        local pressed = Farm.inventorySkillPulse(chosen.key)
+
+        if pressed then
+            State.lastKey = chosen.name .. " (inventory pulse)"
+            pcall(render)
+            waitResponsive(math.max(0.03, Settings.KeyGap), false)
+            return
+        end
+
+        -- Keep the original fallback path when the inventory-specific pulse is unavailable.
+        State.heldKey = chosen.key
+        local fallbackOK, err = pcall(function()
+            VirtualInput:SendKeyEvent(true, chosen.key, false, game)
+        end)
+        if not fallbackOK then
+            inputFault(err)
+            return
+        end
+        State.lastKey = chosen.name .. " (fallback)"
+        pcall(render)
+        waitResponsive(math.max(0.03, Settings.HoldTime), true)
+        releaseOrPause()
+        waitResponsive(math.max(0.03, Settings.KeyGap), false)
+        return
+    end
+
+    State.heldKey = chosen.key
+    local pressed, err = pcall(function()
+        VirtualInput:SendKeyEvent(true, chosen.key, false, game)
+    end)
+    if not pressed then
+        inputFault(err)
+        return
+    end
+
+    State.lastKey = chosen.name
+    pcall(render)
+    waitResponsive(math.max(0.03, Settings.HoldTime), true)
+    releaseOrPause()
+    waitResponsive(math.max(0.03, Settings.KeyGap), false)
+end
+
 task.spawn(function()
     local nextIndex = 1
+    skillWorkerAlive = true
     while State.alive do
-        if availability() then
+        local cycleOK, cycleErr = pcall(function()
+            if not availability() then
+                task.wait(0.05)
+                return
+            end
+
             local chosen
             for _ = 1, #Skills do
                 local candidate = Skills[nextIndex]
                 nextIndex = nextIndex % #Skills + 1
-                if candidate.enabled then chosen = candidate; break end
-            end
-            if chosen then
-                local blocked = type(Farm.inventoryOrBlockingUIOpen) == "function"
-                    and Farm.inventoryOrBlockingUIOpen(false)
-
-                if blocked and type(Farm.inventorySkillPulse) == "function" then
-                    State.heldKey = nil
-                    local pressed = Farm.inventorySkillPulse(chosen.key)
-
-                    if pressed then
-                        State.lastKey = chosen.name .. " (inventory pulse)"
-                        render()
-                        waitResponsive(math.max(0.03, Settings.KeyGap), false)
-                    else
-                        -- Final fallback: original key path.
-                        State.heldKey = chosen.key
-                        local fallbackOK, err = pcall(function()
-                            VirtualInput:SendKeyEvent(true, chosen.key, false, game)
-                        end)
-                        if not fallbackOK then
-                            inputFault(err)
-                        else
-                            State.lastKey = chosen.name .. " (fallback)"
-                            render()
-                            waitResponsive(math.max(0.03, Settings.HoldTime), true)
-                            releaseOrPause()
-                            waitResponsive(math.max(0.03, Settings.KeyGap), false)
-                        end
-                    end
-                else
-                    State.heldKey = chosen.key
-                    local pressed, err = pcall(function()
-                        VirtualInput:SendKeyEvent(true, chosen.key, false, game)
-                    end)
-                    if not pressed then
-                        inputFault(err)
-                    else
-                        State.lastKey = chosen.name
-                        render()
-                        waitResponsive(math.max(0.03, Settings.HoldTime), true)
-                        releaseOrPause()
-                        waitResponsive(math.max(0.03, Settings.KeyGap), false)
-                    end
+                if candidate.enabled then
+                    chosen = candidate
+                    break
                 end
             end
-        else
-            task.wait(0.05)
+
+            if chosen then
+                runAutoCastCycle(chosen)
+            else
+                task.wait(0.05)
+            end
+        end)
+
+        if not cycleOK then
+            -- Never let a transient UI/game callback error permanently kill Auto Cast.
+            warn("AutoSkills Auto Cast recovered from: " .. tostring(cycleErr))
+            pcall(releaseKey)
+            task.wait(0.08)
         end
     end
+    skillWorkerAlive = false
 end)
 task.spawn(function()
     while State.alive do
-        render()
+        pcall(render)
         task.wait(0.12)
     end
 end)

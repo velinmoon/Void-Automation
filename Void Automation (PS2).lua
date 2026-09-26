@@ -7,7 +7,7 @@ local __AUTOSKILLS_SOURCE = [====[
 -- Z / X / C / V only. B is not used. Starts OFF.
 -- Requires the same virtual-input support as the original script.
 -- Repeats keypresses, not cooldown detection. Equip your tool and aim normally.
--- All UI is built locally. Space/void side-navigation control-panel layout; no downloaded UI libraries or assets.
+-- All UI is built locally. Cyan side-navigation control-panel layout; no downloaded UI libraries or assets.
 -- Player ESP uses available character models; it cannot reveal unloaded characters.
 -- Health Escape: moves your character exactly 70 studs UP in world space.
 -- Uses CURRENT Health / MaxHealth, including live maximum-health changes.
@@ -113,6 +113,7 @@ local State = {
     alive = true, enabled = false, focused = true, minimized = false,
     heldKey = nil, lastKey = nil, fault = nil, gesture = nil,
     tab = "Skills", espCount = 0, espFault = nil,
+    uiScaleTarget = 0.82,
 }
 local connections, tweens = {}, setmetatable({}, {__mode = "k"})
 local controller, UI = {}, {}
@@ -928,63 +929,32 @@ do
             or math.abs(hp) == math.huge or maximum <= 0 or maximum == math.huge then return nil end
         return hp, maximum, humanoid, rootPart and rootPart:IsA("BasePart") and rootPart or nil
     end
-    local humanoidCache = setmetatable({}, {__mode = "k"})
-    local humanoidCacheReady = false
-    local function cacheHumanoid(object)
-        if object and object:IsA("Humanoid") then humanoidCache[object] = true end
-    end
-    connect(World.DescendantAdded, function(object) cacheHumanoid(object) end)
-    connect(World.DescendantRemoving, function(object)
-        if object and object:IsA("Humanoid") then humanoidCache[object] = nil end
-    end)
-    task.spawn(function()
-        local list = World:GetDescendants()
-        for i, object in ipairs(list) do
-            cacheHumanoid(object)
-            if i % 1800 == 0 then task.wait() end
-        end
-        humanoidCacheReady = true
-    end)
-
     function Farm.scan(force)
         if not force and os.clock() < Farm.nextScan then return end
-        Farm.nextScan = os.clock() + 2.25
+        Farm.nextScan = os.clock() + 2
         local found, seen = {}, {}
         Farm.scanned = 0
-
-        local function inspect(object)
-            if not object or not object.Parent or not object:IsA("Humanoid") then return end
-            local model = rigModel(object)
-            if model and not seen[model] and not isPlayer(model) then
-                seen[model] = true
-                Farm.scanned = Farm.scanned + 1
-                local record = {model = model, humanoid = object, root = rigRoot(model, object), path = path(model)}
-                local hp, maximum = Farm.read(record)
-                if hp and attackHealthAllowed(maximum) then
-                    if not ids[model] then nextID = nextID + 1; ids[model] = nextID end
-                    local gameID = model:GetAttribute("BossId") or model:GetAttribute("BossID")
-                        or model:GetAttribute("NPCId") or model:GetAttribute("Id")
-                    local display = model:GetAttribute("NPCName") or model:GetAttribute("BossName")
-                        or model:GetAttribute("DisplayName") or object.DisplayName
-                    record.name = type(display) == "string" and display ~= "" and display ~= "Humanoid" and display or model.Name
-                    record.id = gameID ~= nil and ("Game ID: " .. tostring(gameID)) or ("Session ID: " .. ids[model])
-                    found[#found + 1] = record
+        for _, object in ipairs(World:GetDescendants()) do
+            if object:IsA("Humanoid") then
+                local model = rigModel(object)
+                if model and not seen[model] and not isPlayer(model) then
+                    seen[model] = true
+                    Farm.scanned = Farm.scanned + 1
+                    local record = {model = model, humanoid = object, root = rigRoot(model, object), path = path(model)}
+                    local hp, maximum = Farm.read(record)
+                    if hp and attackHealthAllowed(maximum) then
+                        if not ids[model] then nextID = nextID + 1; ids[model] = nextID end
+                        local gameID = model:GetAttribute("BossId") or model:GetAttribute("BossID")
+                            or model:GetAttribute("NPCId") or model:GetAttribute("Id")
+                        local display = model:GetAttribute("NPCName") or model:GetAttribute("BossName")
+                            or model:GetAttribute("DisplayName") or object.DisplayName
+                        record.name = type(display) == "string" and display ~= "" and display ~= "Humanoid" and display or model.Name
+                        record.id = gameID ~= nil and ("Game ID: " .. tostring(gameID)) or ("Session ID: " .. ids[model])
+                        found[#found + 1] = record
+                    end
                 end
             end
         end
-
-        if humanoidCacheReady then
-            for object in pairs(humanoidCache) do inspect(object) end
-        else
-            -- Only the first scan can use a full descendant pass; the cache then
-            -- takes over so teleports/streaming do not rescan the whole map.
-            for _, object in ipairs(World:GetDescendants()) do
-                cacheHumanoid(object)
-                inspect(object)
-            end
-            humanoidCacheReady = true
-        end
-
         if Farm.scanMarkers then Farm.scanMarkers() end
         Farm.remember(found)
         table.sort(found, function(a,b) return a.path < b.path end)
@@ -1473,31 +1443,29 @@ do
     local LOOT_OLD_HORIZONTAL_RADIUS = 60
     local LOOT_NEW_HORIZONTAL_RADIUS = 250
     local LOOT_VERTICAL_RADIUS = 400
-
     local function endPrompt()
         if loot and loot.holding then
-            local prompt = loot.holding
-            loot.holding = nil
+            local prompt = loot.holding; loot.holding = nil
             pcall(function() prompt:InputHoldEnd() end)
         end
     end
-
     function Farm.clearLoot()
         endPrompt()
+        if loot and loot.spawnConnection then
+            loot.spawnConnection:Disconnect()
+            loot.spawnConnection = nil
+        end
         loot = nil
         if deathConnection then deathConnection:Disconnect(); deathConnection = nil end
         watched, lastTargetPosition = nil, nil
     end
-
     function Farm.setLoot(value)
         Settings.FarmAutoLoot = value
         if not value then Farm.clearLoot() end
     end
-
     local function beginLoot(position)
         if not Settings.FarmEnabled or not Settings.FarmAutoLoot or not State.alive or loot then return end
-        Farm.stopM1(); Farm.restoreHitbox(); State.farming = false
-        releaseOrPause()
+        Farm.stopM1(); Farm.restoreHitbox(); State.farming = false; releaseOrPause()
 
         loot = {
             center = position,
@@ -1506,31 +1474,67 @@ do
             nextScan = 0,
             tries = {},
             count = 0,
-            preexisting = setmetatable({}, {__mode = "k"}),
-            excludedModels = {},
+            fresh = setmetatable({}, {__mode = "k"}),
+            index = {},
+            cache = setmetatable({}, {__mode = "k"}),
+            indexed = setmetatable({}, {__mode = "k"}),
+            indexReady = false,
             message = "Waiting for boss drops near the kill.",
         }
 
-        for _, record in ipairs(Farm.records) do
-            if record.model then loot.excludedModels[record.model] = true end
-        end
-
-        -- Snapshot nearby parts ONCE. We no longer listen to every Workspace
-        -- DescendantAdded event while a chest opens; that event storm was one of
-        -- the biggest sources of the post-kill hitch.
-        local ok, parts = pcall(function()
-            return World:GetPartBoundsInRadius(position, LOOT_NEW_HORIZONTAL_RADIUS)
-        end)
-        if ok and type(parts) == "table" then
-            for _, part in ipairs(parts) do
-                if part and part:IsA("BasePart") then loot.preexisting[part] = true end
+        local lootSession = loot
+        local function indexObject(object, isFresh)
+            if not lootSession or lootSession ~= loot or not object then return end
+            if not lootSession.indexed[object] and (object:IsA("ProximityPrompt") or object:IsA("ClickDetector")) then
+                lootSession.indexed[object] = true
+                lootSession.index[#lootSession.index + 1] = object
+            elseif not lootSession.indexed[object] and object:IsA("BasePart") and object.CanTouch then
+                local delta = object.Position - lootSession.center
+                local horizontal = Vector3.new(delta.X, 0, delta.Z).Magnitude
+                if horizontal <= LOOT_NEW_HORIZONTAL_RADIUS and math.abs(delta.Y) <= LOOT_VERTICAL_RADIUS then
+                    lootSession.indexed[object] = true
+                    lootSession.index[#lootSession.index + 1] = object
+                end
+            end
+            if isFresh then
+                local node = object
+                for _ = 1, 8 do
+                    if not node or node == World then break end
+                    lootSession.fresh[node] = true
+                    node = node.Parent
+                end
             end
         end
+
+        -- Keep a lightweight index instead of calling Workspace:GetDescendants()
+        -- every 0.20s. Existing interactive objects are indexed once; new loot
+        -- is added immediately through DescendantAdded. This preserves nested
+        -- ProximityPrompts, ClickDetectors, world chests and touch-pickup items
+        -- without the repeated full-workspace scan that caused the lag.
+        loot.spawnConnection = World.DescendantAdded:Connect(function(object)
+            indexObject(object, true)
+        end)
+
+        task.spawn(function()
+            local initial = World:GetDescendants()
+            local batch = 0
+            for _, object in ipairs(initial) do
+                if not lootSession or lootSession ~= loot or os.clock() >= lootSession.deadline then return end
+                indexObject(object, false)
+                batch = batch + 1
+                if batch >= 1200 then
+                    batch = 0
+                    task.wait()
+                end
+            end
+            if lootSession and lootSession == loot then
+                lootSession.indexReady = true
+            end
+        end)
 
         if deathConnection then deathConnection:Disconnect(); deathConnection = nil end
         watched, lastTargetPosition = nil, nil
     end
-
     local function watchTarget(record, part)
         lastTargetPosition = part.Position
         if watched == record.humanoid then return end
@@ -1543,41 +1547,30 @@ do
             end
         end)
     end
-
     local function lootPart(object)
         if not object then return nil end
         if object:IsA("BasePart") then return object end
         if object:IsA("Attachment") then return lootPart(object.Parent) end
         if object:IsA("Model") and object.PrimaryPart then return object.PrimaryPart end
-        return object:FindFirstChildWhichIsA("BasePart", true)
+        for _, child in ipairs(object:GetDescendants()) do if child:IsA("BasePart") then return child end end
     end
-
     local function lootIdentity(object)
-        if not object then return nil end
-        local entity
-        if object:IsA("Model") or object:IsA("Tool") then
-            entity = object
-        else
-            entity = object:FindFirstAncestorOfClass("Model")
-                or object:FindFirstAncestorOfClass("Tool")
-                or object
+        local node, entity, part, marked = object, nil, nil, false
+        while node and node ~= World do
+            if isPlayer(node) then return nil end
+            if node:IsA("Model") and node:FindFirstChildOfClass("Humanoid") then return nil end
+            for _, record in ipairs(Farm.records) do if node == record.model then return nil end end
+            if not entity and (node:IsA("Model") or node:IsA("Tool")) then entity = node end
+            if not part and node:IsA("BasePart") then part = node end
+            local name = string.lower(node.Name)
+            marked = marked or node:IsA("Tool") or node:GetAttribute("IsLoot") == true
+                or node:GetAttribute("Collectible") == true or name:find("chest", 1, true)
+                or name:find("loot", 1, true) or name:find("drop", 1, true)
+                or name:find("pickup", 1, true) or name:find("collect", 1, true)
+            node = node.Parent
         end
-        if not entity or not inWorld(entity) then return nil end
-        if loot and loot.excludedModels and loot.excludedModels[entity] then return nil end
-        if entity:IsA("Model") and entity:FindFirstChildOfClass("Humanoid") then return nil end
-        if isPlayer(entity) then return nil end
-
-        local marked = entity:IsA("Tool")
-            or entity:GetAttribute("IsLoot") == true
-            or entity:GetAttribute("Collectible") == true
-        local name = string.lower(entity.Name)
-        marked = marked or name:find("chest", 1, true) or name:find("loot", 1, true)
-            or name:find("drop", 1, true) or name:find("pickup", 1, true)
-            or name:find("collect", 1, true)
-        if object:IsA("ProximityPrompt") or object:IsA("ClickDetector") then marked = true end
-        return entity, marked
+        return entity or part, marked
     end
-
     local function allowedPrompt(prompt)
         local action = string.lower(prompt.ActionText or "")
         for _, word in ipairs({"buy", "purchase", "trade", "sell", "quest", "talk", "teleport", "travel", "upgrade"}) do
@@ -1587,125 +1580,116 @@ do
             or action:find("loot", 1, true) or action:find("claim", 1, true)
         return action == "" or action:find("open", 1, true) or pickup, pickup
     end
-
     local function lootDistanceOK(part, entity)
         if not loot or not part then return false, false, math.huge end
+
         local delta = part.Position - loot.center
         local horizontal = Vector3.new(delta.X, 0, delta.Z).Magnitude
         local vertical = math.abs(delta.Y)
-        if horizontal > LOOT_NEW_HORIZONTAL_RADIUS or vertical > LOOT_VERTICAL_RADIUS then
+
+        if vertical > LOOT_VERTICAL_RADIUS then
             return false, false, horizontal
         end
-        local fresh = not loot.preexisting[part]
-        return horizontal <= (fresh and LOOT_NEW_HORIZONTAL_RADIUS or LOOT_OLD_HORIZONTAL_RADIUS), fresh, horizontal
+
+        local fresh = (loot.fresh and (
+            loot.fresh[part] or
+            (entity and loot.fresh[entity]) or
+            loot.fresh[part.Parent]
+        )) and true or false
+
+        local radius = fresh and LOOT_NEW_HORIZONTAL_RADIUS or LOOT_OLD_HORIZONTAL_RADIUS
+        return horizontal <= radius, fresh, horizontal
     end
 
     local function findLoot()
-        local candidates, seen = {}, {}
+        local candidates, interactive, seen = {}, {}, {}
         local function available(object)
             local attempt = loot.tries[object]
             return not attempt or (attempt.count < 3 and os.clock() >= attempt.nextTry)
         end
+        if not loot.index then return nil end
 
-        -- Small, bounded spatial query. MaxParts prevents a giant world/chest
-        -- scene from handing thousands of parts to Lua in one frame.
-        local overlap = OverlapParams.new()
-        overlap.FilterType = Enum.RaycastFilterType.Exclude
-        overlap.FilterDescendantsInstances = {Player.Character}
-        overlap.MaxParts = 600
-        local ok, parts = pcall(function()
-            return World:GetPartBoundsInRadius(loot.center, LOOT_NEW_HORIZONTAL_RADIUS, overlap)
-        end)
-        if not ok then return nil end
-
-        local function addInteractive(object, part, entity, marked)
-            if not object or not part or not entity or seen[entity] then return end
-            local allowed = true
-            if object:IsA("ProximityPrompt") then
-                local pickup
-                allowed, pickup = allowedPrompt(object)
-                marked = marked or pickup
-                allowed = allowed and object.Enabled
-            end
-            if not marked or not allowed or not available(object) then return end
-            local inRange, fresh, horizontal = lootDistanceOK(part, entity)
-            if inRange then
-                seen[entity] = true
-                candidates[#candidates + 1] = {
-                    object = object, part = part, entity = entity,
-                    fresh = fresh, horizontal = horizontal,
-                }
-            end
-        end
-
-        for _, part in ipairs(parts) do
-            if part:IsA("BasePart") and part.CanTouch then
-                local delta = part.Position - loot.center
-                local horizontal = Vector3.new(delta.X, 0, delta.Z).Magnitude
-                if horizontal <= LOOT_NEW_HORIZONTAL_RADIUS and math.abs(delta.Y) <= LOOT_VERTICAL_RADIUS then
-                    local entity, marked = lootIdentity(part)
-                    if entity and not seen[entity] then
-                        local prompt = part:FindFirstChildOfClass("ProximityPrompt")
-                        local click = part:FindFirstChildOfClass("ClickDetector")
-                        if prompt then addInteractive(prompt, part, entity, marked) end
-                        if not seen[entity] and click then addInteractive(click, part, entity, marked) end
-
-                        if not seen[entity] and marked and available(entity) then
-                            local inRange, fresh, horizontal2 = lootDistanceOK(part, entity)
-                            if inRange then
-                                seen[entity] = true
-                                candidates[#candidates + 1] = {
-                                    object = entity, part = part, entity = entity,
-                                    touch = true, fresh = fresh, horizontal = horizontal2,
-                                }
-                            end
+        -- Interactive objects first so a chest/pickup prompt wins over a generic
+        -- touch part belonging to the same model.
+        for _, object in ipairs(loot.index) do
+            if object and object.Parent and (object:IsA("ProximityPrompt") or object:IsA("ClickDetector")) then
+                local cached = loot.cache[object]
+                if not cached or not cached.entity or not cached.part then
+                    local entity, marked = lootIdentity(object)
+                    local part = lootPart(object.Parent)
+                    cached = {entity=entity, marked=marked, part=part}
+                    loot.cache[object] = cached
+                end
+                local entity, marked, part = cached.entity, cached.marked, cached.part
+                local allowed = true
+                if object:IsA("ProximityPrompt") then
+                    local pickup, isPickup
+                    allowed, isPickup = allowedPrompt(object)
+                    marked = marked or isPickup
+                    allowed = allowed and object.Enabled
+                    -- The HTML-reference-era chest UI uses an "Open" action.
+                    -- Accept it when the object is already identified as loot/chest.
+                end
+                if entity and marked then
+                    interactive[entity] = true
+                    if allowed and part and available(object) then
+                        local inRange, fresh, horizontal = lootDistanceOK(part, entity)
+                        if inRange then
+                            candidates[#candidates + 1] = {
+                                object=object, part=part, entity=entity,
+                                fresh=fresh, horizontal=horizontal
+                            }
                         end
                     end
                 end
             end
         end
 
-        table.sort(candidates, function(a, b)
+        for _, object in ipairs(loot.index) do
+            if object and object.Parent and object:IsA("BasePart") and object.CanTouch then
+                local cached = loot.cache[object]
+                if not cached then
+                    local entity, marked = lootIdentity(object)
+                    cached = {entity=entity, marked=marked, part=object}
+                    loot.cache[object] = cached
+                end
+                local entity, marked, part = cached.entity, cached.marked, cached.part
+                if entity and marked and not interactive[entity] and not seen[entity]
+                    and available(entity) then
+                    local inRange, fresh, horizontal = lootDistanceOK(part, entity)
+                    if inRange then
+                        seen[entity] = true
+                        candidates[#candidates + 1] = {
+                            object=entity, part=part, entity=entity, touch=true,
+                            fresh=fresh, horizontal=horizontal
+                        }
+                    end
+                end
+            end
+        end
+        table.sort(candidates, function(a,b)
             if a.fresh ~= b.fresh then return a.fresh == true end
             return (a.horizontal or math.huge) < (b.horizontal or math.huge)
         end)
         return candidates[1]
     end
-
     local function stepLoot(character, rootPart)
         if not loot then return false end
-        State.farming = false
-        -- M1/key release already happened in beginLoot. Do NOT call
-        -- releaseOrPause() every frame; that also forces a full UI render and
-        -- was the hidden per-frame hitch during chest/ground loot.
+        State.farming = false; Farm.stopM1(); releaseOrPause()
         if os.clock() >= loot.deadline then Farm.clearLoot(); return false end
         Farm.status, Farm.detail = "LOOT", loot.message
-
         if loot.touchUntil then
             if os.clock() < loot.touchUntil then return true end
-            loot.touchUntil = nil
-            loot.destination = loot.center + Vector3.new(0, 2, 0)
+            loot.touchUntil = nil; loot.destination = loot.center + Vector3.new(0,2,0)
         end
-
         if loot.destination then
-            local delta = loot.destination - rootPart.Position
-            if delta.Magnitude > 1.5 then
-                character:PivotTo(character:GetPivot() + delta)
-                rootPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
-                rootPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
-            else
-                loot.destination = nil
-            end
+            character:PivotTo(character:GetPivot() + (loot.destination - rootPart.Position))
+            rootPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
+            rootPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
         end
-
         if loot.holding then
-            if not inWorld(loot.holding) or os.clock() >= loot.holdUntil then
-                endPrompt()
-            else
-                return true
-            end
+            if not inWorld(loot.holding) or os.clock() >= loot.holdUntil then endPrompt() else return true end
         end
-
         local item = loot.pending
         if item then
             if os.clock() < loot.readyAt then return true end
@@ -1713,43 +1697,32 @@ do
             if not inWorld(item.object) or not inWorld(item.part) then return true end
         else
             if os.clock() < loot.nextScan then return true end
-            loot.nextScan = os.clock() + 0.55
+            loot.nextScan = os.clock() + 0.12
             item = findLoot()
             if not item then return true end
             local old = loot.tries[item.object]
-            loot.tries[item.object] = {count = old and old.count + 1 or 1, nextTry = os.clock() + 2}
-            loot.pending, loot.readyAt = item, os.clock() + 0.12
-            -- Prompt/click loot can be activated directly; do not teleport the
-            -- character across the chest drop pile unless the item is touch-only.
-            if item.touch then
-                loot.destination = item.part.Position + Vector3.new(0, 2, 0)
-            else
-                loot.destination = nil
-            end
+            loot.tries[item.object] = {count=old and old.count+1 or 1, nextTry=os.clock()+2}
+            loot.pending, loot.readyAt = item, os.clock()+0.15
+            loot.destination = item.part.Position + Vector3.new(0,item.touch and 2 or 1,0)
             return true
         end
-
-        loot.count = loot.count + 1
-        loot.message = "Pickup requested: " .. item.entity.Name
+        loot.count = loot.count+1; loot.message = "Pickup requested: " .. item.entity.Name
         local ok, err = pcall(function()
             if item.object:IsA("ProximityPrompt") then
-                local duration = math.max(0, item.object.HoldDuration)
-                if os.clock() + duration + 0.1 > loot.deadline then return end
-                if type(fireproximityprompt) == "function" then
-                    fireproximityprompt(item.object, duration)
+                local duration = math.max(0,item.object.HoldDuration)
+                if os.clock()+duration+0.1 > loot.deadline then return end
+                if type(fireproximityprompt) == "function" then fireproximityprompt(item.object,duration)
                 else
-                    loot.holding, loot.holdUntil = item.object, os.clock() + duration + 0.1
+                    loot.holding, loot.holdUntil = item.object, os.clock()+duration+0.1
                     item.object:InputHoldBegin()
                 end
             elseif item.object:IsA("ClickDetector") then
                 if type(fireclickdetector) ~= "function" then error("Click-detector support unavailable") end
                 fireclickdetector(item.object)
             elseif type(firetouchinterest) == "function" then
-                firetouchinterest(rootPart, item.part, 0)
-                firetouchinterest(rootPart, item.part, 1)
+                firetouchinterest(rootPart,item.part,0); firetouchinterest(rootPart,item.part,1)
             else
-                loot.destination = nil
-                loot.touchUntil = os.clock() + 0.2
+                loot.destination = nil; loot.touchUntil = os.clock()+0.2
                 rootPart.AssemblyLinearVelocity = Vector3.new(0,-8,0)
             end
         end)
@@ -1782,10 +1755,7 @@ do
         local location = autoBossLocation(entry)
         if not location then return nil end
 
-        -- Farm.scan(false) is already called by the main farm loop.
-        -- Forcing a full Workspace:GetDescendants() scan every frame while
-        -- waiting for a boss to stream in causes the post-teleport freeze.
-        Farm.scan(false)
+        Farm.scan(true)
 
         local wantedKey = Farm.bossKey(entry.name)
         local bestSame, bestSameDistance
@@ -1814,9 +1784,7 @@ do
         return bestSame or bestAny
     end
     local function pickAutoBoss(rootPart)
-        -- The main farm loop already performs the throttled scan. Avoid a
-        -- second forced full-workspace scan every time a boss dies.
-        Farm.scan(false)
+        Farm.scan(true)
         local position = rootPart and rootPart.Position
         if not position then return nil end
         local function collect(excludeLast)
@@ -1902,7 +1870,7 @@ do
         Farm.step()
         render()
     end
-    function Farm.release(returnToStart, silent)
+    function Farm.release(returnToStart)
         State.farming = false
         Farm.travelKey, Farm.travelAt = nil, nil
         Farm.stopM1(); Farm.clearLoot()
@@ -1920,7 +1888,7 @@ do
             pcall(function() part.CanCollide = original end)
         end
         collisionState, farmCharacter, origin = {}, nil, nil
-        if not silent then releaseOrPause() else releaseKey() end
+        releaseOrPause()
     end
     pauseFarmForEscape = function()
         if Farm.stopDiscovery then Farm.stopDiscovery("Stopped for health escape") end
@@ -1955,10 +1923,7 @@ do
     end
     local function update()
         if Farm.discoveryStep and Farm.discoveryStep() then return end
-        if (Farm.streamPauseUntil or 0) <= os.clock()
-            and (Settings.FarmEnabled or Settings.AutoBoss or Settings.BossAutoSave or State.tab == "Farm") then
-            Farm.scan(false)
-        end
+        if Settings.FarmEnabled or Settings.AutoBoss or Settings.BossAutoSave or State.tab == "Farm" then Farm.scan(false) end
         Farm.saveConfig(false)
         Farm.aliveCount = 0
         for _, record in ipairs(Farm.records) do
@@ -1966,10 +1931,8 @@ do
             if hp and hp > 0 then Farm.aliveCount = Farm.aliveCount + 1 end
         end
         local function pause(status, detail)
-            local changed = Farm.status ~= status or Farm.detail ~= detail
-            if farmCharacter then Farm.release(true, true) end
+            if farmCharacter then Farm.release(true) end
             Farm.status, Farm.detail = status, detail
-            if changed then render() end
         end
         if Farm.fault then pause("ERROR", Farm.fault); return end
         if not Settings.FarmEnabled then pause("OFF", "Choose a remembered boss, Auto nearest, or enable Auto Boss."); return end
@@ -2040,7 +2003,7 @@ do
                     -- A valid boss was found inside the expanded saved-location scan.
                     Farm.travelKey, Farm.travelAt = nil, nil
                 else
-                    State.farming = false; Farm.stopM1(); Farm.restoreHitbox(); releaseKey()
+                    State.farming = false; Farm.stopM1(); Farm.restoreHitbox(); releaseOrPause()
                     local location = hp and hp <= 0 and entry.spawn or entry.position or entry.spawn
                 if not location then
                     pause("UNKNOWN LOCATION", "Visit this boss once to learn its location."); return
@@ -2067,19 +2030,9 @@ do
                         Farm.autoEngaged = false
                     end
                 end
-                local travelDelta = Farm.travelDestination - rootPart.Position
-                -- Teleport once per meaningful movement. The old code called
-                -- PivotTo every Stepped frame while waiting for the boss to load.
-                if travelDelta.Magnitude > 2 then
-                    character:PivotTo(character:GetPivot() + travelDelta)
-                    rootPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
-                    rootPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
-                    -- Give Roblox streaming/physics a quiet window before the
-                    -- next NPC scan. The scan cache will pick up newly streamed
-                    -- Humanoids through DescendantAdded without a world sweep.
-                    Farm.streamPauseUntil = os.clock() + 2.5
-                    Farm.nextScan = os.clock() + 2.5
-                end
+                character:PivotTo(character:GetPivot() + (Farm.travelDestination - rootPart.Position))
+                rootPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                rootPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
                 if Settings.AutoBoss and not Farm.autoRespawnResume
                     and os.clock() - Farm.autoArrivedAt >= Settings.BossNoAttackTimeout then
                     advanceAutoBoss("No live attack target after 5s; skipped", rootPart, true)
@@ -2235,15 +2188,15 @@ do
         resetAutoBossRoute(true)
         Farm.release(true)
     end
-    -- Farming/loot does not need a physics-frame callback. Running the whole
-    -- farm state machine on every Stepped tick wastes CPU exactly when Roblox
-    -- is streaming a new boss area. No-clip has its own Stepped handler.
-    task.spawn(function()
-        while State.alive do
-            Farm.step()
-            task.wait(0.033)
-        end
-    end)
+    local runOK, Run = pcall(function() return game:GetService("RunService") end)
+    if runOK then
+        -- Apply noclip before physics each frame; discovery remains throttled.
+        connect(Run.Stepped, function() Farm.step() end)
+    else
+        task.spawn(function()
+            while State.alive do Farm.step(); task.wait(0.03) end
+        end)
+    end
 end
 
 -- Discovery follows replicated world timers, then a bounded grid. Hidden map data is not invented.
@@ -2268,37 +2221,8 @@ do
         return false
     end
     local known={"Enru","Akazo","Datai","Gyorei","Gyutai","Nezura","Nezurai","Tengai","Zentaro","Rengu","Giyen"}
-    local nextMarkerScan = 0
-    local markerGuiCache = setmetatable({}, {__mode = "k"})
-    local markerGuiCacheReady = false
-    local function cacheMarkerGui(object)
-        if object and (object:IsA("BillboardGui") or object:IsA("SurfaceGui")) then
-            markerGuiCache[object] = true
-        end
-    end
-    connect(World.DescendantAdded, cacheMarkerGui)
-    connect(playerGui.DescendantAdded, cacheMarkerGui)
-    connect(World.DescendantRemoving, function(object) markerGuiCache[object] = nil end)
-    connect(playerGui.DescendantRemoving, function(object) markerGuiCache[object] = nil end)
-    task.spawn(function()
-        local list = World:GetDescendants()
-        for i, object in ipairs(list) do
-            cacheMarkerGui(object)
-            if i % 1800 == 0 then task.wait() end
-        end
-        local guiList = playerGui:GetDescendants()
-        for i, object in ipairs(guiList) do
-            cacheMarkerGui(object)
-            if i % 600 == 0 then task.wait() end
-        end
-        markerGuiCacheReady = true
-    end)
-
-    function Farm.scanMarkers(force)
-        if not force and os.clock() < nextMarkerScan then return end
-        nextMarkerScan = os.clock() + 7
+    function Farm.scanMarkers()
         local function inspect(gui)
-            if not gui or not gui.Parent then return end
             if not gui:IsA("BillboardGui") and not gui:IsA("SurfaceGui") then return end
             local anchor=gui.Adornee or gui.Parent
             if not anchor or isCharacter(anchor) then return end
@@ -2343,13 +2267,13 @@ do
             end
             if entry then entry.timerText,entry.timerAt=marker.timerText,marker.timerAt end
         end
-
-        if not markerGuiCacheReady then return end
-        local processed = 0
-        for gui in pairs(markerGuiCache) do
-            processed = processed + 1
-            pcall(inspect, gui)
-            if processed % 80 == 0 then task.wait() end
+        for _, parent in ipairs({World,playerGui}) do
+            for _, object in ipairs(parent:GetDescendants()) do
+                if object:IsA("BillboardGui") or object:IsA("SurfaceGui") then
+                    -- One malformed/unloaded GUI must not abort NPC discovery.
+                    pcall(inspect,object)
+                end
+            end
         end
     end
 
@@ -3360,20 +3284,23 @@ end)
 end
 
 local C = {
-    panel = Color3.fromRGB(3, 4, 12),
-    surface = Color3.fromRGB(7, 8, 20),
-    raised = Color3.fromRGB(12, 11, 30),
-    line = Color3.fromRGB(47, 35, 88),
-    text = Color3.fromRGB(241, 239, 255),
-    muted = Color3.fromRGB(164, 157, 196),
-    dim = Color3.fromRGB(93, 83, 135),
-    accent = Color3.fromRGB(118, 76, 255),
-    bright = Color3.fromRGB(196, 178, 255),
-    green = Color3.fromRGB(63, 235, 171),
-    amber = Color3.fromRGB(255, 193, 100),
-    red = Color3.fromRGB(255, 91, 135),
+    -- VOID NEXUS palette from the supplied HTML reference.
+    panel = Color3.fromRGB(8, 4, 15),
+    surface = Color3.fromRGB(16, 8, 29),
+    raised = Color3.fromRGB(27, 13, 45),
+    line = Color3.fromRGB(82, 49, 121),
+    text = Color3.fromRGB(233, 226, 247),
+    muted = Color3.fromRGB(155, 143, 184),
+    dim = Color3.fromRGB(92, 82, 122),
+    accent = Color3.fromRGB(168, 85, 247),
+    bright = Color3.fromRGB(143, 227, 255),
+    green = Color3.fromRGB(125, 255, 176),
+    amber = Color3.fromRGB(255, 199, 96),
+    red = Color3.fromRGB(255, 103, 127),
+    magenta = Color3.fromRGB(217, 70, 199),
+    voidDeep = Color3.fromRGB(11, 6, 22),
 }
-local W, H = 1080, 800
+local W, H = 720, 760
 local function make(className, parent, properties)
     local object = Instance.new(className)
     for name, value in pairs(properties or {}) do object[name] = value end
@@ -3416,67 +3343,6 @@ local function button(parent, name, text, x, y, width, height, color, size)
     corner(object, 8)
     return object
 end
--- Geometric VOID glyphs: these are built from local Frames/lines rather than emoji fonts.
-local voidGlyphParts = setmetatable({}, {__mode = "k"})
-local function voidGlyph(parent, name, kind, x, y, size, color)
-    local rootGlyph = frame(parent, name, x, y, size, size, Color3.new(1,1,1), 0)
-    rootGlyph.BackgroundTransparency = 1
-    rootGlyph.Active = false
-    local parts = {}
-    local function part(px, py, pw, ph, rot, radius)
-        local p = frame(rootGlyph, name .. "Part" .. tostring(#parts + 1), px, py, pw, ph, color, radius or 2)
-        p.BackgroundTransparency = 0.05
-        p.Rotation = rot or 0
-        p.Active = false
-        parts[#parts + 1] = p
-        return p
-    end
-    local mid = math.floor(size/2)
-    if kind == "skills" then
-        part(7, mid-2, size-14, 3, 42, 2)
-        part(7, mid-2, size-14, 3, -42, 2)
-        part(mid-3, mid-3, 6, 6, 0, 3)
-    elseif kind == "esp" then
-        local ring = part(5, 9, size-10, size-18, 0, math.floor(size/2))
-        ring.BackgroundTransparency = 1
-        stroke(ring, color, 0.05, 2)
-        part(mid-2, mid-2, 4, 4, 0, 2)
-    elseif kind == "health" then
-        part(mid-2, 5, 4, size-10, 0, 2)
-        part(5, mid-2, size-10, 4, 0, 2)
-        part(mid-5, mid-5, 10, 10, 45, 2)
-    elseif kind == "farm" then
-        local diamond = part(7, 7, size-14, size-14, 45, 3)
-        diamond.BackgroundTransparency = 1
-        stroke(diamond, color, 0.05, 2)
-        part(mid-3, mid-3, 6, 6, 0, 3)
-    elseif kind == "move" then
-        part(5, mid-2, size-13, 4, 0, 2)
-        part(size-11, 6, 4, size-12, 45, 2)
-        part(size-11, size-10, 4, size-12, -45, 2)
-    elseif kind == "system" then
-        local ring = part(7, 7, size-14, size-14, 0, math.floor(size/2))
-        ring.BackgroundTransparency = 1
-        stroke(ring, color, 0.05, 2)
-        part(mid-3, mid-3, 6, 6, 0, 3)
-        part(mid-2, 2, 4, 8, 0, 2)
-        part(mid-2, size-10, 4, 8, 0, 2)
-        part(2, mid-2, 8, 4, 0, 2)
-        part(size-10, mid-2, 8, 4, 0, 2)
-    end
-    voidGlyphParts[rootGlyph] = parts
-    return rootGlyph
-end
-local function tintVoidGlyph(glyph, color)
-    local parts = glyph and voidGlyphParts[glyph]
-    if not parts then return end
-    for _, p in ipairs(parts) do
-        p.BackgroundColor3 = color
-        local st = p:FindFirstChildOfClass("UIStroke")
-        if st then st.Color = color end
-    end
-end
-
 local function animate(object, properties, instant)
     if tweens[object] then tweens[object]:Cancel() end
     if instant then
@@ -3632,27 +3498,57 @@ local canvas = make("Frame", root, {
     Name = "Canvas", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
     BorderSizePixel = 0, Active = false,
 })
+
+-- Lightweight VOID backdrop: static rings/cores reproduce the HTML atmosphere
+-- without a per-frame starfield, keeping UI overhead low during farming.
+local voidBack = make("Frame", canvas, {
+    Name = "VoidBackdrop", Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.voidDeep,
+    BackgroundTransparency = 0.05, BorderSizePixel = 0, Active = false, ZIndex = 0,
+})
+local voidGlow = make("Frame", voidBack, {
+    Name = "Glow", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.44),
+    Size = UDim2.fromOffset(760, 760), BackgroundColor3 = Color3.fromRGB(27, 8, 49),
+    BackgroundTransparency = 0.72, BorderSizePixel = 0, ZIndex = 0,
+})
+corner(voidGlow, 380)
+local voidRingA = make("Frame", voidBack, {
+    Name = "RingA", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.44),
+    Size = UDim2.fromOffset(470, 470), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 0,
+})
+corner(voidRingA, 235); stroke(voidRingA, Color3.fromRGB(123, 47, 247), 0.68, 1)
+local voidRingB = make("Frame", voidBack, {
+    Name = "RingB", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.44),
+    Size = UDim2.fromOffset(620, 620), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 0,
+})
+corner(voidRingB, 310); stroke(voidRingB, Color3.fromRGB(217, 70, 199), 0.84, 1)
+local voidCore = make("Frame", voidBack, {
+    Name = "Core", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.44),
+    Size = UDim2.fromOffset(92, 92), BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+    BackgroundTransparency = 0.12, BorderSizePixel = 0, ZIndex = 0,
+})
+corner(voidCore, 46); stroke(voidCore, Color3.fromRGB(168, 85, 247), 0.34, 1)
 local holder = frame(canvas, "Window", 20, 40, W, H)
+holder.ZIndex = 10
 holder.BackgroundTransparency = 1
 local uiScale = make("UIScale", holder, {Scale = 1})
 local shadow = frame(holder, "Shadow", -7, 9, W + 14, H + 14, Color3.new(0, 0, 0), 18)
 shadow.BackgroundTransparency = 0.48
 local halo = frame(holder, "EdgeGlow", -2, -2, W + 4, H + 4, C.accent, 16)
 halo.BackgroundTransparency = 0.88
-local panel = frame(holder, "Panel", 0, 0, W, H, C.panel, 18)
+local panel = frame(holder, "Panel", 0, 0, W, H, C.panel, 14)
 panel.Active, panel.ClipsDescendants = true, true
-stroke(panel, C.accent, 0.30, 1)
+stroke(panel, C.accent, 0.16, 1)
 make("UIGradient", panel, {
-    Rotation = 35,
+    Rotation = 90,
     Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(10, 26, 39)),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(5, 3, 15)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(10, 4, 25)),
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(24, 11, 40)),
+        ColorSequenceKeypoint.new(0.42, Color3.fromRGB(13, 7, 25)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(3, 2, 8)),
     }),
 })
 local accentLine = frame(panel, "AccentLine", 0, 58, W, 1, C.accent)
 make("UIGradient", accentLine, {
-    Color = ColorSequence.new(C.accent, Color3.fromRGB(91, 210, 230)),
+    Color = ColorSequence.new(C.magenta, C.bright),
     Transparency = NumberSequence.new({
         NumberSequenceKeypoint.new(0, 0.8), NumberSequenceKeypoint.new(0.35, 0),
         NumberSequenceKeypoint.new(0.7, 0), NumberSequenceKeypoint.new(1, 0.8),
@@ -3664,35 +3560,32 @@ local logo = frame(header, "Logo", 18, 13, 32, 32, C.surface, 7)
 stroke(logo, C.accent, 0.08, 1)
 make("UIGradient", logo, {
     Rotation = 45,
-    Color = ColorSequence.new(Color3.fromRGB(25, 10, 64), Color3.fromRGB(132, 82, 255)),
+    Color = ColorSequence.new(Color3.fromRGB(49, 20, 82), Color3.fromRGB(168, 85, 247)),
 })
-local logoText = label(logo, "Mark", "V", 0, 0, 32, 32, 19, C.text, Enum.Font.GothamBlack)
+local logoText = label(logo, "Mark", "V", 0, 0, 32, 32, 17, C.bright, Enum.Font.GothamBold)
 logoText.TextXAlignment = Enum.TextXAlignment.Center
-local brand = label(header, "Title", "V O I D   N E X U S", 68, 9, 300, 24, 15, C.text, Enum.Font.GothamBlack)
-label(header, "Edition", "CONTROL CORE", 370, 10, 150, 22, 10, C.accent, Enum.Font.GothamBold)
-label(header, "SubTitle", "SPACE AUTOMATION // LOCAL CLIENT", 68, 32, 330, 15, 8, C.dim, Enum.Font.GothamMedium)
-UI.badge = button(panel, "HeaderToggle", "OFF", W - 238, 17, 82, 25, C.surface, 10)
+local brand = label(header, "Title", "V O I D   N E X U S", 68, 9, 300, 22, 14, C.text, Enum.Font.GothamBold)
+label(header, "Edition", "CORE LINK", 390, 9, 130, 22, 10, C.magenta, Enum.Font.GothamBold)
+label(header, "SubTitle", "CORE LINK STABLE", 68, 31, 280, 15, 8, C.dim, Enum.Font.GothamMedium)
+UI.badge = button(panel, "HeaderToggle", "OFF", W - 190, 17, 72, 25, C.surface, 10)
 stroke(UI.badge, C.line, 0.3)
-local minimize = button(panel, "Minimize", "-", W - 140, 15, 32, 28, C.surface, 19)
-local close = button(panel, "Unload", "x", W - 94, 15, 32, 28, C.surface, 15)
+local minimize = button(panel, "Minimize", "-", W - 108, 15, 32, 28, C.surface, 19)
+local close = button(panel, "Unload", "x", W - 66, 15, 32, 28, C.surface, 15)
 hover(minimize, C.muted, C.text)
 hover(close, C.muted, C.red)
-local tabs = frame(panel, "Tabs", 14, 76, 184, 402, C.surface, 14)
-stroke(tabs, C.line, 0.24)
-make("UIGradient", tabs, {
-    Rotation = 90,
-    Color = ColorSequence.new(Color3.fromRGB(9,8,23), Color3.fromRGB(4,5,14)),
-})
-label(tabs, "MenuTitle", "VOID CHANNELS", 16, 10, 150, 16, 9, C.bright, Enum.Font.GothamBold)
-local navRail = frame(tabs, "VoidRail", 178, 32, 1, 340, C.accent, 0)
-navRail.BackgroundTransparency = 0.65
+local tabs = frame(panel, "Tabs", 14, 70, W - 28, 50, C.surface, 10)
+stroke(tabs, C.line, 0.28)
+label(tabs, "MenuTitle", "VOID CHANNELS", 10, 4, 110, 12, 8, C.dim, Enum.Font.GothamBold)
 
-UI.skillsTab = button(tabs, "SkillsTab", "     Skills", 10, 32, 164, 52, C.raised, 12)
-UI.espTab = button(tabs, "ESPTab", "     ESP", 10, 92, 164, 52, C.surface, 12)
-UI.healthTab = button(tabs, "HealthTab", "     Health", 10, 152, 164, 52, C.surface, 12)
-UI.farmTab = button(tabs, "FarmTab", "     Farm", 10, 212, 164, 52, C.surface, 12)
-UI.moveTab = button(tabs, "MoveTab", "     Move", 10, 272, 164, 52, C.surface, 12)
-UI.systemTab = button(tabs, "SystemTab", "     System", 10, 332, 164, 52, C.surface, 12)
+-- Text-only tab labels intentionally avoid emoji/icon glyphs: the previous glyphs
+-- could render as broken squares on some Roblox fonts.
+local tabW, tabGap = 100, 6
+UI.skillsTab = button(tabs, "SkillsTab", "SKILLS", 8, 17, tabW, 28, C.raised, 10)
+UI.espTab = button(tabs, "ESPTab", "ESP", 8 + (tabW + tabGap) * 1, 17, tabW, 28, C.surface, 10)
+UI.healthTab = button(tabs, "HealthTab", "HEALTH", 8 + (tabW + tabGap) * 2, 17, tabW, 28, C.surface, 10)
+UI.farmTab = button(tabs, "FarmTab", "FARM", 8 + (tabW + tabGap) * 3, 17, tabW, 28, C.surface, 10)
+UI.moveTab = button(tabs, "MoveTab", "MOVE", 8 + (tabW + tabGap) * 4, 17, tabW, 28, C.surface, 10)
+UI.systemTab = button(tabs, "SystemTab", "SYSTEM", 8 + (tabW + tabGap) * 5, 17, tabW, 28, C.surface, 10)
 
 UI.navStrokes, UI.navBars = {}, {}
 for _, entry in ipairs({
@@ -3703,17 +3596,8 @@ for _, entry in ipairs({
     tab.TextXAlignment = Enum.TextXAlignment.Left
     tab.UICorner.CornerRadius = UDim.new(0, 9)
     UI.navStrokes[key] = stroke(tab, C.accent, 0.86, 1)
-    UI.navBars[key] = frame(tab, "ActiveBar", 0, 6, 4, 40, C.accent, 2)
+    UI.navBars[key] = frame(tab, "ActiveBar", 8, 26, 84, 2, C.accent, 2)
 end
-
-UI.navGlyphs = {
-    Skills = voidGlyph(UI.skillsTab, "SkillsGlyph", "skills", 14, 14, 24, C.dim),
-    ESP = voidGlyph(UI.espTab, "ESPGlyph", "esp", 14, 14, 24, C.dim),
-    Health = voidGlyph(UI.healthTab, "HealthGlyph", "health", 14, 14, 24, C.dim),
-    Farm = voidGlyph(UI.farmTab, "FarmGlyph", "farm", 14, 14, 24, C.dim),
-    Move = voidGlyph(UI.moveTab, "MoveGlyph", "move", 14, 14, 24, C.dim),
-    System = voidGlyph(UI.systemTab, "SystemGlyph", "system", 14, 14, 24, C.dim),
-}
 
 for key, tab in pairs({
     Skills = UI.skillsTab, ESP = UI.espTab, Health = UI.healthTab,
@@ -3721,7 +3605,7 @@ for key, tab in pairs({
 }) do
     connect(tab.MouseEnter, function()
         if State.tab ~= key then
-            animate(tab, {BackgroundColor3 = Color3.fromRGB(12, 31, 45), TextColor3 = C.bright})
+            animate(tab, {BackgroundColor3 = Color3.fromRGB(33, 16, 52), TextColor3 = C.bright})
         end
     end)
     connect(tab.MouseLeave, function()
@@ -3731,15 +3615,16 @@ for key, tab in pairs({
     end)
 end
 
-local sidebarInfo = frame(panel, "SidebarInfo", 14, 492, 184, 230, C.surface, 14)
+local sidebarInfo = frame(panel, "SidebarInfo", 14, 130, 1, 1, C.surface, 12)
+sidebarInfo.Visible = false
 stroke(sidebarInfo, C.line, 0.45)
 label(sidebarInfo, "Label", "SESSION", 14, 12, 138, 15, 9, C.dim, Enum.Font.GothamBold)
 UI.sidebarState = label(sidebarInfo, "State", "CONNECTED", 14, 36, 138, 18, 11, C.green, Enum.Font.GothamBold)
 label(sidebarInfo, "Hint1", "F7  Unload", 14, 70, 138, 18, 10, C.muted, Enum.Font.GothamMedium)
 label(sidebarInfo, "Hint2", "R-Shift  Hide UI", 14, 94, 138, 18, 10, C.muted, Enum.Font.GothamMedium)
 label(sidebarInfo, "Hint3", "F6  Skills", 14, 118, 138, 18, 10, C.muted, Enum.Font.GothamMedium)
-label(sidebarInfo, "Version", "VOID  v1.5", 14, 173, 138, 18, 9, C.dim, Enum.Font.GothamBold)
-local body = frame(panel, "Controls", 200, 76, W - 214, H - 116)
+label(sidebarInfo, "Version", "VOID NEXUS", 14, 173, 138, 18, 9, C.dim, Enum.Font.GothamBold)
+local body = frame(panel, "Controls", 14, 130, W - 28, H - 130)
 body.BackgroundTransparency = 1
 local master = frame(body, "MasterCard", 24, 0, 392, 80, C.raised, 13)
 UI.masterStroke = stroke(master, C.accent, 0.65)
@@ -3858,7 +3743,7 @@ UI.status = label(status, "Status", "STANDBY", 26, 5, 354, 16, 9, C.muted, Enum.
 UI.detail = label(status, "Detail", "", 13, 22, 366, 12, 9, C.muted)
 label(body, "Hotkeys", "F6  TOGGLE    /    F7  UNLOAD    /    R-SHIFT  HIDE", 26, 536, 390, 15, 9, C.dim, Enum.Font.GothamMedium)
 
-local espBody = frame(panel, "ESPControls", 200, 76, W - 214, H - 116)
+local espBody = frame(panel, "ESPControls", 14, 130, W - 28, H - 130)
 espBody.BackgroundTransparency, espBody.Visible = 1, false
 local espMaster = frame(espBody, "ESPMasterCard", 24, 0, 392, 80, C.raised, 13)
 UI.espMasterStroke = stroke(espMaster, C.accent, 0.65)
@@ -3899,7 +3784,7 @@ UI.espStatus = label(espStatusCard, "ESPStatus", "ESP OFF", 26, 5, 354, 16, 9, C
 UI.espDetail = label(espStatusCard, "Detail", "", 13, 22, 366, 12, 9, C.muted)
 label(espBody, "ESPHotkeys", "F8  ESP    /    F7  UNLOAD    /    R-SHIFT  HIDE", 26, 536, 390, 15, 9, C.dim, Enum.Font.GothamMedium)
 
-local healthBody = frame(panel, "HealthControls", 200, 76, W - 214, H - 116)
+local healthBody = frame(panel, "HealthControls", 14, 130, W - 28, H - 130)
 healthBody.BackgroundTransparency, healthBody.Visible = 1, false
 do
     local master = frame(healthBody, "HealthMasterCard", 24, 0, 392, 80, C.raised, 13)
@@ -3954,7 +3839,7 @@ do
         26, 536, 390, 15, 9, C.dim, Enum.Font.GothamMedium)
 end
 
-local farmBody = frame(panel, "FarmControls", 200, 76, W - 214, H - 116)
+local farmBody = frame(panel, "FarmControls", 14, 130, W - 28, H - 130)
 farmBody.BackgroundTransparency, farmBody.Visible = 1, false
 do
     local master = frame(farmBody, "FarmMasterCard", 24, 0, 392, 80, C.raised, 13)
@@ -4167,14 +4052,12 @@ do
     make("UIGradient", pageHeader, {
         Rotation = 0,
         Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(12, 37, 52)),
-            ColorSequenceKeypoint.new(0.58, Color3.fromRGB(8, 27, 41)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(6, 20, 32)),
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(32, 14, 54)),
+            ColorSequenceKeypoint.new(0.58, Color3.fromRGB(17, 8, 31)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(7, 3, 13)),
         }),
     })
-    local farmIcon = label(pageHeader, "Icon", "", 20, 16, 48, 48, 30, C.accent, Enum.Font.GothamBold)
-farmIcon.Visible = false
-voidGlyph(pageHeader, "FarmHeaderGlyph", "farm", 22, 18, 42, C.accent)
+    local farmIcon = label(pageHeader, "Icon", "F", 20, 16, 48, 48, 24, C.accent, Enum.Font.GothamBold)
     farmIcon.TextXAlignment = Enum.TextXAlignment.Center
     label(pageHeader, "Title", "Farm", 76, 13, 260, 34, 27, C.text, Enum.Font.GothamBold)
     UI.farmHint = label(pageHeader, "Subtitle", "Automate farming, bosses and loot collection.", 78, 45, 560, 22, 12, C.muted, Enum.Font.GothamMedium)
@@ -4192,11 +4075,9 @@ voidGlyph(pageHeader, "FarmHeaderGlyph", "farm", 22, 18, 42, C.accent)
     -- General Farming.
     local general = refCard("GeneralFarming", 14, 96, pageWidth - 28, 236, C.surface, 11)
     local generalTop = frame(general, "Top", 0, 0, pageWidth - 28, 44, C.raised, 11)
-    local generalIcon = label(generalTop, "Icon", "", 18, 6, 28, 30, 18, C.accent, Enum.Font.GothamBold)
-generalIcon.Visible = false
-voidGlyph(generalTop, "GeneralGlyph", "system", 18, 8, 24, C.accent)
+    label(generalTop, "Icon", "S", 18, 6, 28, 30, 18, C.accent, Enum.Font.GothamBold)
     label(generalTop, "Title", "General Farming", 54, 7, 280, 28, 15, C.text, Enum.Font.GothamBold)
-    label(generalTop, "Arrow", "+", pageWidth - 78, 5, 32, 30, 18, C.bright, Enum.Font.GothamBold)
+    label(generalTop, "Arrow", "^", pageWidth - 78, 5, 32, 30, 18, C.bright, Enum.Font.GothamBold)
 
     local splitX = math.floor((pageWidth - 28) * 0.48)
     local divider = frame(general, "Divider", splitX, 58, 1, 160, C.line)
@@ -4252,7 +4133,7 @@ voidGlyph(generalTop, "GeneralGlyph", "system", 18, 8, 24, C.accent)
     end)
 
     label(general, "MethodTitle", "Farm Method", rightX, 194, 180, 22, 12, C.text, Enum.Font.GothamBold)
-    local method = button(general, "Method", "Nearest                             +",
+    local method = button(general, "Method", "Nearest                             v",
         rightX + 164, 191, rightW - 174, 34, C.panel, 11)
     method.TextColor3 = C.text
     method.TextXAlignment = Enum.TextXAlignment.Left
@@ -4261,11 +4142,9 @@ voidGlyph(generalTop, "GeneralGlyph", "system", 18, 8, 24, C.accent)
     -- Target Settings.
     local targetCard = refCard("TargetSettings", 14, 344, pageWidth - 28, 104, C.surface, 11)
     local targetTop = frame(targetCard, "Top", 0, 0, pageWidth - 28, 40, C.raised, 11)
-    local targetIcon = label(targetTop, "Icon", "", 18, 5, 30, 28, 18, C.accent, Enum.Font.GothamBold)
-targetIcon.Visible = false
-voidGlyph(targetTop, "TargetGlyph", "esp", 18, 7, 24, C.accent)
+    label(targetTop, "Icon", "T", 18, 5, 30, 28, 18, C.accent, Enum.Font.GothamBold)
     label(targetTop, "Title", "Target Settings", 54, 5, 260, 28, 14, C.text, Enum.Font.GothamBold)
-    label(targetTop, "Arrow", "+", pageWidth - 78, 5, 32, 28, 18, C.bright, Enum.Font.GothamBold)
+    label(targetTop, "Arrow", "^", pageWidth - 78, 5, 32, 28, 18, C.bright, Enum.Font.GothamBold)
 
     label(targetCard, "SelectTitle", "Select Enemies", 22, 49, 180, 20, 11, C.text, Enum.Font.GothamBold)
     label(targetCard, "SelectHint", "Choose which enemies to farm.", 22, 68, 210, 18, 9, C.muted)
@@ -4279,7 +4158,7 @@ voidGlyph(targetTop, "TargetGlyph", "esp", 18, 7, 24, C.accent)
     targetDivider.BackgroundTransparency = 0.3
     label(targetCard, "PriorityTitle", "Priority", 496, 49, 140, 20, 11, C.text, Enum.Font.GothamBold)
     label(targetCard, "PriorityHint", "Target priority type.", 496, 68, 160, 18, 9, C.muted)
-    local priority = button(targetCard, "Priority", "Nearest                    +",
+    local priority = button(targetCard, "Priority", "Nearest                    v",
         pageWidth - 250, 53, 208, 34, C.panel, 11)
     priority.TextColor3 = C.text
     priority.TextXAlignment = Enum.TextXAlignment.Left
@@ -4293,11 +4172,9 @@ voidGlyph(targetTop, "TargetGlyph", "esp", 18, 7, 24, C.accent)
     -- Advanced accordion.
     local advancedBar = button(ref, "AdvancedBar", "", 14, 460, pageWidth - 28, 44, C.surface, 11)
     stroke(advancedBar, C.line, 0.22)
-    local advancedIcon = label(advancedBar, "Icon", "", 18, 6, 28, 28, 18, C.muted, Enum.Font.GothamBold)
-advancedIcon.Visible = false
-voidGlyph(advancedBar, "AdvancedGlyph", "skills", 18, 8, 24, C.muted)
+    label(advancedBar, "Icon", "A", 18, 6, 28, 28, 18, C.muted, Enum.Font.GothamBold)
     label(advancedBar, "Title", "Advanced Options", 54, 6, 260, 28, 13, C.text, Enum.Font.GothamBold)
-    UI.advancedArrow = label(advancedBar, "Arrow", "+", pageWidth - 76, 5, 30, 30, 18, C.bright, Enum.Font.GothamBold)
+    UI.advancedArrow = label(advancedBar, "Arrow", "v", pageWidth - 76, 5, 30, 30, 18, C.bright, Enum.Font.GothamBold)
 
     local advancedContent = refCard("AdvancedContent", 14, 510, pageWidth - 28, 0, C.surface, 11)
     advancedContent.Visible = false
@@ -4344,11 +4221,9 @@ voidGlyph(advancedBar, "AdvancedGlyph", "skills", 18, 8, 24, C.muted)
     -- Filters accordion.
     local filterBar = button(ref, "FilterBar", "", 14, 516, pageWidth - 28, 44, C.surface, 11)
     stroke(filterBar, C.line, 0.22)
-    local filterIcon = label(filterBar, "Icon", "", 18, 6, 28, 28, 18, C.muted, Enum.Font.GothamBold)
-filterIcon.Visible = false
-voidGlyph(filterBar, "FilterGlyph", "health", 18, 8, 24, C.muted)
+    label(filterBar, "Icon", "F", 18, 6, 28, 28, 18, C.muted, Enum.Font.GothamBold)
     label(filterBar, "Title", "Filters", 54, 6, 260, 28, 13, C.text, Enum.Font.GothamBold)
-    UI.filterArrow = label(filterBar, "Arrow", "+", pageWidth - 76, 5, 30, 30, 18, C.bright, Enum.Font.GothamBold)
+    UI.filterArrow = label(filterBar, "Arrow", "v", pageWidth - 76, 5, 30, 30, 18, C.bright, Enum.Font.GothamBold)
 
     local filterContent = refCard("FilterContent", 14, 566, pageWidth - 28, 0, C.surface, 11)
     filterContent.Visible = false
@@ -4361,9 +4236,7 @@ voidGlyph(filterBar, "FilterGlyph", "health", 18, 8, 24, C.muted)
     -- Status card.
     local statusCard = refCard("ReferenceStatus", 14, 572, pageWidth - 28, 96, C.surface, 11)
     local statusTop = frame(statusCard, "Top", 0, 0, pageWidth - 28, 38, C.raised, 11)
-    local statusIcon = label(statusTop, "Icon", "", 18, 4, 28, 28, 16, C.muted, Enum.Font.GothamBold)
-statusIcon.Visible = false
-voidGlyph(statusTop, "StatusGlyph", "move", 18, 6, 24, C.muted)
+    label(statusTop, "Icon", "I", 18, 4, 28, 28, 16, C.muted, Enum.Font.GothamBold)
     label(statusTop, "Title", "Status", 54, 4, 160, 28, 13, C.text, Enum.Font.GothamBold)
     UI.refRunDot = frame(statusTop, "Dot", pageWidth - 155, 14, 7, 7, C.green, 4)
     UI.farmStatus = label(statusTop, "FarmStatus", "Running", pageWidth - 138, 5, 112, 26, 10, C.green, Enum.Font.GothamBold)
@@ -4435,8 +4308,8 @@ voidGlyph(statusTop, "StatusGlyph", "move", 18, 6, 24, C.muted)
 
         advancedContent.Visible = advancedOpen
         filterContent.Visible = filterOpen
-        UI.advancedArrow.Text = advancedOpen and "-" or "+"
-        UI.filterArrow.Text = filterOpen and "-" or "+"
+        UI.advancedArrow.Text = advancedOpen and "^" or "v"
+        UI.filterArrow.Text = filterOpen and "^" or "v"
 
         animate(advancedContent, {Size = UDim2.fromOffset(pageWidth - 28, advH)}, not animated)
         animate(filterBar, {Position = UDim2.fromOffset(14, filterY)}, not animated)
@@ -4472,7 +4345,7 @@ voidGlyph(statusTop, "StatusGlyph", "move", 18, 6, 24, C.muted)
     layoutAccordions(false)
 end
 
-local moveBody = frame(panel, "MovementControls", 200, 76, W - 214, H - 116)
+local moveBody = frame(panel, "MovementControls", 14, 130, W - 28, H - 130)
 moveBody.BackgroundTransparency, moveBody.Visible = 1, false
 
 local moveMaster = frame(moveBody, "MovementMasterCard", 24, 0, 392, 80, C.raised, 13)
@@ -4522,7 +4395,7 @@ label(moveBody, "MovementFooter",
     26, 548, 390, 32, 9, C.dim, Enum.Font.GothamMedium)
 
 
-local systemBody = frame(panel, "SystemControls", 200, 76, W - 214, H - 116)
+local systemBody = frame(panel, "SystemControls", 14, 130, W - 28, H - 130)
 systemBody.BackgroundTransparency, systemBody.Visible = 1, false
 
 local systemMaster = frame(systemBody, "SystemMasterCard", 24, 0, 392, 80, C.raised, 13)
@@ -4597,9 +4470,9 @@ UI.systemDetail.TextWrapped = true
 
 -- Reference-style content shell. All original controls stay inside a centered
 -- 440px content canvas, so behavior/callbacks are untouched while the outer
--- layout becomes a wide cyan game-control panel.
+-- layout becomes a VOID NEXUS game-control panel.
 local function skinPage(page)
-    page.BackgroundColor3 = Color3.fromRGB(6, 18, 29)
+    page.BackgroundColor3 = Color3.fromRGB(8, 4, 15)
     page.BackgroundTransparency = 0.08
     page.ClipsDescendants = true
     corner(page, 12)
@@ -4612,14 +4485,14 @@ local function skinPage(page)
         end
     end
 
-    local inner = frame(page, "PageContent", math.floor(((W - 214) - 440) / 2), 0, 440, H - 116)
+    local inner = frame(page, "PageContent", math.floor(((W - 28) - 440) / 2), 0, 440, H - 130)
     inner.BackgroundTransparency = 1
 
     for _, child in ipairs(oldChildren) do
         child.Parent = inner
     end
 
-    -- Give cards a cooler cyan edge without changing their geometry.
+    -- Give cards a violet edge without changing their geometry.
     for _, object in ipairs(inner:GetDescendants()) do
         if object:IsA("Frame") and object.BackgroundTransparency < 1 then
             local existing = object:FindFirstChildOfClass("UIStroke")
@@ -4639,25 +4512,25 @@ for _, page in ipairs({body, espBody, healthBody, moveBody, systemBody}) do
     skinPage(page)
 end
 
-farmBody.BackgroundColor3 = Color3.fromRGB(5, 16, 26)
+farmBody.BackgroundColor3 = Color3.fromRGB(8, 4, 15)
 farmBody.BackgroundTransparency = 0.05
 farmBody.ClipsDescendants = true
 corner(farmBody, 12)
 stroke(farmBody, C.line, 0.42)
 
-local footerBar = frame(panel, "FooterBar", 0, H - 32, W, 32, Color3.fromRGB(4, 13, 21))
+local footerBar = frame(panel, "FooterBar", 0, H - 32, W, 32, Color3.fromRGB(5, 2, 10))
 stroke(footerBar, C.line, 0.45)
 local footerDot = frame(footerBar, "ConnectedDot", 16, 11, 7, 7, C.green, 4)
 UI.footerConnected = label(footerBar, "Connected", "CONNECTED", 30, 5, 110, 20, 9, C.green, Enum.Font.GothamBold)
 label(footerBar, "Divider1", "|", 139, 5, 12, 20, 9, C.dim, Enum.Font.GothamMedium)
-label(footerBar, "FooterHint", "F7 UNLOAD    /    R-SHIFT HIDE", 156, 5, 260, 20, 9, C.muted, Enum.Font.GothamMedium)
-local footerVersion = label(footerBar, "FooterVersion", "v1.5.0", W - 90, 5, 72, 20, 9, C.dim, Enum.Font.GothamMedium)
+label(footerBar, "FooterHint", "F7 UNLOAD    /    R-SHIFT HIDE", 156, 5, 300, 20, 9, C.muted, Enum.Font.GothamMedium)
+local footerVersion = label(footerBar, "FooterVersion", "CORE 3.1", W - 110, 5, 92, 20, 9, C.dim, Enum.Font.GothamMedium)
 footerVersion.TextXAlignment = Enum.TextXAlignment.Right
 UI.footerBar = footerBar
 
 -- Animated entrance + ambient cyan edge glow.
 local introScale = make("UIScale", panel, {Scale = 0.965})
-panel.BackgroundTransparency = 0.08
+panel.BackgroundTransparency = 0.04
 
 task.defer(function()
     if not State.alive or not panel.Parent then return end
@@ -4689,356 +4562,17 @@ task.spawn(function()
     end
 end)
 
--- ============================================================
--- VOID NEXUS UI FX
--- Animated background, scan grid, orbit rings, particles and
--- a real bottom-right resize grip. Everything is local UI only.
--- ============================================================
-local fxLayer = frame(panel, "AmbientFX", 0, 0, W, H, C.panel, 0)
-fxLayer.BackgroundTransparency = 1
-fxLayer.Active = false
-fxLayer.ZIndex = 0
-
-local fxTint = frame(fxLayer, "VoidTint", 0, 0, W, H, Color3.fromRGB(3, 2, 12), 0)
-fxTint.BackgroundTransparency = 0.18
-fxTint.ZIndex = 0
-
-local fxGradient = make("UIGradient", fxTint, {
-    Rotation = 25,
-    Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(20, 8, 42)),
-        ColorSequenceKeypoint.new(0.45, Color3.fromRGB(5, 3, 15)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(18, 5, 32)),
-    }),
-    Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0.10),
-        NumberSequenceKeypoint.new(0.5, 0.30),
-        NumberSequenceKeypoint.new(1, 0.08),
-    }),
-})
-
--- Moving perspective grid.
-local grid = frame(fxLayer, "Grid", 0, 0, W, H, Color3.new(1, 1, 1), 0)
-grid.BackgroundTransparency = 1
-grid.ZIndex = 0
-for i = 1, 13 do
-    local x = math.floor((i - 1) * (W / 12))
-    local line = frame(grid, "V" .. i, x, 0, 1, H, C.accent, 0)
-    line.BackgroundTransparency = 0.93
-    line.ZIndex = 0
-end
-for i = 1, 10 do
-    local y = math.floor((i - 1) * (H / 9))
-    local line = frame(grid, "H" .. i, 0, y, W, 1, C.accent, 0)
-    line.BackgroundTransparency = 0.95
-    line.ZIndex = 0
-end
-
--- Large atmospheric "void cores".
-local function makeCore(name, x, y, size, color)
-    local core = frame(fxLayer, name, x, y, size, size, color, math.floor(size / 2))
-    core.BackgroundTransparency = 0.965
-    core.ZIndex = 0
-    local coreStroke = stroke(core, color, 0.84, 1)
-    return core, coreStroke
-end
-local coreA, coreAStroke = makeCore("VoidCoreA", -120, 90, 330, C.accent)
-local coreB, coreBStroke = makeCore("VoidCoreB", W - 250, H - 270, 390, Color3.fromRGB(132, 82, 255))
-local coreC, coreCStroke = makeCore("VoidCoreC", W * 0.38, H * 0.35, 220, Color3.fromRGB(76, 62, 210))
-
--- Orbiting rings give the panel a subtle animated "reactor" look.
-local orbit = frame(fxLayer, "Orbit", W - 330, 120, 250, 250, Color3.new(1, 1, 1), 125)
-orbit.BackgroundTransparency = 1
-orbit.ZIndex = 0
-local orbitStroke = stroke(orbit, C.accent, 0.79, 2)
-
-local orbit2 = frame(fxLayer, "Orbit2", W - 375, 75, 340, 340, Color3.new(1, 1, 1), 170)
-orbit2.BackgroundTransparency = 1
-orbit2.ZIndex = 0
-local orbit2Stroke = stroke(orbit2, Color3.fromRGB(104, 66, 220), 0.88, 1)
-
-local orbit3 = frame(fxLayer, "Orbit3", 70, H - 285, 190, 190, Color3.new(1, 1, 1), 95)
-orbit3.BackgroundTransparency = 1
-orbit3.ZIndex = 0
-local orbit3Stroke = stroke(orbit3, Color3.fromRGB(77, 55, 190), 0.9, 1)
-
--- Diagonal energy beams.
-local beamA = frame(fxLayer, "BeamA", -140, 150, 420, 2, C.accent, 2)
-beamA.Rotation = 19
-beamA.BackgroundTransparency = 0.82
-beamA.ZIndex = 0
-local beamB = frame(fxLayer, "BeamB", W - 350, 490, 470, 2, Color3.fromRGB(118, 70, 240), 2)
-beamB.Rotation = -17
-beamB.BackgroundTransparency = 0.86
-beamB.ZIndex = 0
-
--- Small floating particles.
-local particles = {}
-local particlePositions = {
-    {120, 130, 3}, {185, 270, 2}, {305, 180, 2}, {445, 115, 3},
-    {555, 245, 2}, {690, 145, 2}, {805, 310, 3}, {920, 180, 2},
-    {990, 405, 3}, {760, 585, 2}, {600, 690, 3}, {420, 620, 2},
-    {235, 560, 3}, {80, 670, 2}, {520, 420, 2}, {875, 700, 2},
-}
-for index, data in ipairs(particlePositions) do
-    local dot = frame(fxLayer, "Particle" .. index, data[1], data[2], data[3], data[3], C.bright, data[3])
-    dot.BackgroundTransparency = 0.35
-    dot.ZIndex = 0
-    particles[#particles + 1] = dot
-end
-
-local scanLine = frame(fxLayer, "ScanLine", 0, -3, W, 2, C.bright, 2)
-scanLine.BackgroundTransparency = 0.72
-scanLine.ZIndex = 0
-
-local scanLine2 = frame(fxLayer, "ScanLine2", 0, H * 0.62, W, 1, Color3.fromRGB(92, 52, 205), 1)
-scanLine2.BackgroundTransparency = 0.86
-scanLine2.ZIndex = 0
-
--- Deep-space starfield and a central void well. The stars are deliberately
--- lightweight UI frames rather than particle emitters, so they do not touch
--- Workspace physics or replication.
-local starLayer = frame(fxLayer, "StarLayer", 0, 0, W, H, Color3.new(1,1,1), 0)
-starLayer.BackgroundTransparency = 1
-starLayer.ZIndex = 0
-local stars = {}
-local starSeed = {
-    {42,72,2},{96,145,1},{156,102,2},{228,54,1},{287,132,2},{352,82,1},
-    {418,164,2},{488,74,1},{552,126,2},{625,58,1},{704,110,2},{781,70,1},
-    {852,154,2},{924,88,1},{1004,136,2},{1018,254,1},{940,322,2},{870,244,1},
-    {795,386,2},{716,300,1},{646,418,2},{570,356,1},{496,444,2},{422,318,1},
-    {340,398,2},{260,332,1},{180,450,2},{112,360,1},{54,520,2},{972,520,1},
-    {842,610,2},{690,650,1},{540,610,2},{380,670,1},{218,610,2},{76,700,1},
-}
-for i, p in ipairs(starSeed) do
-    local star = frame(starLayer, "Star" .. i, p[1], p[2], p[3], p[3], C.bright, p[3])
-    star.BackgroundTransparency = 0.35 + ((i % 4) * 0.1)
-    stars[#stars + 1] = star
-end
-
-local voidWell = frame(fxLayer, "VoidWell", W/2 - 105, H/2 - 105, 210, 210, Color3.fromRGB(1,1,5), 105)
-voidWell.BackgroundTransparency = 0.10
-voidWell.ZIndex = 0
-local wellOuter = frame(fxLayer, "VoidWellOuter", W/2 - 150, H/2 - 150, 300, 300, Color3.new(1,1,1), 150)
-wellOuter.BackgroundTransparency = 1
-wellOuter.ZIndex = 0
-local wellStroke = stroke(wellOuter, C.accent, 0.88, 2)
-local wellInner = frame(fxLayer, "VoidWellInner", W/2 - 124, H/2 - 124, 248, 248, Color3.new(1,1,1), 124)
-wellInner.BackgroundTransparency = 1
-wellInner.ZIndex = 0
-local wellInnerStroke = stroke(wellInner, Color3.fromRGB(82, 46, 190), 0.92, 1)
-
--- Bottom-right resize control.
-local resizeGrip = frame(panel, "ResizeGrip", W - 48, H - 48, 44, 44, Color3.new(1, 1, 1), 10)
-resizeGrip.BackgroundTransparency = 1
-resizeGrip.Active = true
-resizeGrip.ZIndex = 50
-
-local resizeGlow = frame(resizeGrip, "Glow", 5, 5, 34, 34, C.accent, 10)
-resizeGlow.BackgroundTransparency = 0.91
-resizeGlow.ZIndex = 50
-local resizeStroke = stroke(resizeGrip, C.accent, 0.18, 1)
-
--- Three diagonal grip bars.
-for i = 1, 3 do
-    local bar = frame(resizeGrip, "Grip" .. i, 12 + (i - 1) * 7, 31 - (i - 1) * 7, 4, 18, C.bright, 2)
-    bar.Rotation = 45
-    bar.BackgroundTransparency = 0.18
-    bar.ZIndex = 51
-end
-
-UI.resizeReadout = label(resizeGrip, "Size", "100%", -58, 11, 50, 20, 9, C.dim, Enum.Font.GothamBold)
-UI.resizeReadout.TextXAlignment = Enum.TextXAlignment.Right
-UI.resizeReadout.ZIndex = 51
-
-connect(resizeGrip.MouseEnter, function()
-    animate(resizeGlow, {BackgroundTransparency = 0.78})
-    animate(resizeStroke, {Transparency = 0})
-    animate(UI.resizeReadout, {TextColor3 = C.bright})
-end)
-connect(resizeGrip.MouseLeave, function()
-    if not State.gesture or State.gesture.kind ~= "resize" then
-        animate(resizeGlow, {BackgroundTransparency = 0.91})
-        animate(resizeStroke, {Transparency = 0.18})
-        animate(UI.resizeReadout, {TextColor3 = C.dim})
-    end
-end)
-
--- Ambient loops.
-task.spawn(function()
-    while State.alive and starLayer.Parent do
-        for i, star in ipairs(stars) do
-            if not star.Parent then break end
-            local target = 0.25 + ((i % 5) * 0.12)
-            local tw = TweenService:Create(star,
-                TweenInfo.new(1.3 + (i % 4) * 0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 0, true),
-                {BackgroundTransparency = target})
-            tw:Play()
-        end
-        task.wait(2.8)
-    end
-end)
-
-task.spawn(function()
-    while State.alive and voidWell.Parent do
-        local tw = TweenService:Create(voidWell,
-            TweenInfo.new(2.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 0, true),
-            {Size = UDim2.fromOffset(224,224), Position = UDim2.fromOffset(W/2-112,H/2-112)})
-        tw:Play()
-        tw.Completed:Wait()
-        if not State.alive then break end
-        local tw2 = TweenService:Create(wellStroke,
-            TweenInfo.new(1.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 0, true),
-            {Transparency = 0.78})
-        tw2:Play()
-        tw2.Completed:Wait()
-    end
-end)
-
-task.spawn(function()
-    while State.alive and fxLayer.Parent do
-        local tw = TweenService:Create(wellInner,
-            TweenInfo.new(11, Enum.EasingStyle.Linear), {Rotation = wellInner.Rotation - 360})
-        tw:Play()
-        tw.Completed:Wait()
-        wellInner.Rotation = 0
-    end
-end)
-
-task.spawn(function()
-    while State.alive and fxLayer.Parent do
-        local tween = TweenService:Create(orbit,
-            TweenInfo.new(9, Enum.EasingStyle.Linear), {Rotation = orbit.Rotation + 360})
-        tween:Play()
-        tween.Completed:Wait()
-        orbit.Rotation = 0
-    end
-end)
-
-task.spawn(function()
-    while State.alive and fxLayer.Parent do
-        local tween = TweenService:Create(orbit2,
-            TweenInfo.new(13, Enum.EasingStyle.Linear), {Rotation = orbit2.Rotation - 360})
-        tween:Play()
-        tween.Completed:Wait()
-        orbit2.Rotation = 0
-    end
-end)
-
-task.spawn(function()
-    while State.alive and fxLayer.Parent do
-        local tween = TweenService:Create(orbit3,
-            TweenInfo.new(7, Enum.EasingStyle.Linear), {Rotation = orbit3.Rotation + 360})
-        tween:Play()
-        tween.Completed:Wait()
-        orbit3.Rotation = 0
-    end
-end)
-
-task.spawn(function()
-    while State.alive and fxLayer.Parent do
-        animate(coreA, {BackgroundTransparency = 0.985}, false)
-        animate(coreAStroke, {Transparency = 0.93}, false)
-        task.wait(1.4)
-        animate(coreA, {BackgroundTransparency = 0.955}, false)
-        animate(coreAStroke, {Transparency = 0.78}, false)
-        task.wait(1.4)
-    end
-end)
-
-task.spawn(function()
-    while State.alive and fxLayer.Parent do
-        local tween = TweenService:Create(beamA,
-            TweenInfo.new(3.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 0, true),
-            {BackgroundTransparency = 0.94})
-        tween:Play()
-        tween.Completed:Wait()
-    end
-end)
-
-task.spawn(function()
-    while State.alive and fxLayer.Parent do
-        local tween = TweenService:Create(beamB,
-            TweenInfo.new(4.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 0, true),
-            {BackgroundTransparency = 0.96})
-        tween:Play()
-        tween.Completed:Wait()
-    end
-end)
-
-task.spawn(function()
-    while State.alive and fxLayer.Parent do
-        scanLine.Position = UDim2.fromOffset(0, -4)
-        local tween = TweenService:Create(scanLine,
-            TweenInfo.new(3.1, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut),
-            {Position = UDim2.fromOffset(0, H + 4)})
-        tween:Play()
-        tween.Completed:Wait()
-        task.wait(0.9)
-    end
-end)
-
-task.spawn(function()
-    while State.alive and fxLayer.Parent do
-        scanLine2.Position = UDim2.fromOffset(-W * 0.35, math.floor(H * 0.61))
-        local tween = TweenService:Create(scanLine2,
-            TweenInfo.new(2.8, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut),
-            {Position = UDim2.fromOffset(W, math.floor(H * 0.38))})
-        tween:Play()
-        tween.Completed:Wait()
-        task.wait(1.2)
-    end
-end)
-
-for index, dot in ipairs(particles) do
-    task.spawn(function()
-        local baseX, baseY = dot.Position.X.Offset, dot.Position.Y.Offset
-        local phase = (index % 7) * 0.45
-        while State.alive and dot.Parent do
-            local duration = 2.6 + (index % 4) * 0.7
-            local targetY = baseY - 26 - (index % 3) * 12
-            dot.Position = UDim2.fromOffset(baseX, baseY)
-            local tween = TweenService:Create(dot,
-                TweenInfo.new(duration, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
-                {Position = UDim2.fromOffset(baseX + math.sin(phase) * 18, targetY)})
-            tween:Play()
-            tween.Completed:Wait()
-            if not State.alive then break end
-            local fade = TweenService:Create(dot,
-                TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-                {BackgroundTransparency = 0.9})
-            fade:Play()
-            fade.Completed:Wait()
-            dot.BackgroundTransparency = 0.35
-            task.wait(0.35 + (index % 3) * 0.25)
-        end
-    end)
-end
-
-local userScale = 1.0
-local MIN_USER_SCALE, MAX_USER_SCALE = 0.55, 1.35
 local function fitWindow(centerIfNeeded)
     if not State.alive then return end
     local viewport = canvas.AbsoluteSize
     if viewport.X <= 0 or viewport.Y <= 0 then return end
-
-    -- User-controlled scale is preserved when the viewport changes.
-    -- The viewport only limits the maximum visible scale; it never resets the
-    -- size the player chose with the bottom-right resize grip.
-    local fitScale = math.min((viewport.X - 24) / W, (viewport.Y - 36) / H)
-    local effectiveScale = math.clamp(math.min(userScale, fitScale), 0.28, MAX_USER_SCALE)
-    uiScale.Scale = effectiveScale
-
-    local width = W * effectiveScale
-    local height = (State.minimized and 60 or H) * effectiveScale
+    uiScale.Scale = math.clamp(math.min((viewport.X - 24) / W, (viewport.Y - 36) / H), 0.32, State.uiScaleTarget)
+    local width = W * uiScale.Scale
+    local height = (State.minimized and 78 or H) * uiScale.Scale
     local maxX, maxY = math.max(12, viewport.X - width - 12), math.max(44, viewport.Y - height - 12)
     local x, y = holder.Position.X.Offset, holder.Position.Y.Offset
     if centerIfNeeded then x, y = 20, 40 end
     holder.Position = UDim2.fromOffset(math.clamp(x, 12, maxX), math.clamp(y, 44, maxY))
-
-    if UI.resizeReadout then
-        UI.resizeReadout.Text = string.format("%d%%", math.floor(effectiveScale * 100 + 0.5))
-    end
 end
 local function setMinimized(value)
     State.minimized = value
@@ -5048,10 +4582,27 @@ local function setMinimized(value)
     animate(halo, {Size = UDim2.fromOffset(W + 4, height + 4)})
     animate(shadow, {Size = UDim2.fromOffset(W + 12, height + 12)})
     holder.Size = UDim2.fromOffset(W, height)
-    resizeGrip.Position = UDim2.fromOffset(W - 48, height - 48)
     render()
     fitWindow(false)
 end
+
+-- Reference-style bottom-right resize grip. It changes the UIScale rather than
+-- rebuilding the UI, so every existing control keeps its working callbacks.
+local resizeGrip = button(panel, "ResizeGrip", "", W - 22, H - 22, 22, 22, C.panel, 1)
+resizeGrip.BackgroundTransparency = 1
+resizeGrip.ZIndex = 50
+for i = 1, 3 do
+    local line = frame(resizeGrip, "GripLine" .. i, 22 - i * 5, 20 - i * 5, i * 5, 1, C.accent, 1)
+    line.Rotation = -45
+    line.ZIndex = 51
+end
+connect(resizeGrip.InputBegan, function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        State.gesture = {kind = "resize", input = input, start = input.Position, scale = State.uiScaleTarget}
+        releaseOrPause()
+    end
+end)
+
 render = function()
     if not State.alive then return end
     local running, statusName, description = availability()
@@ -5067,9 +4618,8 @@ render = function()
     UI.cycle.Text = count > 0 and string.format("~ %.2f s / cycle", count * (Settings.HoldTime + Settings.KeyGap)) or "No keys selected"
     UI.masterStroke.Transparency = State.enabled and 0.18 or 0.65
     tabs.Visible = not State.minimized
-    sidebarInfo.Visible = not State.minimized
+    sidebarInfo.Visible = false
     UI.footerBar.Visible = not State.minimized
-    resizeGrip.Visible = not State.minimized
     body.Visible = not State.minimized and State.tab == "Skills"
     espBody.Visible = not State.minimized and State.tab == "ESP"
     healthBody.Visible = not State.minimized and State.tab == "Health"
@@ -5088,9 +4638,6 @@ render = function()
     UI.moveTab.TextColor3 = State.tab == "Move" and C.bright or C.dim
     UI.systemTab.BackgroundColor3 = State.tab == "System" and C.raised or C.surface
     UI.systemTab.TextColor3 = State.tab == "System" and C.bright or C.dim
-    for key, glyph in pairs(UI.navGlyphs or {}) do
-        tintVoidGlyph(glyph, State.tab == key and C.bright or C.dim)
-    end
     for key, navStroke in pairs(UI.navStrokes) do
         local selected = State.tab == key
         navStroke.Transparency = selected and 0.08 or 0.86
@@ -5138,7 +4685,7 @@ render = function()
     UI.bossSaveStatus.Text=Farm.configStatus
     UI.bossDiscoveryStatus.Text=Farm.pendingDiscovery and "First-run discovery starts shortly..." or Farm.discoveryStatus
     UI.farmHint.Text = Settings.AutoBoss
-        and string.format("Auto Boss active / %d saved locations / same-boss respawn resume enabled.", #Farm.remembered)
+        and string.format("Auto Boss active - %d saved locations - same-boss respawn resume enabled.", #Farm.remembered)
         or "Automate farming, bosses and loot collection."
     UI.farmCount.Text = tostring(Farm.aliveCount or 0)
     local remembered = Farm.pinned and Farm.catalog[Farm.pinned]
@@ -5232,7 +4779,7 @@ render = function()
         local pressed = State.heldKey == skill.key
         if view.selected ~= skill.enabled or view.pressed ~= pressed then
             view.selected, view.pressed = skill.enabled, pressed
-            view.button.BackgroundColor3 = pressed and Color3.fromRGB(12, 75, 99) or (skill.enabled and C.raised or C.surface)
+            view.button.BackgroundColor3 = pressed and Color3.fromRGB(49, 20, 82) or (skill.enabled and C.raised or C.surface)
             view.border.Color = pressed and C.bright or (skill.enabled and C.accent or C.line)
             view.border.Transparency = pressed and 0 or (skill.enabled and 0.58 or 0.45)
             view.keyText.TextColor3 = skill.enabled and C.bright or C.dim
@@ -5255,10 +4802,10 @@ render = function()
         preset.button.TextColor3 = selected and C.bright or C.dim
     end
 end
-local pageBasePosition = UDim2.fromOffset(200, 76)
+local pageBasePosition = UDim2.fromOffset(14, 130)
 local function animatePageIn(page)
     if not page or not page.Visible then return end
-    page.Position = UDim2.fromOffset(214, 76)
+    page.Position = UDim2.fromOffset(24, 130)
     animate(page, {Position = pageBasePosition})
 end
 
@@ -5292,17 +4839,6 @@ connect(minimize.Activated, function() setMinimized(not State.minimized) end)
 connect(close.Activated, function() controller.Stop() end)
 connect(root.Destroying, function() controller.Stop() end)
 connect(canvas:GetPropertyChangedSignal("AbsoluteSize"), function() fitWindow(false) end)
-connect(resizeGrip.InputBegan, function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        State.gesture = {
-            kind = "resize",
-            input = input,
-            start = input.Position,
-            startScale = userScale,
-        }
-        releaseOrPause()
-    end
-end)
 connect(header.InputBegan, function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         State.gesture = {kind = "window", input = input, start = input.Position,
@@ -5319,13 +4855,9 @@ connect(Input.InputChanged, function(input)
     if gesture.kind == "slider" then
         gesture.view.updateFromX(input.Position.X)
     elseif gesture.kind == "resize" then
-        -- Vertical drag controls scale: down = larger, up = smaller.
-        local deltaY = input.Position.Y - gesture.start.Y
-        userScale = math.clamp(gesture.startScale + (deltaY / H), MIN_USER_SCALE, MAX_USER_SCALE)
+        local deltaX = input.Position.X - gesture.start.X
+        State.uiScaleTarget = math.clamp(gesture.scale + (deltaX / W), 0.48, 1.0)
         fitWindow(false)
-        if UI.resizeReadout then
-            UI.resizeReadout.Text = string.format("%d%%", math.floor(uiScale.Scale * 100 + 0.5))
-        end
     else
         local delta = input.Position - gesture.start
         holder.Position = UDim2.fromOffset(gesture.x + delta.X, gesture.y + delta.Y)
@@ -5503,7 +5035,7 @@ end)
 task.spawn(function()
     while State.alive do
         render()
-        task.wait(0.18)
+        task.wait(0.12)
     end
 end)
 task.spawn(function()

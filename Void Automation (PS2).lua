@@ -11,9 +11,7 @@ local Settings = {
     StaticMapScan = true, StaticScanRange = 500000,
     AutoRejoin = true, AutoExecute = true,
     PrivateServerMap = "Ouwigahara", PrivateJoinHold = 1.35,
-    NoClip = false, FlyEnabled = false, FlySpeed = 85,
-    NoClipWorldRadius = 100, NoClipWorldScanInterval = 0.20,
-    NoClipStopLift = 10, NoClipStopSettle = 1.00,
+    NoClip = true, FlyEnabled = false, FlySpeed = 85,
     SpeedEnabled = false, WalkSpeed = 32,
     ToggleKey = Enum.KeyCode.F6,
     StopKey = Enum.KeyCode.F7,
@@ -80,7 +78,6 @@ local clearESP = function() end
 local stopHealthGuard = function() end
 local stopFarm = function() end
 local stopMovement = function() end
-local Movement
 local pauseFarmForEscape = function() end
 local root
 local loaderRoot
@@ -1943,12 +1940,6 @@ do
         Farm.fault = nil
         Farm.nextScan = 0
         if Settings.AutoBoss then
-            -- Auto Boss owns the automatic NoClip state. A new Auto Boss run gets
-            -- exactly one safe landing when it is later disabled.
-            Movement.stopLandingActive = false
-            Movement.stopLandingDone = false
-            Settings.NoClip = true
-            Movement.updateTBlock()
 
             Settings.BossAutoSave = true
             Settings.FarmEnabled = true
@@ -1960,10 +1951,7 @@ do
         else
             Settings.FarmEnabled = false
             resetAutoBossRoute(true)
-            local character = Player.Character
-            local rootPart = character and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart)
             Farm.release(false)
-            Movement.prepareStopLanding(character, rootPart)
         end
         Farm.step()
         render()
@@ -2000,10 +1988,7 @@ do
         if not value then
             Settings.AutoBoss = false
             resetAutoBossRoute(true)
-            local character = Player.Character
-            local rootPart = character and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart)
             Farm.release(false)
-            Movement.prepareStopLanding(character, rootPart)
         end
         Farm.nextScan = 0
         Farm.step()
@@ -2333,9 +2318,6 @@ do
             resetAutoBossRoute(true)
             Farm.fault = "Farming stopped. Toggle on to retry."
             Farm.release(false)
-            local character = Player.Character
-            local rootPart = character and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart)
-            Movement.prepareStopLanding(character, rootPart)
             Farm.status, Farm.detail = "ERROR", Farm.fault
             warn("AutoSkills Farm: " .. tostring(err))
         end
@@ -2346,10 +2328,7 @@ do
         Settings.FarmEnabled = false
         Settings.AutoBoss = false
         resetAutoBossRoute(true)
-        local character = Player.Character
-        local rootPart = character and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart)
         Farm.release(false)
-        Movement.prepareStopLanding(character, rootPart)
     end
     local runOK, Run = pcall(function() return game:GetService("RunService") end)
     if runOK then
@@ -2799,21 +2778,14 @@ do
     end
 end
 
-Movement = {
+local Movement = {
     character = nil, humanoid = nil, rootPart = nil,
     collisions = setmetatable({}, {__mode = "k"}),
-    worldCollisions = setmetatable({}, {__mode = "k"}),
-    worldCollisionAt = 0,
-    terrainCollision = nil,
-    climbHumanoid = nil, climbEnabled = nil,
     speedHumanoid = nil, speedOriginal = nil,
     flyHumanoid = nil, flyAutoRotate = nil,
-    stopLiftToken = 0,
-    stopLandingActive = false,
-    stopLandingDone = false,
     tBlocked = false,
-    status = "MOVEMENT",
-    detail = "No Clip activates automatically only while Auto Boss is active.",
+    status = "NOCLIP ON",
+    detail = "No-clip is active automatically. T is blocked while No Clip is on.",
 }
 
 local function movementCharacter()
@@ -2822,48 +2794,6 @@ local function movementCharacter()
     local rootPart = character and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart)
     if rootPart and not rootPart:IsA("BasePart") then rootPart = nil end
     return character, humanoid, rootPart
-end
-
-local function startupGroundRecovery()
-    -- Never enable NoClip just by executing the script. If an older instance
-    -- left nearby map geometry non-collidable, recover the actual floor while
-    -- Auto Boss/NoClip/Fly are OFF.
-    if Settings.AutoBoss or Settings.NoClip or Settings.FlyEnabled then return end
-    local character, humanoid, rootPart = movementCharacter()
-    if not character or not character.Parent or not rootPart or not rootPart.Parent then return end
-
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {character}
-    params.IgnoreWater = false
-
-    local origin = rootPart.Position + Vector3.new(0, 8, 0)
-    local result = World:Raycast(origin, Vector3.new(0, -5000, 0), params)
-    if not result or not result.Instance or not result.Position then return end
-    if result.Normal and result.Normal.Y < 0.45 then return end
-
-    local hit = result.Instance
-    local name = string.lower(hit.Name or "")
-    if hit:IsA("BasePart") then
-        local blockedName = name:find("hitbox", 1, true) or name:find("trigger", 1, true)
-            or name:find("zone", 1, true) or name:find("vfx", 1, true)
-            or name:find("effect", 1, true) or name:find("prompt", 1, true)
-        if not blockedName then
-            pcall(function() hit.CanCollide = true end)
-        end
-    elseif hit == World.Terrain then
-        pcall(function() World.Terrain.CanCollide = true end)
-    end
-
-    local velocity = rootPart.AssemblyLinearVelocity
-    if velocity.Y < -25 then
-        local safeY = result.Position.Y + 5
-        pcall(function()
-            character:PivotTo(CFrame.new(rootPart.Position.X, safeY, rootPart.Position.Z))
-            rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-        end)
-    end
 end
 
 function Movement.updateTBlock()
@@ -2892,24 +2822,9 @@ function Movement.restoreNoClip(force)
         end
         Movement.collisions[part] = nil
     end
-    for part, original in pairs(Movement.worldCollisions) do
-        if part and part.Parent then
-            pcall(function() part.CanCollide = original end)
-        end
-        Movement.worldCollisions[part] = nil
-    end
-    if Movement.terrainCollision ~= nil and World.Terrain then
-        pcall(function() World.Terrain.CanCollide = Movement.terrainCollision end)
-    end
-    Movement.terrainCollision = nil
-    Movement.worldCollisionAt = 0
-    if Movement.climbHumanoid and Movement.climbHumanoid.Parent and Movement.climbEnabled ~= nil then
-        pcall(function() Movement.climbHumanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, Movement.climbEnabled) end)
-    end
-    Movement.climbHumanoid, Movement.climbEnabled = nil, nil
 end
 
-local function applyNoClip(character, rootPart, humanoid)
+local function applyNoClip(character)
     if not character then return end
     for _, part in ipairs(character:GetDescendants()) do
         if part:IsA("BasePart") then
@@ -2919,191 +2834,6 @@ local function applyNoClip(character, rootPart, humanoid)
             part.CanCollide = false
         end
     end
-
-    if humanoid and humanoid.Parent then
-        if Movement.climbHumanoid ~= humanoid then
-            Movement.climbHumanoid = humanoid
-            local ok, enabled = pcall(function()
-                return humanoid:GetStateEnabled(Enum.HumanoidStateType.Climbing)
-            end)
-            Movement.climbEnabled = ok and enabled or true
-        end
-        pcall(function() humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, false) end)
-        pcall(function()
-            local state = humanoid:GetState()
-            if state == Enum.HumanoidStateType.Climbing then
-                humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-            end
-        end)
-    end
-
-    local now = os.clock()
-    if rootPart and now >= Movement.worldCollisionAt then
-        Movement.worldCollisionAt = now + math.max(0.05, Settings.NoClipWorldScanInterval)
-        local radius = math.clamp(Settings.NoClipWorldRadius, 30, 200)
-        local overlap = OverlapParams.new()
-        overlap.FilterType = Enum.RaycastFilterType.Exclude
-        overlap.FilterDescendantsInstances = {character}
-        overlap.MaxParts = 512
-        local ok, parts = pcall(function()
-            return World:GetPartBoundsInBox(CFrame.new(rootPart.Position), Vector3.new(radius * 2, radius, radius * 2), overlap)
-        end)
-        if ok and type(parts) == "table" then
-            for _, part in ipairs(parts) do
-                if part:IsA("BasePart") and not part:IsDescendantOf(character) then
-                    if Movement.worldCollisions[part] == nil then
-                        Movement.worldCollisions[part] = part.CanCollide
-                    end
-                    part.CanCollide = false
-                end
-            end
-        end
-        if World.Terrain then
-            if Movement.terrainCollision == nil then
-                local okTerrain, value = pcall(function() return World.Terrain.CanCollide end)
-                if okTerrain then Movement.terrainCollision = value end
-            end
-            pcall(function() World.Terrain.CanCollide = false end)
-        end
-    end
-end
-
-local function movementSafeLandingPosition(character, rootPart)
-    if not character or not rootPart or not rootPart.Parent then return nil end
-
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {character}
-    params.IgnoreWater = false
-
-    -- Auto Boss can stop while the character is directly under a flying boss or over a
-    -- gap. Search a much larger area for a real horizontal surface before releasing
-    -- the temporary stop lock. The first hits are kept close to the stopping position.
-    local offsets = {
-        Vector3.new(0, 0, 0),
-        Vector3.new(5, 0, 0), Vector3.new(-5, 0, 0),
-        Vector3.new(0, 0, 5), Vector3.new(0, 0, -5),
-        Vector3.new(10, 0, 10), Vector3.new(-10, 0, 10),
-        Vector3.new(10, 0, -10), Vector3.new(-10, 0, -10),
-        Vector3.new(20, 0, 0), Vector3.new(-20, 0, 0),
-        Vector3.new(0, 0, 20), Vector3.new(0, 0, -20),
-        Vector3.new(35, 0, 35), Vector3.new(-35, 0, 35),
-        Vector3.new(35, 0, -35), Vector3.new(-35, 0, -35),
-        Vector3.new(60, 0, 0), Vector3.new(-60, 0, 0),
-        Vector3.new(0, 0, 60), Vector3.new(0, 0, -60),
-        Vector3.new(100, 0, 0), Vector3.new(-100, 0, 0),
-        Vector3.new(0, 0, 100), Vector3.new(0, 0, -100),
-    }
-
-    local origin = rootPart.Position
-    for _, offset in ipairs(offsets) do
-        local start = origin + offset + Vector3.new(0, 8, 0)
-        local result = World:Raycast(start, Vector3.new(0, -10000, 0), params)
-        if result and result.Instance and result.Position then
-            local normal = result.Normal
-            local hit = result.Instance
-            local name = string.lower(tostring(hit.Name or ""))
-            local blocked = name:find("hitbox", 1, true) or name:find("trigger", 1, true)
-                or name:find("vfx", 1, true) or name:find("effect", 1, true)
-                or name:find("prompt", 1, true)
-            if (not normal or normal.Y > 0.45) and not blocked then
-                if hit == World.Terrain or hit:IsA("BasePart") then
-                    -- Stand exactly 10 studs above the detected surface.
-                    return Vector3.new(start.X, result.Position.Y + 10, start.Z), hit
-                end
-            end
-        end
-    end
-    return nil, nil
-end
-
-function Movement.prepareStopLanding(character, rootPart)
-    if not character or not rootPart or not rootPart.Parent then return end
-    if not Settings.NoClip then return end
-    -- This is a one-shot transition for an Auto Boss disable. Prevent any other
-    -- stop path or repeated callback from lifting the character again.
-    if Movement.stopLandingDone or Movement.stopLandingActive then return end
-    Movement.stopLandingActive = true
-    Movement.stopLandingDone = true
-
-    Movement.stopLiftToken = Movement.stopLiftToken + 1
-    local token = Movement.stopLiftToken
-
-    -- Freeze the root for the entire transition. This prevents even one physics frame
-    -- from sending the character through the map between NoClip OFF and the safe teleport.
-    local anchoredBefore = rootPart.Anchored
-    pcall(function() rootPart.Anchored = true end)
-
-    -- Capture the floor while the character is still at the exact stopping location.
-    local safePosition, floorPart = movementSafeLandingPosition(character, rootPart)
-
-    Settings.NoClip = false
-    Movement.updateTBlock()
-    Movement.restoreNoClip(true)
-
-    -- If the floor was not part of the NoClip scan, make sure the actual surface used
-    -- for the landing is collidable during the transition.
-    if floorPart and floorPart:IsA("BasePart") then
-        pcall(function() floorPart.CanCollide = true end)
-    elseif floorPart == World.Terrain then
-        pcall(function() World.Terrain.CanCollide = true end)
-    end
-
-    if safePosition then
-        pcall(function()
-            character:PivotTo(CFrame.new(safePosition))
-            rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-        end)
-    else
-        -- Extremely defensive fallback: keep the character suspended until a valid
-        -- surface can be found rather than allowing a lethal fall.
-        local pivot = character:GetPivot()
-        safePosition = pivot.Position + Vector3.new(0, Settings.NoClipStopLift, 0)
-        pcall(function()
-            character:PivotTo(CFrame.new(safePosition))
-            rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-        end)
-    end
-
-    -- Keep the root frozen for a few frames so the restored collision is definitely in
-    -- place before physics resumes. If no floor was found, keep searching before release.
-    task.spawn(function()
-        local deadline = os.clock() + 0.8
-        local finalPosition = safePosition
-        local finalFloor = floorPart
-        while token == Movement.stopLiftToken and character.Parent and rootPart.Parent and os.clock() < deadline do
-            if not finalFloor then
-                local found, hit = movementSafeLandingPosition(character, rootPart)
-                if found then
-                    finalPosition, finalFloor = found, hit
-                    if hit and hit:IsA("BasePart") then pcall(function() hit.CanCollide = true end) end
-                    if hit == World.Terrain then pcall(function() World.Terrain.CanCollide = true end) end
-                    pcall(function() character:PivotTo(CFrame.new(found)) end)
-                end
-            end
-            pcall(function()
-                rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-            end)
-            task.wait(0.05)
-        end
-
-        if token ~= Movement.stopLiftToken or not character.Parent or not rootPart.Parent then
-            Movement.stopLandingActive = false
-            return
-        end
-
-        -- Keep the selected landing surface collidable. If it was temporarily made
-        -- collidable because NoClip had disabled it, restoring it to false here would
-        -- immediately put the character back into free fall.
-
-        pcall(function() rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
-        pcall(function() rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0) end)
-        if not anchoredBefore then pcall(function() rootPart.Anchored = false end) end
-        Movement.stopLandingActive = false
-    end)
 end
 
 function Movement.restoreSpeed()
@@ -3180,7 +2910,7 @@ function Movement.step(dt)
     end
 
     if Settings.NoClip or Settings.FlyEnabled then
-        applyNoClip(character, rootPart, humanoid)
+        applyNoClip(character)
     else
         Movement.restoreNoClip(false)
     end
@@ -3267,8 +2997,6 @@ stopMovement = function()
     Movement.restoreNoClip(true)
 end
 
-Settings.NoClip = false
-Settings.FlyEnabled = false
 Movement.updateTBlock()
 
 do
@@ -3287,10 +3015,6 @@ do
         end)
     end
 end
-
--- One-time startup floor recovery only. Do NOT run this every frame: doing so
--- would repeatedly teleport a falling character after Auto Boss is disabled.
-pcall(startupGroundRecovery)
 
 System = {
     configPath = "AutoSkills_System_v1.json",

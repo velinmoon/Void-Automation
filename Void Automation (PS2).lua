@@ -6090,7 +6090,7 @@ Title.Font = Enum.Font.GothamBold
 Title.TextSize = 11
 Title.TextColor3 = Color3.fromRGB(235, 249, 255)
 Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Text = "SLAYERS 2 • AUTO JOIN ACTIVE"
+Title.Text = "SLAYERS 2 • AUTO JOIN V4"
 Title.Parent = Card
 
 local Status = Instance.new("TextLabel")
@@ -6258,10 +6258,6 @@ local function findMap()
     return findText({"Ouwland", "Ouwigahara"})
 end
 
-local function findJoin()
-    return findText({"JOIN", "Join Server", "Join Private Server"})
-end
-
 local function findOwnerBox()
     for _, object in ipairs(PlayerGui:GetDescendants()) do
         if object:IsA("TextBox") and visible(object) then
@@ -6276,6 +6272,36 @@ local function findOwnerBox()
             end
         end
     end
+end
+
+local function findFriendJoinLabel()
+    return findText({"Friend Join"})
+end
+
+local function privateJoinContextVisible()
+    if findOwnerBox() then return true end
+
+    return findText({
+        "Hold to join private server",
+        "Private server owner",
+        "Private Server",
+    }) ~= nil
+end
+
+local function findJoin()
+    -- Ignore Friend Join until the actual private-server UI exists.
+    if not privateJoinContextVisible() then
+        return nil
+    end
+
+    local join = findText({"JOIN", "Join Server", "Join Private Server"})
+    if not join then return nil end
+
+    if findFriendJoinLabel() and not findOwnerBox() then
+        return nil
+    end
+
+    return join
 end
 
 local function objectPoint(object)
@@ -6378,7 +6404,7 @@ local function fillOwner()
 end
 
 local PLAY_FALLBACK = Vector2.new(0.055, 0.075)
-local MAP_FALLBACK = Vector2.new(0.170, 0.430)
+local MAP_FALLBACK = Vector2.new(0.205, 0.505)
 local JOIN_FALLBACK = Vector2.new(0.615, 0.916)
 
 local function doPlay()
@@ -6391,10 +6417,39 @@ end
 
 local function doMap()
     local map = findMap()
-    setStatus("OUWLAND • " .. (map and "GUI found" or "using card fallback"))
+    setStatus("OUWLAND • selecting map card")
 
-    if map then clickObject(map, 0.10) end
-    clickPoint(pointFraction(MAP_FALLBACK.X, MAP_FALLBACK.Y), 0.12)
+    if map then
+        clickObject(map, 0.10)
+
+        -- Try a parent that has the proportions of the tall Ouwland card.
+        local node = map.Parent
+        for _ = 1, 10 do
+            if not node or node == PlayerGui then break end
+
+            if node:IsA("GuiObject") and visible(node) then
+                local size = node.AbsoluteSize
+                if size.X >= 180 and size.X <= 520
+                    and size.Y >= 300 and size.Y <= 850 then
+                    clickPoint(node.AbsolutePosition + size / 2, 0.12)
+                    break
+                end
+            end
+
+            node = node.Parent
+        end
+    end
+
+    -- From the user's 1874x1079 screenshot: card center is approximately
+    -- 20.5% across and 50.5% down. Hit three safe points inside the card.
+    for _, p in ipairs({
+        Vector2.new(0.205, 0.405),
+        Vector2.new(0.205, 0.505),
+        Vector2.new(0.205, 0.610),
+    }) do
+        clickPoint(pointFraction(p.X, p.Y), 0.12)
+        task.wait(0.08)
+    end
 end
 
 local function doOwner()
@@ -6432,67 +6487,103 @@ task.spawn(function()
     local stage = "play"
     local stageAt = os.clock()
     local lastAction = 0
+    local mapAttempts = 0
 
     while Screen.Parent and tonumber(game.PlaceId) == LOBBY_PLACE_ID
         and tostring(game.PrivateServerId or "") == "" do
 
+        local play = findPlay()
         local map = findMap()
         local ownerBox = findOwnerBox()
-        local join = findJoin()
+        local privateJoin = findJoin()
+        local privateContext = privateJoinContextVisible()
 
-        -- Visible UI always overrides the timer.
-        if ownerBox or join then
+        -- Real sequence from the screenshots:
+        -- PLAY -> Ouwland + Friend Join -> private owner + private JOIN.
+        if privateContext and (ownerBox or privateJoin) then
             if stage ~= "owner" and stage ~= "join" then
                 stage = "owner"
                 stageAt = os.clock()
                 lastAction = 0
             end
-        elseif map and stage == "play" then
-            stage = "map"
+        elseif map then
+            if stage ~= "map" then
+                stage = "map"
+                stageAt = os.clock()
+                lastAction = 0
+                mapAttempts = 0
+            end
+        elseif play and stage ~= "play" then
+            stage = "play"
             stageAt = os.clock()
             lastAction = 0
         end
 
         if stage == "play" then
-            if os.clock() - lastAction >= 0.9 then
+            if os.clock() - lastAction >= 0.90 then
                 lastAction = os.clock()
                 doPlay()
             end
 
-            -- Even if the UI names are hidden, progress after repeated PLAY clicks.
-            if os.clock() - stageAt >= 4.0 then
+            if findMap() then
                 stage = "map"
                 stageAt = os.clock()
                 lastAction = 0
+                mapAttempts = 0
             end
 
         elseif stage == "map" then
-            if os.clock() - lastAction >= 1.0 then
+            -- Generic Friend Join is ignored here. Keep selecting Ouwland until
+            -- private-server owner/context actually appears.
+            if os.clock() - lastAction >= 0.85 then
                 lastAction = os.clock()
+                mapAttempts = mapAttempts + 1
+                setStatus("OUWLAND • selecting card (attempt " .. tostring(mapAttempts) .. ")")
                 doMap()
             end
 
-            if ownerBox or join or os.clock() - stageAt >= 4.0 then
+            ownerBox = findOwnerBox()
+            privateJoin = findJoin()
+
+            if ownerBox or privateJoin or privateJoinContextVisible() then
                 stage = "owner"
                 stageAt = os.clock()
                 lastAction = 0
             end
 
         elseif stage == "owner" then
-            if os.clock() - lastAction >= 1.6 then
-                lastAction = os.clock()
-                doOwner()
+            ownerBox = findOwnerBox()
+
+            if ownerBox then
+                if os.clock() - lastAction >= 1.15 then
+                    lastAction = os.clock()
+                    doOwner()
+                end
+            elseif not privateJoinContextVisible() and os.clock() - stageAt > 2.0 then
+                stage = "map"
+                stageAt = os.clock()
+                lastAction = 0
+                mapAttempts = 0
             end
 
-            -- Allow owner validation time before JOIN.
-            if join or os.clock() - stageAt >= 3.0 then
+            privateJoin = findJoin()
+            if privateJoin then
                 stage = "join"
                 stageAt = os.clock()
                 lastAction = 0
             end
 
         elseif stage == "join" then
-            if os.clock() - lastAction >= 5.0 then
+            privateJoin = findJoin()
+
+            if not privateJoin then
+                if findMap() and not privateJoinContextVisible() then
+                    stage = "map"
+                    stageAt = os.clock()
+                    lastAction = 0
+                    mapAttempts = 0
+                end
+            elseif os.clock() - lastAction >= 5.0 then
                 lastAction = os.clock()
                 doJoin()
                 setStatus("JOIN SENT • waiting for teleport")

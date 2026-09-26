@@ -6090,7 +6090,7 @@ Title.Font = Enum.Font.GothamBold
 Title.TextSize = 11
 Title.TextColor3 = Color3.fromRGB(235, 249, 255)
 Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Text = "SLAYERS 2 • AUTO JOIN V7"
+Title.Text = "SLAYERS 2 • AUTO JOIN V8"
 Title.Parent = Card
 
 local Status = Instance.new("TextLabel")
@@ -6276,15 +6276,8 @@ local function findMap()
     return findText({"Ouwland", "Ouwigahara"})
 end
 
-local function privateJoinContextVisible()
-    return findText({
-        "JOIN PRIVATE",
-        "Hold to join private server",
-        "Private server owner",
-    }) ~= nil
-end
-
-local function findOwnerBox()
+local function findFriendNameBox()
+    local friendLabel = findFriendJoinLabel()
     local boxes = {}
 
     for _, object in ipairs(PlayerGui:GetDescendants()) do
@@ -6297,29 +6290,24 @@ local function findOwnerBox()
                 .. tostring(object.Text or "")
             )
 
-            if blob:find("privateserverowner", 1, true)
-                or (blob:find("private", 1, true) and blob:find("owner", 1, true)) then
+            if blob:find("playersname", 1, true)
+                or blob:find("playername", 1, true)
+                or blob:find("friendjoin", 1, true) then
                 return object
             end
         end
     end
 
-    if not privateJoinContextVisible() or #boxes == 0 then
-        return nil
-    end
-
-    -- Prefer the TextBox nearest and directly ABOVE JOIN PRIVATE.
-    local joinLabel = findText({"JOIN PRIVATE"})
-    if joinLabel then
-        local joinCenter = joinLabel.AbsolutePosition + joinLabel.AbsoluteSize / 2
+    if friendLabel then
+        local labelCenter = friendLabel.AbsolutePosition + friendLabel.AbsoluteSize / 2
         local best, bestScore
 
         for _, box in ipairs(boxes) do
             local center = box.AbsolutePosition + box.AbsoluteSize / 2
-            local dy = joinCenter.Y - center.Y
-            local dx = math.abs(joinCenter.X - center.X)
+            local dy = center.Y - labelCenter.Y
+            local dx = math.abs(center.X - labelCenter.X)
 
-            if dy > 0 and dy < 260 and dx < 260 then
+            if dy > 0 and dy < 180 and dx < 280 then
                 local score = dy + dx * 0.35
                 if not bestScore or score < bestScore then
                     best, bestScore = box, score
@@ -6329,12 +6317,19 @@ local function findOwnerBox()
 
         if best then return best end
     end
+end
 
-    -- Private context is confirmed. Owner input is the lowest visible TextBox.
-    table.sort(boxes, function(a, b)
-        return a.AbsolutePosition.Y > b.AbsolutePosition.Y
-    end)
-    return boxes[1]
+local function privateJoinContextVisible()
+    return findText({
+        "JOIN PRIVATE",
+        "Hold to join private server",
+    }) ~= nil
+end
+
+local function findOwnerBox()
+    -- In this game, the private-server owner is entered into Friend Join's
+    -- "Player's name" field before JOIN PRIVATE appears.
+    return findFriendNameBox()
 end
 
 local function findFriendJoinLabel()
@@ -6343,40 +6338,37 @@ end
 
 
 local function findJoin()
+    local exact = findText({"JOIN PRIVATE"})
+    if exact then return exact end
+
     if not privateJoinContextVisible() then
         return nil
     end
 
-    -- Exact private button text first.
-    local exact = findText({"JOIN PRIVATE"})
-    if exact then return exact end
+    local instruction = findText({"Hold to join private server"})
+    if not instruction then return nil end
 
-    -- Geometry fallback: clickable/text GUI directly below owner field.
-    local ownerBox = findOwnerBox()
-    if not ownerBox then return nil end
-
-    local ownerCenter = ownerBox.AbsolutePosition + ownerBox.AbsoluteSize / 2
+    local instructionCenter = instruction.AbsolutePosition + instruction.AbsoluteSize / 2
     local best, bestScore
 
     for _, object in ipairs(PlayerGui:GetDescendants()) do
         if object:IsA("GuiObject")
             and visible(object)
-            and object ~= ownerBox
-            and object.AbsoluteSize.X >= 70
-            and object.AbsoluteSize.Y >= 25 then
+            and object.AbsoluteSize.X >= 90
+            and object.AbsoluteSize.Y >= 28 then
 
             local center = object.AbsolutePosition + object.AbsoluteSize / 2
-            local dy = center.Y - ownerCenter.Y
-            local dx = math.abs(center.X - ownerCenter.X)
+            local dy = instructionCenter.Y - center.Y
+            local dx = math.abs(instructionCenter.X - center.X)
 
-            if dy > 18 and dy < 180 and dx < 180 then
+            if dy > 10 and dy < 180 and dx < 220 then
                 local blob = norm(
-                    tostring(object.Name or "") .. " "
-                    .. displayed(object)
+                    tostring(object.Name or "") .. " " .. displayed(object)
                 )
 
-                if object:IsA("GuiButton") or blob:find("join", 1, true) then
-                    local score = dy + dx * 0.5
+                if object:IsA("GuiButton")
+                    or blob:find("joinprivate", 1, true) then
+                    local score = dy + dx * 0.45
                     if not bestScore or score < bestScore then
                         best, bestScore = object, score
                     end
@@ -6588,11 +6580,11 @@ local function fillOwner()
     local owner = tostring(Owner or "thingbelow")
 
     if not box then
-        setStatus("OWNER • private owner field not found yet")
+        setStatus("OWNER • Player name field not found yet")
         return false
     end
 
-    setStatus("OWNER • field found: " .. tostring(box.Name))
+    setStatus("OWNER • typing into Player name field")
 
     -- Focus the ACTUAL detected TextBox.
     clickObject(box, 0.07)
@@ -6671,44 +6663,22 @@ local function doPlay()
 end
 
 local function doMap()
+    -- Ouwland is already displayed on the Friend Join screen.
+    -- Do NOT click the card: that can enter a normal/public server.
     local map = findMap()
-    setStatus("OUWLAND • selecting map card")
+    local friend = findFriendJoinLabel()
 
-    if map then
-        clickObject(map, 0.10)
-
-        -- Try a parent that has the proportions of the tall Ouwland card.
-        local node = map.Parent
-        for _ = 1, 10 do
-            if not node or node == PlayerGui then break end
-
-            if node:IsA("GuiObject") and visible(node) then
-                local size = node.AbsoluteSize
-                if size.X >= 180 and size.X <= 520
-                    and size.Y >= 300 and size.Y <= 850 then
-                    clickPoint(node.AbsolutePosition + size / 2, 0.12)
-                    break
-                end
-            end
-
-            node = node.Parent
-        end
+    if map and friend then
+        setStatus("OUWLAND • Friend Join ready")
+        return true
     end
 
-    -- From the user's 1874x1079 screenshot: card center is approximately
-    -- 20.5% across and 50.5% down. Hit three safe points inside the card.
-    for _, p in ipairs({
-        Vector2.new(0.205, 0.405),
-        Vector2.new(0.205, 0.505),
-        Vector2.new(0.205, 0.610),
-    }) do
-        clickPoint(pointFraction(p.X, p.Y), 0.12)
-        task.wait(0.08)
-    end
+    setStatus("OUWLAND • waiting for Friend Join screen")
+    return false
 end
 
 local function doOwner()
-    setStatus("OWNER • entering " .. Owner)
+    setStatus("OWNER • entering " .. Owner .. " into Player name")
     return fillOwner()
 end
 
@@ -6716,11 +6686,11 @@ local function doJoin()
     local join = findJoin()
 
     if not join then
-        setStatus("JOIN PRIVATE • control not found yet")
+        setStatus("JOIN PRIVATE • waiting for private button")
         return false
     end
 
-    setStatus("JOIN PRIVATE • clicking detected control")
+    setStatus("JOIN PRIVATE • clicking")
 
     clickObject(join, 0.14)
     task.wait(0.10)
@@ -6749,31 +6719,25 @@ task.spawn(function()
     local stage = "play"
     local stageAt = os.clock()
     local lastAction = 0
-    local mapAttempts = 0
+    local ownerAttempts = 0
 
     while Screen.Parent and tonumber(game.PlaceId) == LOBBY_PLACE_ID
         and tostring(game.PrivateServerId or "") == "" do
 
         local play = findPlay()
         local map = findMap()
-        local ownerBox = findOwnerBox()
+        local friendLabel = findFriendJoinLabel()
+        local friendBox = findFriendNameBox()
         local privateJoin = findJoin()
-        local privateContext = privateJoinContextVisible()
 
-        -- Real sequence from the screenshots:
-        -- PLAY -> Ouwland + Friend Join -> private owner + private JOIN.
-        if privateContext and (ownerBox or privateJoin) then
-            if stage ~= "owner" and stage ~= "join" then
+        if privateJoin then
+            stage = "join"
+        elseif map and (friendLabel or friendBox) then
+            if stage == "play" or stage == "map" then
                 stage = "owner"
                 stageAt = os.clock()
                 lastAction = 0
-            end
-        elseif map then
-            if stage ~= "map" then
-                stage = "map"
-                stageAt = os.clock()
-                lastAction = 0
-                mapAttempts = 0
+                ownerAttempts = 0
             end
         elseif play and stage ~= "play" then
             stage = "play"
@@ -6787,77 +6751,71 @@ task.spawn(function()
                 doPlay()
             end
 
-            if findMap() then
-                stage = "map"
-                stageAt = os.clock()
-                lastAction = 0
-                mapAttempts = 0
-            end
-
-        elseif stage == "map" then
-            -- Generic Friend Join is ignored here. Keep selecting Ouwland until
-            -- private-server owner/context actually appears.
-            if os.clock() - lastAction >= 0.85 then
-                lastAction = os.clock()
-                mapAttempts = mapAttempts + 1
-                setStatus("OUWLAND • selecting card (attempt " .. tostring(mapAttempts) .. ")")
-                doMap()
-            end
-
-            ownerBox = findOwnerBox()
-            privateJoin = findJoin()
-
-            if ownerBox or privateJoin or privateJoinContextVisible() then
+            if findMap() and (findFriendJoinLabel() or findFriendNameBox()) then
                 stage = "owner"
                 stageAt = os.clock()
                 lastAction = 0
+                ownerAttempts = 0
+            end
+
+        elseif stage == "map" then
+            doMap()
+
+            if findFriendJoinLabel() or findFriendNameBox() then
+                stage = "owner"
+                stageAt = os.clock()
+                lastAction = 0
+                ownerAttempts = 0
             end
 
         elseif stage == "owner" then
-            ownerBox = findOwnerBox()
+            privateJoin = findJoin()
 
-            if ownerBox then
-                if os.clock() - lastAction >= 1.15 then
-                    lastAction = os.clock()
-                    local filled = doOwner()
-
-                    if filled then
-                        task.wait(0.65)
-
-                        local clicked = doJoin()
-                        if clicked then
-                            stage = "join"
-                            stageAt = os.clock()
-                            lastAction = os.clock()
-                        end
-                    end
-                end
-            elseif not privateJoinContextVisible() and os.clock() - stageAt > 2.0 then
-                stage = "map"
+            if privateJoin then
+                stage = "join"
                 stageAt = os.clock()
                 lastAction = 0
-                mapAttempts = 0
-            end
+            elseif os.clock() - lastAction >= 1.20 then
+                lastAction = os.clock()
+                ownerAttempts = ownerAttempts + 1
 
-            if stage == "owner" then
-                privateJoin = findJoin()
-                if privateJoin then
-                    stage = "join"
-                    stageAt = os.clock()
-                    lastAction = 0
+                setStatus("OWNER • input attempt " .. tostring(ownerAttempts))
+                local filled = doOwner()
+
+                if filled then
+                    -- Wait for the game's button to change from generic Join
+                    -- into JOIN PRIVATE. Never click the generic Join.
+                    local waitUntil = os.clock() + 3.0
+
+                    repeat
+                        privateJoin = findJoin()
+                        if privateJoin then break end
+                        task.wait(0.10)
+                    until os.clock() >= waitUntil
+
+                    if privateJoin then
+                        stage = "join"
+                        stageAt = os.clock()
+                        lastAction = 0
+                    else
+                        setStatus("OWNER CONFIRMED • waiting for JOIN PRIVATE")
+                    end
                 end
             end
 
         elseif stage == "join" then
-            if os.clock() - lastAction >= 2.0 then
-                lastAction = os.clock()
+            privateJoin = findJoin()
 
-                if not doJoin() and not privateJoinContextVisible() then
-                    stage = "map"
-                    stageAt = os.clock()
-                    lastAction = 0
-                    mapAttempts = 0
+            if privateJoin then
+                if os.clock() - lastAction >= 1.50 then
+                    lastAction = os.clock()
+                    doJoin()
                 end
+            else
+                -- Never fall back to generic blue Join/public join.
+                stage = "owner"
+                stageAt = os.clock()
+                lastAction = 0
             end
         end
 

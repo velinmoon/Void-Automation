@@ -3587,7 +3587,7 @@ local C = {
 local uiScale = make("UIScale", canvas, {Scale = 1})
 local holder = make("Frame", canvas, {
     Name = "Window", Size = UDim2.fromOffset(W, H), Position = UDim2.fromOffset(0, 0),
-    BackgroundTransparency = 1, BorderSizePixel = 0, Active = true, Visible = true,
+    BackgroundTransparency = 1, BorderSizePixel = 0, Active = true, Visible = false,
 })
 local shadow = frame(holder, "Shadow", -6, 8, W + 12, H + 12, Color3.new(0, 0, 0), 15)
 shadow.BackgroundTransparency = 0.58

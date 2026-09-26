@@ -6090,7 +6090,7 @@ Title.Font = Enum.Font.GothamBold
 Title.TextSize = 11
 Title.TextColor3 = Color3.fromRGB(235, 249, 255)
 Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Text = "SLAYERS 2 • AUTO JOIN V11"
+Title.Text = "SLAYERS 2 • AUTO JOIN V12"
 Title.Parent = Card
 
 local Status = Instance.new("TextLabel")
@@ -6748,20 +6748,60 @@ local function doOwner()
 end
 
 local function doJoin()
-    local join = findJoin()
-
-    if not join then
-        setStatus("JOIN PRIVATE • waiting for private button")
+    -- ONLY run this on the real private-server panel.
+    -- This prevents ever clicking the blue/public Friend Join button.
+    if not privateJoinContextVisible() then
+        setStatus("JOIN PRIVATE • private panel not confirmed")
         return false
     end
 
-    setStatus("JOIN PRIVATE • clicking")
+    local join = findJoin()
+    setStatus("JOIN PRIVATE • clicking real private button")
 
-    clickObject(join, 0.14)
-    task.wait(0.10)
-    clickObject(join, 0.14)
+    -- 1) Try the detected JOIN PRIVATE GUI/text first.
+    if join then
+        clickObject(join, 0.14)
+        task.wait(0.08)
+    end
 
-    setStatus("JOIN PRIVATE CLICKED • waiting for teleport")
+    -- 2) Exact 1920x1080 fallback from the user's latest screenshot.
+    -- JOIN PRIVATE center ~= (1089, 986).
+    -- Use normalized coordinates so Roblox inset/scaling changes do not matter.
+    local v = viewport()
+    local center = Vector2.new(v.X * 0.567, v.Y * 0.913)
+
+    -- Click three safe points INSIDE the gold JOIN PRIVATE button.
+    -- These are normal clicks, not holds.
+    for _, offset in ipairs({
+        Vector2.new(0, 0),
+        Vector2.new(-45 * (v.X / 1920), 0),
+        Vector2.new(45 * (v.X / 1920), 0),
+    }) do
+        clickPoint(center + offset, 0.14)
+        task.wait(0.10)
+    end
+
+    -- 3) If firesignal is available, try nearby GuiButtons around that exact area.
+    local fire = type(firesignal) == "function" and firesignal
+        or (type(env.firesignal) == "function" and env.firesignal)
+        or nil
+
+    if type(fire) == "function" then
+        for _, object in ipairs(PlayerGui:GetDescendants()) do
+            if object:IsA("GuiButton") and visible(object) then
+                local c = object.AbsolutePosition + object.AbsoluteSize / 2
+                local dx = math.abs(c.X - center.X)
+                local dy = math.abs(c.Y - center.Y)
+
+                if dx <= 180 and dy <= 100 then
+                    pcall(fire, object.Activated)
+                    pcall(fire, object.MouseButton1Click)
+                end
+            end
+        end
+    end
+
+    setStatus("JOIN PRIVATE CLICK SENT • waiting for teleport")
     return true
 end
 
@@ -6873,11 +6913,16 @@ task.spawn(function()
 
                         if filled then
                             task.wait(0.55)
-                            privateJoin = findJoin()
 
-                            if privateJoin then
+                            -- The newest screenshot confirms the private panel is
+                            -- already open at this point. Click JOIN PRIVATE now,
+                            -- even if its internal GuiObject/text is not discoverable.
+                            if privateJoinContextVisible() then
+                                doJoin()
                                 stage = "join"
-                                lastAction = 0
+                                lastAction = os.clock()
+                            else
+                                setStatus("OWNER confirmed • waiting for private panel")
                             end
                         end
                     end
@@ -6888,14 +6933,13 @@ task.spawn(function()
                 end
 
             elseif stage == "join" then
-                privateJoin = findJoin()
-
                 if not privateJoinContextVisible() then
                     stage = "map"
                     lastAction = 0
                     mapAttempts = 0
                     setStatus("PRIVATE panel lost • reselecting Ouwland")
-                elseif privateJoin and os.clock() - lastAction >= 1.50 then
+                elseif os.clock() - lastAction >= 1.50 then
+                    -- Retry the exact private-button click until teleport.
                     lastAction = os.clock()
                     doJoin()
                 end

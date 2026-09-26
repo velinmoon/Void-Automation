@@ -80,6 +80,7 @@ local clearESP = function() end
 local stopHealthGuard = function() end
 local stopFarm = function() end
 local stopMovement = function() end
+local Movement
 local pauseFarmForEscape = function() end
 local root
 local loaderRoot
@@ -2795,7 +2796,7 @@ do
     end
 end
 
-local Movement = {
+Movement = {
     character = nil, humanoid = nil, rootPart = nil,
     collisions = setmetatable({}, {__mode = "k"}),
     worldCollisions = setmetatable({}, {__mode = "k"}),
@@ -2970,33 +2971,45 @@ local function movementSafeLandingPosition(character, rootPart)
     params.FilterDescendantsInstances = {character}
     params.IgnoreWater = false
 
-    -- Search straight down first, then a few small offsets. This keeps the player close
-    -- to the exact place where Auto Farm was stopped without leaving them suspended over empty space.
+    -- Auto Boss can stop while the character is directly under a flying boss or over a
+    -- gap. Search a much larger area for a real horizontal surface before releasing
+    -- the temporary stop lock. The first hits are kept close to the stopping position.
     local offsets = {
         Vector3.new(0, 0, 0),
-        Vector3.new(4, 0, 0),
-        Vector3.new(-4, 0, 0),
-        Vector3.new(0, 0, 4),
-        Vector3.new(0, 0, -4),
-        Vector3.new(7, 0, 7),
-        Vector3.new(-7, 0, 7),
-        Vector3.new(7, 0, -7),
-        Vector3.new(-7, 0, -7),
+        Vector3.new(5, 0, 0), Vector3.new(-5, 0, 0),
+        Vector3.new(0, 0, 5), Vector3.new(0, 0, -5),
+        Vector3.new(10, 0, 10), Vector3.new(-10, 0, 10),
+        Vector3.new(10, 0, -10), Vector3.new(-10, 0, -10),
+        Vector3.new(20, 0, 0), Vector3.new(-20, 0, 0),
+        Vector3.new(0, 0, 20), Vector3.new(0, 0, -20),
+        Vector3.new(35, 0, 35), Vector3.new(-35, 0, 35),
+        Vector3.new(35, 0, -35), Vector3.new(-35, 0, -35),
+        Vector3.new(60, 0, 0), Vector3.new(-60, 0, 0),
+        Vector3.new(0, 0, 60), Vector3.new(0, 0, -60),
+        Vector3.new(100, 0, 0), Vector3.new(-100, 0, 0),
+        Vector3.new(0, 0, 100), Vector3.new(0, 0, -100),
     }
 
     local origin = rootPart.Position
     for _, offset in ipairs(offsets) do
-        local start = origin + offset + Vector3.new(0, 4, 0)
-        local result = World:Raycast(start, Vector3.new(0, -2500, 0), params)
+        local start = origin + offset + Vector3.new(0, 8, 0)
+        local result = World:Raycast(start, Vector3.new(0, -10000, 0), params)
         if result and result.Instance and result.Position then
             local normal = result.Normal
-            if not normal or normal.Y > 0.35 then
-                -- Stand a little above the detected surface.
-                return Vector3.new(start.X, result.Position.Y + 5, start.Z)
+            local hit = result.Instance
+            local name = string.lower(tostring(hit.Name or ""))
+            local blocked = name:find("hitbox", 1, true) or name:find("trigger", 1, true)
+                or name:find("vfx", 1, true) or name:find("effect", 1, true)
+                or name:find("prompt", 1, true)
+            if (not normal or normal.Y > 0.45) and not blocked then
+                if hit == World.Terrain or hit:IsA("BasePart") then
+                    -- Stand exactly 10 studs above the detected surface.
+                    return Vector3.new(start.X, result.Position.Y + 10, start.Z), hit
+                end
             end
         end
     end
-    return nil
+    return nil, nil
 end
 
 function Movement.prepareStopLanding(character, rootPart)
@@ -3006,12 +3019,26 @@ function Movement.prepareStopLanding(character, rootPart)
     Movement.stopLiftToken = Movement.stopLiftToken + 1
     local token = Movement.stopLiftToken
 
-    -- Restore world collision first so the player cannot keep falling through the map.
+    -- Freeze the root for the entire transition. This prevents even one physics frame
+    -- from sending the character through the map between NoClip OFF and the safe teleport.
+    local anchoredBefore = rootPart.Anchored
+    pcall(function() rootPart.Anchored = true end)
+
+    -- Capture the floor while the character is still at the exact stopping location.
+    local safePosition, floorPart = movementSafeLandingPosition(character, rootPart)
+
     Settings.NoClip = false
     Movement.updateTBlock()
     Movement.restoreNoClip(true)
 
-    local safePosition = movementSafeLandingPosition(character, rootPart)
+    -- If the floor was not part of the NoClip scan, make sure the actual surface used
+    -- for the landing is collidable during the transition.
+    if floorPart and floorPart:IsA("BasePart") then
+        pcall(function() floorPart.CanCollide = true end)
+    elseif floorPart == World.Terrain then
+        pcall(function() World.Terrain.CanCollide = true end)
+    end
+
     if safePosition then
         pcall(function()
             character:PivotTo(CFrame.new(safePosition))
@@ -3019,19 +3046,49 @@ function Movement.prepareStopLanding(character, rootPart)
             rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
         end)
     else
-        -- If no surface can be raycasted, still lift the player instead of leaving them inside geometry.
+        -- Extremely defensive fallback: keep the character suspended until a valid
+        -- surface can be found rather than allowing a lethal fall.
         local pivot = character:GetPivot()
-        pcall(function() character:PivotTo(pivot + Vector3.new(0, Settings.NoClipStopLift, 0)) end)
-        pcall(function() rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
-        pcall(function() rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0) end)
+        safePosition = pivot.Position + Vector3.new(0, Settings.NoClipStopLift + 10, 0)
+        pcall(function()
+            character:PivotTo(CFrame.new(safePosition))
+            rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        end)
     end
 
-    -- Give Roblox a couple frames to resolve the restored floor collision.
+    -- Keep the root frozen for a few frames so the restored collision is definitely in
+    -- place before physics resumes. If no floor was found, keep searching before release.
     task.spawn(function()
-        task.wait(0.12)
+        local deadline = os.clock() + 0.8
+        local finalPosition = safePosition
+        local finalFloor = floorPart
+        while token == Movement.stopLiftToken and character.Parent and rootPart.Parent and os.clock() < deadline do
+            if not finalFloor then
+                local found, hit = movementSafeLandingPosition(character, rootPart)
+                if found then
+                    finalPosition, finalFloor = found, hit
+                    if hit and hit:IsA("BasePart") then pcall(function() hit.CanCollide = true end) end
+                    if hit == World.Terrain then pcall(function() World.Terrain.CanCollide = true end) end
+                    pcall(function() character:PivotTo(CFrame.new(found)) end)
+                end
+            end
+            pcall(function()
+                rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            end)
+            task.wait(0.05)
+        end
+
         if token ~= Movement.stopLiftToken or not character.Parent or not rootPart.Parent then return end
+
+        -- Keep the selected landing surface collidable. If it was temporarily made
+        -- collidable because NoClip had disabled it, restoring it to false here would
+        -- immediately put the character back into free fall.
+
         pcall(function() rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
         pcall(function() rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0) end)
+        if not anchoredBefore then pcall(function() rootPart.Anchored = false end) end
     end)
 end
 

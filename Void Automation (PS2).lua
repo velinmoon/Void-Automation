@@ -52,7 +52,7 @@ local Settings = {
     AutoBoss = false, BossAutoRange = 500000, BossLocalScanRadius = 2500, BossNoAttackTimeout = 5,
     StaticMapScan = true, StaticScanRange = 500000,
     AutoRejoin = true, AutoExecute = true,
-    PrivateServerMap = "Ouwland", PrivateJoinHold = 1.85,
+    PrivateServerMap = "Ouwland", PrivateJoinHold = 3.00,
     NoClip = true, FlyEnabled = false, FlySpeed = 85,
     SpeedEnabled = false, WalkSpeed = 32,
     ToggleKey = Enum.KeyCode.F6,
@@ -2824,6 +2824,8 @@ System = {
     menuMapClickedAt = 0,
     menuOwnerFilledAt = 0,
     menuJoinTriedAt = 0,
+    menuDetectedAt = 0,
+    menuLastAction = "none",
 }
 
 do
@@ -2974,7 +2976,9 @@ end)
             System.rejoinRequested = false
             System.rejoinStatus = "Auto-rejoin OFF"
         else
-            System.rejoinStatus = "Auto-rejoin armed"
+            System.rejoinRequested = true
+            System.menuNextAt = 0
+            System.rejoinStatus = "Auto-rejoin armed; menu watcher active"
         end
         System.savePrefs()
         render()
@@ -3108,23 +3112,26 @@ end)
         return root and object and object:IsDescendantOf(root)
     end
 
-    local function objectText(object)
-        local pieces = {tostring(object.Name or "")}
-
+    local function displayedText(object)
         if object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox") then
-            pieces[#pieces + 1] = tostring(object.Text or "")
+            return tostring(object.Text or "")
         end
+        return ""
+    end
+
+    local function objectBlob(object)
+        local pieces = {
+            tostring(object.Name or ""),
+            displayedText(object),
+        }
         if object:IsA("TextBox") then
             pieces[#pieces + 1] = tostring(object.PlaceholderText or "")
         end
-
         return string.lower(table.concat(pieces, " "))
     end
 
-    -- The screenshots show labels that may sit on top of transparent clickable
-    -- frames. Search ALL visible text GUI objects, not only TextButtons.
     local function findGuiText(predicate)
-        local best, bestArea
+        local best, bestScore
 
         for _, object in ipairs(playerGui:GetDescendants()) do
             if object:IsA("GuiObject")
@@ -3133,19 +3140,20 @@ end)
                 and object.AbsoluteSize.X > 2
                 and object.AbsoluteSize.Y > 2 then
 
-                local raw = objectText(object)
-                local compact = normalize(raw)
+                local textValue = displayedText(object)
+                local textCompact = normalize(textValue)
+                local blob = objectBlob(object)
+                local blobCompact = normalize(blob)
 
-                if predicate(raw, compact, object) then
+                if predicate(textValue, textCompact, blob, blobCompact, object) then
                     local area = object.AbsoluteSize.X * object.AbsoluteSize.Y
-
-                    -- Prefer actual buttons/text objects over giant parent frames.
                     local score = area
-                    if object:IsA("GuiButton") then score = score - 100000000 end
-                    if object:IsA("TextLabel") or object:IsA("TextBox") then score = score - 50000000 end
 
-                    if not bestArea or score < bestArea then
-                        best, bestArea = object, score
+                    if object:IsA("GuiButton") then score = score - 100000000 end
+                    if textValue ~= "" then score = score - 50000000 end
+
+                    if not bestScore or score < bestScore then
+                        best, bestScore = object, score
                     end
                 end
             end
@@ -3154,40 +3162,96 @@ end)
         return best
     end
 
-    local function findClickableAncestor(object)
+    local function ancestorCandidates(object)
+        local result, seen = {}, {}
         local node = object
-        for _ = 1, 8 do
+
+        for _ = 1, 10 do
             if not node or node == playerGui then break end
-            if node:IsA("GuiButton") and guiVisible(node) then
-                return node
+            if node:IsA("GuiObject") and guiVisible(node) and not seen[node] then
+                seen[node] = true
+                result[#result + 1] = node
             end
             node = node.Parent
         end
-        return object
+
+        return result
     end
 
-    local function clickPointFor(object)
-        if not object or not object.Parent then return nil end
-        local clickable = findClickableAncestor(object)
+    local function directActivate(object)
+        local fire = type(firesignal) == "function" and firesignal
+            or (type(environment.firesignal) == "function" and environment.firesignal)
+            or nil
 
-        if clickable and clickable:IsA("GuiObject") then
-            return clickable.AbsolutePosition + clickable.AbsoluteSize / 2, clickable
+        if type(fire) ~= "function" then return false end
+
+        for _, candidate in ipairs(ancestorCandidates(object)) do
+            if candidate:IsA("GuiButton") then
+                local fired = false
+
+                for _, signalName in ipairs({"Activated", "MouseButton1Click", "MouseButton1Down", "MouseButton1Up"}) do
+                    local okSignal, signal = pcall(function()
+                        return candidate[signalName]
+                    end)
+
+                    if okSignal and signal then
+                        local ok = pcall(fire, signal)
+                        fired = fired or ok
+                    end
+                end
+
+                if fired then return true end
+            end
         end
 
-        return object.AbsolutePosition + object.AbsoluteSize / 2, object
+        return false
     end
 
-    local function pressGui(object, hold)
-        local point, clickable = clickPointFor(object)
-        if not point then return false end
+    local function physicalPress(object, hold)
+        if not object or not object.Parent then return false end
 
-        local ok = pcall(function()
-            VirtualInput:SendMouseButtonEvent(point.X, point.Y, 0, true, game, 0)
-            task.wait(math.max(0.04, hold or 0.04))
-            VirtualInput:SendMouseButtonEvent(point.X, point.Y, 0, false, game, 0)
-        end)
+        -- Click the visible text first, then progressively larger ancestors.
+        -- This handles menus where PLAY/Ouwland/JOIN is a TextLabel inside an
+        -- Active Frame rather than a TextButton.
+        local candidates = ancestorCandidates(object)
+        if #candidates == 0 then return false end
 
-        return ok, clickable
+        for index, candidate in ipairs(candidates) do
+            if index > 5 then break end
+
+            local size = candidate.AbsoluteSize
+            if size.X >= 4 and size.Y >= 4 then
+                local point = candidate.AbsolutePosition + size / 2
+
+                local ok = pcall(function()
+                    VirtualInput:SendMouseMoveEvent(point.X, point.Y, game)
+                    task.wait(0.025)
+                    VirtualInput:SendMouseButtonEvent(point.X, point.Y, 0, true, game, 0)
+                    task.wait(math.max(0.06, hold or 0.06))
+                    VirtualInput:SendMouseButtonEvent(point.X, point.Y, 0, false, game, 0)
+                end)
+
+                if ok then
+                    return true
+                end
+            end
+        end
+
+        return false
+    end
+
+    local function pressGui(object, hold, allowDirect)
+        if not object or not object.Parent then return false end
+
+        -- For normal clicks, fire the GuiButton signal too. For JOIN we need the
+        -- actual mouse-down duration, so its caller sets allowDirect=false.
+        local direct = false
+        if allowDirect ~= false then
+            direct = directActivate(object)
+        end
+
+        local physical = physicalPress(object, hold)
+        return direct or physical
     end
 
     local function findOwnerBox()
@@ -3234,20 +3298,22 @@ end)
     end
 
     local function findPlay()
-        return findGuiText(function(_, compact)
-            return compact == "play"
-                or compact == "playgame"
-                or compact == "playbutton"
+        return findGuiText(function(textValue, textCompact, _, blobCompact)
+            return textCompact == "play"
+                or textCompact == "playgame"
+                or blobCompact == "play"
+                or blobCompact:find("playbutton", 1, true) ~= nil
+                or blobCompact:find("playoption", 1, true) ~= nil
         end)
     end
 
     local function findJoin()
-        return findGuiText(function(_, compact)
-            return compact == "join"
-                or compact == "joinserver"
-                or compact == "enter"
-                or compact == "enterprivate"
-                or compact == "joinprivateserver"
+        return findGuiText(function(textValue, textCompact, _, blobCompact)
+            return textCompact == "join"
+                or textCompact == "joinserver"
+                or textCompact == "enter"
+                or blobCompact:find("joinbutton", 1, true) ~= nil
+                or blobCompact:find("joinserver", 1, true) ~= nil
         end)
     end
 
@@ -3259,15 +3325,34 @@ end)
             ["ouwigahara"] = true,
         }
 
-        return findGuiText(function(_, compact)
-            if aliases[compact] then return true end
+        return findGuiText(function(textValue, textCompact, _, blobCompact)
+            if aliases[textCompact] then return true end
+
             for alias in pairs(aliases) do
-                if alias ~= "" and #alias >= 4 and compact:find(alias, 1, true) then
-                    return true
+                if alias ~= "" and #alias >= 4 then
+                    if textCompact:find(alias, 1, true)
+                        or blobCompact:find(alias, 1, true) then
+                        return true
+                    end
                 end
             end
+
             return false
         end)
+    end
+
+    local function menuElements()
+        local play = findPlay()
+        local map = findMap()
+        local owner = findOwnerBox()
+        local join = findJoin()
+        return play, map, owner, join
+    end
+
+    local function visibleGameMenu()
+        local play, map, owner, join = menuElements()
+        return play ~= nil or map ~= nil or owner ~= nil or join ~= nil,
+            play, map, owner, join
     end
 
     function System.tryDirectRejoin(reason)
@@ -3302,7 +3387,7 @@ end)
     end
 
     function System.menuStep()
-        if not Settings.AutoRejoin or not System.rejoinRequested then return false end
+        if not Settings.AutoRejoin then return false end
         if os.clock() < System.menuNextAt then return false end
 
         if tostring(game.PrivateServerId or "") ~= "" then
@@ -3310,94 +3395,98 @@ end)
             return true
         end
 
-        -- SECOND SCREEN from the supplied screenshot:
-        -- Ouwland card + "Private server owner" + JOIN.
-        -- Handle this before PLAY so stale/hidden menu labels cannot steal focus.
-        local ownerBox = findOwnerBox()
-        local join = findJoin()
+        local menuVisible, play, map, ownerBox, join = visibleGameMenu()
+        if not menuVisible then return false end
 
-        if ownerBox or join then
-            local map = findMap()
+        -- If the game's menu exists, recovery becomes active automatically.
+        -- We no longer depend on Roblox raising ErrorMessageChanged first.
+        System.rejoinRequested = true
+        System.menuDetectedAt = System.menuDetectedAt ~= 0 and System.menuDetectedAt or os.clock()
 
-            -- Select Ouwland once when the card is visible.
-            if map and os.clock() - (System.menuMapClickedAt or 0) > 5 then
-                System.menuStage = "map"
-                System.rejoinStatus = "Selecting Ouwland..."
-                System.menuMapClickedAt = os.clock()
-                System.menuNextAt = os.clock() + 0.55
-                pressGui(map, 0.06)
-                render()
-                return true
-            end
-
-            -- Fill "Private server owner" with the owner remembered from the
-            -- private server. For an owned server this resolves from
-            -- game.PrivateServerOwnerId; Player.Name is the safe fallback.
-            if ownerBox then
-                local wanted = tostring(System.privateOwnerName or Player.Name)
-                local current = tostring(ownerBox.Text or "")
-
-                if normalize(current) ~= normalize(wanted)
-                    or os.clock() - (System.menuOwnerFilledAt or 0) > 8 then
-                    System.menuStage = "owner"
-                    System.rejoinStatus = "Entering private server owner: " .. wanted
-                    fillOwnerBox(ownerBox)
-                    System.menuNextAt = os.clock() + 0.35
-                    render()
-                    return true
-                end
-            end
-
-            -- The screenshot explicitly says "Hold to join private server".
-            -- Use a real mouse-down hold over JOIN instead of Activate().
-            if join and os.clock() - (System.menuJoinTriedAt or 0) > 4 then
-                System.menuStage = "join"
-                System.menuJoinTriedAt = os.clock()
-                System.rejoinStatus = string.format(
-                    "Holding JOIN for %.2fs...",
-                    Settings.PrivateJoinHold
-                )
-                System.menuNextAt = os.clock() + Settings.PrivateJoinHold + 1.2
-                pressGui(join, Settings.PrivateJoinHold)
-                render()
-                return true
-            end
-
-            System.rejoinStatus = "Private-server screen detected; waiting for JOIN..."
-            return true
-        end
-
-        -- FIRST SCREEN from the supplied screenshot: PLAY / CUSTOMIZE / HUB / SLOTS.
-        local play = findPlay()
-        if play then
+        -- SCREEN 1: PLAY / CUSTOMIZE / HUB / SLOTS.
+        if play and not ownerBox and not join then
             System.menuStage = "play"
-            System.rejoinStatus = "Main menu detected -> PLAY"
-            System.menuNextAt = os.clock() + 0.70
+            System.menuLastAction = "play"
+            System.rejoinStatus = "Main menu found -> clicking PLAY"
+            System.menuNextAt = os.clock() + 0.80
 
-            -- Reset the second-screen state for the next transition.
             System.menuMapClickedAt = 0
             System.menuOwnerFilledAt = 0
             System.menuJoinTriedAt = 0
 
-            pressGui(play, 0.07)
+            pressGui(play, 0.09, true)
             render()
             return true
         end
 
-        -- Some versions expose the map card before the owner/join controls.
-        local map = findMap()
-        if map then
+        -- SCREEN 2: Ouwland card + private-server owner + JOIN.
+        -- Click the actual Ouwland text/card once after entering the screen.
+        if map and (System.menuMapClickedAt == 0
+            or os.clock() - System.menuMapClickedAt > 8) then
+
             System.menuStage = "map"
-            System.rejoinStatus = "Ouwland screen detected -> selecting map"
+            System.menuLastAction = "map"
+            System.rejoinStatus = "Selecting Ouwland..."
             System.menuMapClickedAt = os.clock()
-            System.menuNextAt = os.clock() + 0.65
-            pressGui(map, 0.07)
+            System.menuNextAt = os.clock() + 0.80
+
+            pressGui(map, 0.10, true)
             render()
             return true
         end
 
-        System.rejoinStatus = "Waiting for PLAY or private-server JOIN screen..."
-        return false
+        -- Enter the private-server owner exactly as the visible field requests.
+        if ownerBox then
+            local wanted = tostring(System.privateOwnerName or Player.Name)
+            local current = tostring(ownerBox.Text or "")
+
+            if normalize(current) ~= normalize(wanted)
+                or System.menuOwnerFilledAt == 0 then
+
+                System.menuStage = "owner"
+                System.menuLastAction = "owner"
+                System.rejoinStatus = "Entering private server owner: " .. wanted
+
+                fillOwnerBox(ownerBox)
+                System.menuNextAt = os.clock() + 0.55
+                render()
+                return true
+            end
+        end
+
+        -- Hold JOIN. Do NOT directly fire Activated here because this game's
+        -- button explicitly requires a sustained mouse hold.
+        if join and (System.menuJoinTriedAt == 0
+            or os.clock() - System.menuJoinTriedAt > 5) then
+
+            System.menuStage = "join"
+            System.menuLastAction = "join"
+            System.menuJoinTriedAt = os.clock()
+            System.rejoinStatus = string.format(
+                "Holding JOIN for %.2fs...",
+                Settings.PrivateJoinHold
+            )
+            System.menuNextAt = os.clock() + Settings.PrivateJoinHold + 1.0
+
+            pressGui(join, Settings.PrivateJoinHold, false)
+            render()
+            return true
+        end
+
+        -- If Ouwland is visible without the owner/join controls yet, click it.
+        if map and not ownerBox and not join then
+            System.menuStage = "map"
+            System.menuLastAction = "map"
+            System.rejoinStatus = "Ouwland visible -> opening private-server panel"
+            System.menuMapClickedAt = os.clock()
+            System.menuNextAt = os.clock() + 0.80
+            pressGui(map, 0.10, true)
+            render()
+            return true
+        end
+
+        System.rejoinStatus = "Menu detected; waiting for next private-server control..."
+        return true
     end
 
     connect(TeleportService.TeleportInitFailed, function(player, result, message)
@@ -3430,20 +3519,21 @@ end)
     task.spawn(function()
         while State.alive do
             if Settings.AutoRejoin then
-                System.rememberPrivateServer()
+                local inPrivate = System.rememberPrivateServer()
 
-                if System.rejoinRequested then
-                    -- Visible menu recovery is the authoritative path for this game.
-                    -- Direct instance teleport is only a fallback when no menu UI exists.
-                    local handledMenu = System.menuStep()
+                -- ALWAYS inspect the game's menu. In this game, returning to
+                -- PLAY can happen without ErrorMessageChanged firing first.
+                local handledMenu = false
+                if not inPrivate then
+                    handledMenu = System.menuStep()
+                end
 
-                    if not handledMenu
-                        and os.clock() >= (System.directPendingUntil or 0) then
-                        System.tryDirectRejoin("fallback")
-                    end
+                if not handledMenu and System.rejoinRequested
+                    and os.clock() >= (System.directPendingUntil or 0) then
+                    System.tryDirectRejoin("fallback")
                 end
             end
-            task.wait(0.25)
+            task.wait(0.12)
         end
     end)
 end
@@ -4551,7 +4641,7 @@ end)
 
 local rejoinCard = frame(systemBody, "RejoinCard", 24, 243, 392, 184, C.surface, 13)
 stroke(rejoinCard, C.line, 0.45)
-label(rejoinCard, "RejoinEyebrow", "PRIVATE SERVER RECOVERY", 16, 12, 240, 14, 9, C.bright, Enum.Font.GothamBold)
+label(rejoinCard, "RejoinEyebrow", "PRIVATE SERVER RECOVERY • LIVE MENU WATCH", 16, 12, 330, 14, 9, C.bright, Enum.Font.GothamBold)
 label(rejoinCard, "RejoinLabel", "Auto rejoin", 16, 36, 220, 22, 12, C.text, Enum.Font.GothamMedium)
 toggle(rejoinCard, "AutoRejoinToggle", 326, 35, 50, 24,
     function() return Settings.AutoRejoin end, System.setAutoRejoin)

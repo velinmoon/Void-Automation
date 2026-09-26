@@ -1438,31 +1438,12 @@ do
     end
 
     local loot, watched, deathConnection, lastTargetPosition
-    local chestLike
     local LOOT_OLD_HORIZONTAL_RADIUS = 60
     local LOOT_NEW_HORIZONTAL_RADIUS = 250
     local LOOT_VERTICAL_RADIUS = 400
-
-    -- World Event Chests can be displaced from the boss death point, especially
-    -- when the boss is knocked/flying. Give only this chest type a wider search.
-    local WORLD_EVENT_CHEST_HORIZONTAL_RADIUS = 900
-    local WORLD_EVENT_CHEST_VERTICAL_RADIUS = 800
-    local WORLD_EVENT_CHEST_RETRY_GRACE = 2.50
     local function endPrompt()
-        if not loot then return end
-
-        local prompt = loot.holding
-        local key = loot.holdKey
-        loot.holding = nil
-        loot.holdKey = nil
-
-        if key and key ~= Enum.KeyCode.Unknown then
-            pcall(function()
-                VirtualInput:SendKeyEvent(false, key, false, game)
-            end)
-        end
-
-        if prompt then
+        if loot and loot.holding then
+            local prompt = loot.holding; loot.holding = nil
             pcall(function() prompt:InputHoldEnd() end)
         end
     end
@@ -1491,59 +1472,19 @@ do
             nextScan = 0,
             tries = {},
             count = 0,
-            opened = setmetatable({}, {__mode = "k"}),
             fresh = setmetatable({}, {__mode = "k"}),
-            groundDrops = setmetatable({}, {__mode = "k"}),
-            dropCenter = nil,
-            chestCenter = nil,
-            chestOpenedAt = nil,
-            message = "Waiting for World Event Chest / boss drops.",
+            message = "Waiting for boss drops near the kill.",
         }
 
         -- Mark objects that appear AFTER the kill. These are allowed a wider
         -- horizontal search radius, while old map crates keep the original 60-stud limit.
         loot.spawnConnection = World.DescendantAdded:Connect(function(object)
             if not loot then return end
-
             local node = object
             for _ = 1, 8 do
                 if not node or node == World then break end
                 loot.fresh[node] = true
                 node = node.Parent
-            end
-
-            -- Dedicated World Event Chest ground-drop index.
-            -- Reward meshes are sometimes generic/anchored and have no "loot"
-            -- name, so don't depend on lootIdentity() for newly spawned rewards.
-            if loot.chestOpenedAt and loot.dropCenter then
-                local function rememberPart(part)
-                    if not loot or not part or not part:IsA("BasePart") then return end
-                    if not part.Parent or chestLike(part) then return end
-
-                    local delta = part.Position - loot.dropCenter
-                    local horizontal = Vector3.new(delta.X, 0, delta.Z).Magnitude
-                    local vertical = math.abs(delta.Y)
-
-                    if horizontal <= LOOT_NEW_HORIZONTAL_RADIUS
-                        and vertical <= LOOT_VERTICAL_RADIUS
-                        and part.Size.Magnitude <= 120
-                        and part.Transparency < 1 then
-                        loot.groundDrops[part] = os.clock()
-                    end
-                end
-
-                if object:IsA("BasePart") then
-                    rememberPart(object)
-                elseif object:IsA("Model") or object:IsA("Tool") then
-                    task.defer(function()
-                        if not loot or not object or not object.Parent then return end
-                        for _, descendant in ipairs(object:GetDescendants()) do
-                            if descendant:IsA("BasePart") then
-                                rememberPart(descendant)
-                            end
-                        end
-                    end)
-                end
             end
         end)
 
@@ -1595,102 +1536,16 @@ do
             or action:find("loot", 1, true) or action:find("claim", 1, true)
         return action == "" or action:find("open", 1, true) or pickup, pickup
     end
-    chestLike = function(object)
-        local node = object
-        for _ = 1, 8 do
-            if not node or node == World then break end
-            local name = string.lower(tostring(node.Name or ""))
-            if name:find("chest", 1, true)
-                or name:find("crate", 1, true)
-                or name:find("treasure", 1, true)
-                or node:GetAttribute("Chest") == true
-                or node:GetAttribute("IsChest") == true
-                or node:GetAttribute("LootChest") == true then
-                return true
-            end
-            node = node.Parent
-        end
-        return false
-    end
-
-    local function worldEventChestLike(object)
-        local node = object
-        for _ = 1, 10 do
-            if not node or node == World then break end
-
-            local raw = string.lower(tostring(node.Name or ""))
-            local compact = raw:gsub("[^%w]", "")
-
-            if compact:find("worldeventchest", 1, true)
-                or (compact:find("worldevent", 1, true) and compact:find("chest", 1, true))
-                or node:GetAttribute("WorldEventChest") == true
-                or node:GetAttribute("IsWorldEventChest") == true then
-                return true
-            end
-
-            node = node.Parent
-        end
-        return false
-    end
-
-    -- Keep a tiny index of chest prompts/click detectors so a World Event Chest
-    -- cannot disappear from GetPartBoundsInRadius results when the area contains
-    -- hundreds of map parts.
-    local chestInteractions = setmetatable({}, {__mode = "k"})
-
-    local function indexChestInteraction(object)
-        if not object then return end
-        if (object:IsA("ProximityPrompt") or object:IsA("ClickDetector"))
-            and chestLike(object) then
-            chestInteractions[object] = true
-        end
-    end
-
-    task.spawn(function()
-        local descendants = World:GetDescendants()
-        for i, object in ipairs(descendants) do
-            indexChestInteraction(object)
-            if i % 3500 == 0 then task.wait() end
-        end
-    end)
-
-    connect(World.DescendantAdded, function(object)
-        indexChestInteraction(object)
-
-        -- If a chest model/part is added first and its prompt appears immediately
-        -- underneath it, index those descendants too.
-        if chestLike(object) then
-            task.defer(function()
-                if not object or not object.Parent then return end
-                for _, descendant in ipairs(object:GetDescendants()) do
-                    indexChestInteraction(descendant)
-                end
-            end)
-        end
-    end)
-
-    local function freshObject(object)
-        if not loot or not loot.fresh or not object then return false end
-        local node = object
-        for _ = 1, 8 do
-            if not node or node == World then break end
-            if loot.fresh[node] then return true end
-            node = node.Parent
-        end
-        return false
-    end
-
     local function lootDistanceOK(part, entity)
         if not loot or not part then return false, false, math.huge end
 
-        local worldChest = worldEventChestLike(entity or part)
-
-        -- Before the chest is opened, compare it to the boss death point.
-        -- After opening, compare spawned items to the chest itself.
-        local center = (not worldChest and loot.dropCenter) or loot.center
-        local delta = part.Position - center
+        local delta = part.Position - loot.center
         local horizontal = Vector3.new(delta.X, 0, delta.Z).Magnitude
         local vertical = math.abs(delta.Y)
+
+        if vertical > LOOT_VERTICAL_RADIUS then
+            return false, false, horizontal
+        end
 
         local fresh = (loot.fresh and (
             loot.fresh[part] or
@@ -1698,395 +1553,72 @@ do
             loot.fresh[part.Parent]
         )) and true or false
 
-        if worldChest then
-            return horizontal <= WORLD_EVENT_CHEST_HORIZONTAL_RADIUS
-                and vertical <= WORLD_EVENT_CHEST_VERTICAL_RADIUS,
-                fresh,
-                horizontal
-        end
-
-        if vertical > LOOT_VERTICAL_RADIUS then
-            return false, fresh, horizontal
-        end
-
         local radius = fresh and LOOT_NEW_HORIZONTAL_RADIUS or LOOT_OLD_HORIZONTAL_RADIUS
         return horizontal <= radius, fresh, horizontal
     end
 
-    -- Fast local loot query.
-    -- The old version called Workspace:GetDescendants() repeatedly while looting,
-    -- which is very expensive on large maps. This only asks Roblox for nearby parts.
-    local lootOverlap = OverlapParams.new()
-    lootOverlap.FilterType = Enum.RaycastFilterType.Exclude
-    lootOverlap.MaxParts = 300
-
     local function findLoot()
         local candidates, interactive, seen = {}, {}, {}
-        local seenInteraction = {}
-
         local function available(object)
             local attempt = loot.tries[object]
-            return not attempt or (attempt.count < 10 and os.clock() >= attempt.nextTry)
+            return not attempt or (attempt.count < 3 and os.clock() >= attempt.nextTry)
         end
-
-        local function addInteraction(object)
-            if not object or seenInteraction[object] or not inWorld(object) then return end
-            if not (object:IsA("ProximityPrompt") or object:IsA("ClickDetector")) then return end
-            seenInteraction[object] = true
-
-            local entity, marked = lootIdentity(object)
-            local chest = chestLike(object)
-            local worldChest = worldEventChestLike(object)
-
-            if not entity or not (marked or chest or worldChest) then return end
-
-            -- After we just opened a chest, temporarily stop selecting the same
-            -- chest so its spawned rewards get a chance to be collected.
-            local openedAt = loot.opened[entity]
-            if chest and openedAt then
-                return
-            end
-
-            local allowed = true
-            local pickup = false
-
-            if object:IsA("ProximityPrompt") then
-                allowed, pickup = allowedPrompt(object)
-
-                -- World Event Chest may use action text such as Interact/Search.
-                -- For this exact chest type, don't reject it just because the
-                -- ActionText is not "Open" or "Loot".
-                if worldChest then allowed = true end
-
-                -- Normal prompts still respect Enabled. World Event Chest is kept
-                -- as a candidate even while far away; after teleporting next to it,
-                -- the script retries the actual prompt/key interaction.
-                if not worldChest then
+        local descendants = World:GetDescendants()
+        for _, object in ipairs(descendants) do
+            if object:IsA("ProximityPrompt") or object:IsA("ClickDetector") then
+                local entity, marked = lootIdentity(object)
+                local allowed = true
+                if object:IsA("ProximityPrompt") then
+                    local pickup; allowed, pickup = allowedPrompt(object)
+                    marked = marked or pickup
                     allowed = allowed and object.Enabled
                 end
-
-                marked = marked or pickup
-            end
-
-            if not allowed or not available(object) then return end
-
-            local promptPart = lootPart(object.Parent)
-            if not promptPart then return end
-
-            local inRange, fresh, horizontal = lootDistanceOK(promptPart, entity)
-            if not inRange then return end
-
-            interactive[entity] = true
-
-            local action = object:IsA("ProximityPrompt")
-                and string.lower(object.ActionText or "") or ""
-
-            local pickupInteraction = pickup
-                or action:find("collect", 1, true)
-                or action:find("pick", 1, true)
-                or action:find("loot", 1, true)
-                or action:find("claim", 1, true)
-                or action:find("take", 1, true)
-
-            candidates[#candidates + 1] = {
-                object = object,
-                part = promptPart,
-                entity = entity,
-                fresh = fresh,
-                horizontal = horizontal,
-                interaction = true,
-                chest = chest or worldChest,
-                worldEventChest = worldChest,
-                pickupInteraction = pickupInteraction and true or false,
-            }
-        end
-
-        -- Guaranteed chest path: this does NOT depend on the spatial query's MaxParts.
-        for object in pairs(chestInteractions) do
-            addInteraction(object)
-        end
-
-        -- Guaranteed ground-reward path. World Event Chest drops can have generic
-        -- names and can be Anchored, so anything physically spawned after the chest
-        -- opened is considered a reward candidate if it remains close to the chest.
-        if loot.chestOpenedAt and loot.dropCenter then
-            for part, spawnedAt in pairs(loot.groundDrops) do
-                if part and part.Parent and part:IsA("BasePart") and not chestLike(part) then
-                    local entity = select(1, lootIdentity(part)) or part
-
-                    if not seen[entity] and available(entity) then
-                        local delta = part.Position - loot.dropCenter
-                        local horizontal = Vector3.new(delta.X, 0, delta.Z).Magnitude
-                        local vertical = math.abs(delta.Y)
-
-                        if horizontal <= LOOT_NEW_HORIZONTAL_RADIUS
-                            and vertical <= LOOT_VERTICAL_RADIUS
-                            and part.Size.Magnitude <= 120
-                            and part.Transparency < 1 then
-
-                            seen[entity] = true
-                            candidates[#candidates + 1] = {
-                                object = entity,
-                                part = part,
-                                entity = entity,
-                                touch = true,
-                                fresh = true,
-                                chestDrop = true,
-                                spawnedAt = spawnedAt,
-                                horizontal = horizontal,
+                if entity and marked then
+                    interactive[entity] = true
+                    local part = lootPart(object.Parent)
+                    if allowed and part and available(object) then
+                        local inRange, fresh, horizontal = lootDistanceOK(part, entity)
+                        if inRange then
+                            candidates[#candidates+1] = {
+                                object=object, part=part, entity=entity,
+                                fresh=fresh, horizontal=horizontal
                             }
                         end
                     end
-                else
-                    loot.groundDrops[part] = nil
                 end
             end
         end
-
-        local character = Player.Character
-        lootOverlap.FilterDescendantsInstances = character and {character} or {}
-
-        -- Once a chest has been opened, scan around the chest instead of the boss corpse.
-        local queryCenter = loot.dropCenter or loot.center
-        local queryRadius = math.sqrt(
-            LOOT_NEW_HORIZONTAL_RADIUS * LOOT_NEW_HORIZONTAL_RADIUS
-            + LOOT_VERTICAL_RADIUS * LOOT_VERTICAL_RADIUS
-        ) + 35
-
-        local ok, nearbyParts = pcall(function()
-            return World:GetPartBoundsInRadius(queryCenter, queryRadius, lootOverlap)
-        end)
-
-        if not ok or type(nearbyParts) ~= "table" then
-            nearbyParts = {}
-        end
-
-        -- Nearby prompts/click detectors, including reward-item prompts after chest open.
-        for _, part in ipairs(nearbyParts) do
-            if part and part.Parent then
-                addInteraction(part)
-                for _, descendant in ipairs(part:GetDescendants()) do
-                    addInteraction(descendant)
-                end
-            end
-        end
-
-        -- Physical drops. Do not require CanTouch here because some games turn it
-        -- off on reward handles while firetouchinterest can still register them.
-        for _, part in ipairs(nearbyParts) do
-            if part and part.Parent and part:IsA("BasePart") then
-                local entity, marked = lootIdentity(part)
-                local chest = chestLike(part)
-                local spawnedNow = freshObject(part) or (entity and freshObject(entity))
-
-                local indexedChestDrop = loot.groundDrops and loot.groundDrops[part] ~= nil
-                local freshPhysicalDrop = spawnedNow
-                    and part.Transparency < 1
-                    and part.Size.Magnitude < 120
-                    and (indexedChestDrop or not part.Anchored)
-
-                if entity and (marked or freshPhysicalDrop)
-                    and not chest
-                    and not interactive[entity]
-                    and not seen[entity]
+        for _, object in ipairs(descendants) do
+            if object:IsA("BasePart") and object.CanTouch then
+                local entity, marked = lootIdentity(object)
+                if entity and marked and not interactive[entity] and not seen[entity]
                     and available(entity) then
-
-                    local inRange, fresh, horizontal = lootDistanceOK(part, entity)
+                    local inRange, fresh, horizontal = lootDistanceOK(object, entity)
                     if inRange then
                         seen[entity] = true
-                        candidates[#candidates + 1] = {
-                            object = entity,
-                            part = part,
-                            entity = entity,
-                            touch = true,
-                            fresh = fresh or spawnedNow,
-                            horizontal = horizontal,
+                        candidates[#candidates+1] = {
+                            object=entity, part=object, entity=entity, touch=true,
+                            fresh=fresh, horizontal=horizontal
                         }
                     end
                 end
             end
         end
-
-        table.sort(candidates, function(a, b)
-            local function priority(item)
-                if item.interaction and item.worldEventChest then return 0 end
-                if item.interaction and item.chest then return 1 end
-                if item.interaction and item.pickupInteraction then return 2 end
-                if item.interaction then return 3 end
-                if item.chestDrop then return 4 end
-                if item.touch and item.fresh then return 5 end
-                return 6
-            end
-
-            local pa, pb = priority(a), priority(b)
-            if pa ~= pb then return pa < pb end
+        table.sort(candidates, function(a,b)
+            -- Boss-created objects first, then nearest horizontal distance.
             if a.fresh ~= b.fresh then return a.fresh == true end
             return (a.horizontal or math.huge) < (b.horizontal or math.huge)
         end)
-
-        return candidates[1], candidates
+        return candidates[1]
     end
-
-    local function fastGroundSweep(character, rootPart, candidates)
-        if type(candidates) ~= "table" or #candidates == 0 then return false end
-
-        local collected = 0
-        local MAX_PICKUPS_PER_SCAN = 3
-
-        -- Keep pickup fast, but cap work per scan so the client does not hitch.
-        for _, item in ipairs(candidates) do
-            if collected >= MAX_PICKUPS_PER_SCAN then break end
-
-            if item.touch
-                and item.object
-                and item.part
-                and inWorld(item.object)
-                and inWorld(item.part) then
-
-                local old = loot.tries[item.object]
-                loot.tries[item.object] = {
-                    count = old and old.count + 1 or 1,
-                    nextTry = os.clock() + 0.22,
-                }
-
-                character:PivotTo(character:GetPivot() + (
-                    item.part.Position + Vector3.new(0, 1.25, 0) - rootPart.Position
-                ))
-                rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-
-                if type(firetouchinterest) == "function" then
-                    pcall(function()
-                        firetouchinterest(rootPart, item.part, 0)
-                        firetouchinterest(rootPart, item.part, 1)
-                    end)
-
-                    -- Some drops only register from an actual overlapping frame.
-                    -- Keep this tiny so it does not recreate the old loot lag.
-                    task.wait(0.012)
-                else
-                    rootPart.AssemblyLinearVelocity = Vector3.new(0, -28, 0)
-                    task.wait(0.018)
-                end
-
-                collected = collected + 1
-                loot.count = loot.count + 1
-
-                if item.chestDrop then
-                    loot.groundDrops[item.part] = nil
-                end
-            end
-        end
-
-        if collected > 0 then
-            loot.message = "Picking up ground rewards: " .. collected .. " item(s)"
-            loot.destination = (loot.dropCenter or loot.center) + Vector3.new(0, 2, 0)
-            return true
-        end
-
-        return false
-    end
-
-    local function guiObjectVisible(object)
-        local node = object
-        while node and node ~= playerGui do
-            if node:IsA("GuiObject") and not node.Visible then return false end
-            if node:IsA("ScreenGui") and not node.Enabled then return false end
-            node = node.Parent
-        end
-        return true
-    end
-
-    local function rewardGuiBlob(button)
-        local words = {button.Name}
-        if button:IsA("TextButton") then words[#words + 1] = button.Text end
-
-        local node = button.Parent
-        for _ = 1, 6 do
-            if not node or node == playerGui then break end
-            words[#words + 1] = node.Name
-            for _, child in ipairs(node:GetChildren()) do
-                if child:IsA("TextLabel") or child:IsA("TextButton") then
-                    words[#words + 1] = child.Text
-                end
-            end
-            node = node.Parent
-        end
-
-        return string.lower(table.concat(words, " "))
-    end
-
-    local function tryWorldEventRewardUI()
-        if not loot then return false end
-
-        local recentlyOpened = false
-        for _, openedAt in pairs(loot.opened) do
-            if openedAt and os.clock() - openedAt <= 10 then
-                recentlyOpened = true
-                break
-            end
-        end
-        if not recentlyOpened then return false end
-        if loot.nextGuiClick and os.clock() < loot.nextGuiClick then return false end
-
-        for _, object in ipairs(playerGui:GetDescendants()) do
-            if object:IsA("GuiButton")
-                and (not root or not object:IsDescendantOf(root))
-                and guiObjectVisible(object)
-                and object.AbsoluteSize.X > 12
-                and object.AbsoluteSize.Y > 10 then
-
-                local blob = rewardGuiBlob(object)
-                local chestContext =
-                    blob:find("world event", 1, true)
-                    or blob:find("worldevent", 1, true)
-                    or blob:find("chest", 1, true)
-                    or blob:find("reward", 1, true)
-                    or blob:find("loot", 1, true)
-
-                local action =
-                    blob:find("take", 1, true)
-                    or blob:find("claim", 1, true)
-                    or blob:find("collect", 1, true)
-                    or blob:find("loot", 1, true)
-                    or blob:find("open", 1, true)
-                    or blob:find("accept", 1, true)
-
-                if chestContext and action then
-                    local point = object.AbsolutePosition + object.AbsoluteSize / 2
-                    local ok = pcall(function()
-                        VirtualInput:SendMouseButtonEvent(point.X, point.Y, 0, true, game, 0)
-                        task.wait(0.035)
-                        VirtualInput:SendMouseButtonEvent(point.X, point.Y, 0, false, game, 0)
-                    end)
-
-                    if ok then
-                        loot.nextGuiClick = os.clock() + 0.18
-                        loot.message = "Collecting World Event Chest reward UI"
-                        loot.deadline = math.max(loot.deadline, os.clock() + 6)
-                        return true
-                    end
-                end
-            end
-        end
-
-        return false
-    end
-
     local function stepLoot(character, rootPart)
         if not loot then return false end
         State.farming = false; Farm.stopM1(); releaseOrPause()
         if os.clock() >= loot.deadline then Farm.clearLoot(); return false end
         Farm.status, Farm.detail = "LOOT", loot.message
-
-        -- If the opened World Event Chest produced a reward/claim UI, handle it
-        -- before returning to physical-drop scanning.
-        tryWorldEventRewardUI()
-
         if loot.touchUntil then
             if os.clock() < loot.touchUntil then return true end
-            loot.touchUntil = nil
-            loot.destination = (loot.dropCenter or loot.center) + Vector3.new(0, 2, 0)
+            loot.touchUntil = nil; loot.destination = loot.center + Vector3.new(0,2,0)
         end
         if loot.destination then
             character:PivotTo(character:GetPivot() + (loot.destination - rootPart.Position))
@@ -2094,12 +1626,7 @@ do
             rootPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
         end
         if loot.holding then
-            if not inWorld(loot.holding) or os.clock() >= loot.holdUntil then
-                endPrompt()
-                loot.nextScan = math.min(loot.nextScan or math.huge, os.clock() + 0.04)
-            else
-                return true
-            end
+            if not inWorld(loot.holding) or os.clock() >= loot.holdUntil then endPrompt() else return true end
         end
         local item = loot.pending
         if item then
@@ -2108,147 +1635,33 @@ do
             if not inWorld(item.object) or not inWorld(item.part) then return true end
         else
             if os.clock() < loot.nextScan then return true end
-            loot.nextScan = os.clock() + 0.10
-
-            local candidates
-            item, candidates = findLoot()
-
-            -- Always handle chest/pickup interactions before physical ground drops.
-            local interaction
-            if type(candidates) == "table" then
-                for _, candidate in ipairs(candidates) do
-                    if candidate.interaction then
-                        interaction = candidate
-                        break
-                    end
-                end
-            end
-
-            if interaction then
-                item = interaction
-            else
-                if fastGroundSweep(character, rootPart, candidates) then
-                    loot.pending = nil
-                    return true
-                end
-            end
-
+            loot.nextScan = os.clock() + 0.20
+            item = findLoot()
             if not item then return true end
-
             local old = loot.tries[item.object]
-            loot.tries[item.object] = {
-                count = old and old.count + 1 or 1,
-                nextTry = os.clock() + (item.chest and 0.45 or 0.25)
-            }
-
-            loot.pending = item
-            loot.readyAt = os.clock() + (item.worldEventChest and 0.16 or (item.chest and 0.07 or 0.035))
-            loot.destination = item.part.Position + Vector3.new(0, item.touch and 1.25 or 1, 0)
-
-            if item.worldEventChest then
-                loot.chestCenter = item.part.Position
-                loot.message = "Moving to World Event Chest"
-            end
+            loot.tries[item.object] = {count=old and old.count+1 or 1, nextTry=os.clock()+2}
+            loot.pending, loot.readyAt = item, os.clock()+0.15
+            loot.destination = item.part.Position + Vector3.new(0,item.touch and 2 or 1,0)
             return true
         end
-        loot.count = loot.count + 1
-        loot.message = (item.chest and "Opening chest: " or "Pickup requested: ") .. item.entity.Name
-
+        loot.count = loot.count+1; loot.message = "Pickup requested: " .. item.entity.Name
         local ok, err = pcall(function()
             if item.object:IsA("ProximityPrompt") then
-                local duration = math.max(0, item.object.HoldDuration)
-                local key = item.object.KeyboardKeyCode
-
-                if item.chest then
-                    local openedNow = os.clock()
-                    loot.opened[item.entity] = openedNow
-                    if item.worldEventChest then
-                        loot.chestOpenedAt = openedNow
-                    end
-                    loot.deadline = math.max(
-                        loot.deadline,
-                        os.clock() + (item.worldEventChest and 18 or 7)
-                    )
-
-                    -- Once opened, all drop detection follows the chest instead
-                    -- of the boss corpse. This fixes bosses dying/flying away.
-                    loot.dropCenter = item.part.Position
-                end
-
-                if item.worldEventChest then
-                    loot.message = "Opening World Event Chest"
-
-                    -- First use the executor's direct prompt helper when available.
-                    if type(fireproximityprompt) == "function" then
-                        pcall(function()
-                            fireproximityprompt(item.object, duration)
-                        end)
-                    end
-
-                    -- Also perform a REAL hold on the prompt's actual key. This
-                    -- handles games where fireproximityprompt alone does not pass
-                    -- the normal client interaction path.
-                    loot.holding = item.object
-                    loot.holdKey = key
-                    loot.holdUntil = os.clock() + math.max(0.12, duration + 0.16)
-
-                    pcall(function() item.object:InputHoldBegin() end)
-
-                    if key and key ~= Enum.KeyCode.Unknown then
-                        pcall(function()
-                            VirtualInput:SendKeyEvent(true, key, false, game)
-                        end)
-                    end
-
-                    loot.nextScan = loot.holdUntil + 0.10
+                local duration = math.max(0,item.object.HoldDuration)
+                if os.clock()+duration+0.1 > loot.deadline then return end
+                if type(fireproximityprompt) == "function" then fireproximityprompt(item.object,duration)
                 else
-                    if type(fireproximityprompt) == "function" then
-                        local fired = pcall(function()
-                            fireproximityprompt(item.object, duration)
-                        end)
-
-                        if not fired then
-                            loot.holding = item.object
-                            loot.holdUntil = os.clock() + duration + 0.08
-                            item.object:InputHoldBegin()
-                        end
-                    else
-                        loot.holding = item.object
-                        loot.holdUntil = os.clock() + duration + 0.08
-                        item.object:InputHoldBegin()
-                    end
-
-                    loot.nextScan = os.clock() + (item.chest and 0.15 or 0.06)
+                    loot.holding, loot.holdUntil = item.object, os.clock()+duration+0.1
+                    item.object:InputHoldBegin()
                 end
-
             elseif item.object:IsA("ClickDetector") then
-                if type(fireclickdetector) ~= "function" then
-                    error("Click-detector support unavailable")
-                end
-
+                if type(fireclickdetector) ~= "function" then error("Click-detector support unavailable") end
                 fireclickdetector(item.object)
-
-                if item.chest then
-                    local openedNow = os.clock()
-                    loot.opened[item.entity] = openedNow
-                    if item.worldEventChest then
-                        loot.chestOpenedAt = openedNow
-                    end
-                    loot.dropCenter = item.part.Position
-                    loot.deadline = math.max(
-                        loot.deadline,
-                        os.clock() + (item.worldEventChest and 18 or 7)
-                    )
-                    loot.nextScan = os.clock() + 0.15
-                end
-
             elseif type(firetouchinterest) == "function" then
-                firetouchinterest(rootPart, item.part, 0)
-                firetouchinterest(rootPart, item.part, 1)
+                firetouchinterest(rootPart,item.part,0); firetouchinterest(rootPart,item.part,1)
             else
-                loot.destination = nil
-                loot.touchUntil = os.clock() + 0.06
-                rootPart.AssemblyLinearVelocity = Vector3.new(0, -28, 0)
+                loot.destination = nil; loot.touchUntil = os.clock()+0.2
+                rootPart.AssemblyLinearVelocity = Vector3.new(0,-8,0)
             end
         end)
         if not ok and loot then endPrompt(); loot.message = "Pickup failed: " .. tostring(err) end
@@ -4943,7 +4356,7 @@ task.delay(1.5, function()
     end
 end)
 
-notify("Void UI ready | boss seeds + static scan + chest loot fix active")
+notify("Void UI ready | boss seeds + static scan + original stable loot active")
 ]====]
 
 local __env = (type(getgenv) == "function" and getgenv()) or _G

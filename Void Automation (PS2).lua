@@ -7,11 +7,11 @@ local Settings = {
     BossDwell = 1.5, BossGridRadius = 2048,
     AutoBoss = false, BossAutoRange = 500000, BossLocalScanRadius = 2500, BossNoAttackTimeout = 5,
     GuardianDamageTimeout = 0.75, GuardianStuckTimeout = 6, GuardianCombatStallTimeout = 25,
-    GuardianVerifyInterval = 1.0, GuardianMaxRecoveries = 1, GuardianDamageEventThreshold = 0.02,
+    GuardianVerifyInterval = 1.0, GuardianMaxRecoveries = 1,
     StaticMapScan = true, StaticScanRange = 500000,
     AutoRejoin = true, AutoExecute = true,
     PrivateServerMap = "Ouwigahara", PrivateJoinHold = 1.35,
-    NoClip = false, FlyEnabled = false, FlySpeed = 85,
+    NoClip = true, FlyEnabled = false, FlySpeed = 85,
     SpeedEnabled = false, WalkSpeed = 32,
     ToggleKey = Enum.KeyCode.F6,
     StopKey = Enum.KeyCode.F7,
@@ -496,11 +496,10 @@ local Farm = {catalog = {}, remembered = {}, pinned = nil, records = {}, selecte
     autoVisited = {}, autoCurrent = nil, autoLastPath = nil, autoArrivedAt = 0,
     autoCombatAt = 0, autoLastProgressAt = 0, autoLastHP = nil, autoDefeated = false,
     autoRespawnResume = false, autoResumePath = nil,
-    autoCycles = 0, autoSkipped = 0, travelHealth = nil, autoHazardPaths = {},
+    autoCycles = 0, autoSkipped = 0, travelHealth = nil,
     guardian = {lastHealth = nil, damageSince = 0, damageBase = nil, lastPosition = nil,
         lastPositionAt = 0, stuckSince = 0, lostSince = 0, verifyAt = 0, recoveries = 0,
-        healthHumanoid = nil, healthConnection = nil, damageEvent = false, damageEventHealth = nil, damageEventBaseline = nil,
-        lastDamageAt = 0, lastAction = "STANDBY", lastActionAt = 0}
+        lastAction = "STANDBY", lastActionAt = 0}
 }
 local function attackHealthAllowed(maximum)
     return type(maximum) == "number"
@@ -565,7 +564,6 @@ do
             end
             if finite(data.options.BossDwell) then Settings.BossDwell=math.clamp(data.options.BossDwell,1,5) end
             if finite(data.options.BossGridRadius) then Settings.BossGridRadius=math.clamp(data.options.BossGridRadius,512,8192) end
-            if finite(data.options.FarmDepth) then Settings.FarmDepth=math.clamp(data.options.FarmDepth,6,10) end
             for i, entry in ipairs(data.bosses) do
                 if i>512 then break end
                 if type(entry)=="table" and short(entry.path,512) and short(entry.name)
@@ -616,8 +614,7 @@ do
         local ok,err=pcall(function()
             local bytes=HTTP:JSONEncode({schema=1,placeId=place,bosses=bosses,markers=markers,
                 options={BossAutoSave=Settings.BossAutoSave,BossFirstDiscovery=Settings.BossFirstDiscovery,
-                    BossGridSearch=Settings.BossGridSearch,BossDwell=Settings.BossDwell,BossGridRadius=Settings.BossGridRadius,
-                    FarmDepth=Settings.FarmDepth}})
+                    BossGridSearch=Settings.BossGridSearch,BossDwell=Settings.BossDwell,BossGridRadius=Settings.BossGridRadius}})
             if validBytes then writer(Farm.configPath..".bak",validBytes) end
             writer(Farm.configPath,bytes)
             validBytes=bytes
@@ -819,7 +816,7 @@ do
         if not character or not humanoid or not rootPart or not targetRoot then return end
         if not character.Parent or not targetRoot.Parent then return end
         humanoid.AutoRotate = false
-        local depth = math.clamp(Settings.FarmDepth, 6, 10)
+        local depth = math.clamp(Settings.FarmDepth, 6, 7)
         local destination = targetRoot.Position - Vector3.new(0, depth, 0)
         local flat = Vector3.new(targetRoot.Position.X - destination.X, 0, targetRoot.Position.Z - destination.Z)
         local yaw = 0
@@ -1690,7 +1687,6 @@ do
     end
     local function resetAutoBossRoute(clearLast)
         Farm.autoVisited = {}
-        Farm.autoHazardPaths = {}
         Farm.autoCurrent = nil
         Farm.autoArrivedAt = 0
         Farm.autoCombatAt = 0
@@ -1704,10 +1700,6 @@ do
         g.lastHealth, g.damageSince, g.damageBase = nil, 0, nil
         g.lastPosition, g.lastPositionAt, g.stuckSince, g.lostSince = nil, 0, 0, 0
         g.verifyAt, g.recoveries, g.lastAction, g.lastActionAt = 0, 0, "STANDBY", 0
-        g.damageEvent, g.damageEventHealth, g.damageEventBaseline = false, nil, nil
-        g.lastDamageAt = 0
-        if g.healthConnection then pcall(function() g.healthConnection:Disconnect() end) end
-        g.healthConnection, g.healthHumanoid = nil, nil
         if clearLast then Farm.autoLastPath = nil end
     end
     local function autoBossLocation(entry)
@@ -1758,7 +1750,6 @@ do
             for _, entry in ipairs(Farm.remembered) do
                 local location = autoBossLocation(entry)
                 if autoBossEligible(entry) and not Farm.autoVisited[entry.path]
-                    and not Farm.autoHazardPaths[entry.path]
                     and (not excludeLast or entry.path ~= Farm.autoLastPath) then
                     local distance = (location - position).Magnitude
                     if distance <= Settings.BossAutoRange and (not bestDistance or distance < bestDistance) then
@@ -1793,8 +1784,6 @@ do
         g.lastHealth, g.damageSince, g.damageBase = nil, 0, nil
         g.lastPosition, g.lastPositionAt, g.stuckSince = rootPart.Position, os.clock(), 0
         g.verifyAt, g.recoveries, g.lastAction, g.lastActionAt = 0, 0, "TARGET SELECTED", os.clock()
-        g.damageEvent, g.damageEventHealth, g.damageEventBaseline = false, nil, nil
-        g.lastDamageAt = 0
         Farm.status = "AUTO BOSS"
         Farm.detail = string.format("Next: %s | %.0f studs away", entry.name, distance or 0)
         return entry
@@ -1818,8 +1807,6 @@ do
         Farm.travelHealth = nil
         local g = Farm.guardian
         g.lastHealth, g.damageSince, g.damageBase = nil, 0, nil
-        g.damageEvent, g.damageEventHealth, g.damageEventBaseline = false, nil, nil
-        g.lastDamageAt = 0
         g.lastPosition, g.lastPositionAt, g.stuckSince, g.lostSince = rootPart and rootPart.Position or nil, os.clock(), 0, 0
         g.verifyAt, g.recoveries, g.lastAction, g.lastActionAt = 0, 0, reason or "MOVING", os.clock()
         Farm.nextScan = 0
@@ -1828,36 +1815,10 @@ do
         return pickAutoBoss(rootPart)
     end
 
-    local function guardianBindHealth(humanoid)
-        local g = Farm.guardian
-        if g.healthHumanoid == humanoid and g.healthConnection then return end
-        if g.healthConnection then pcall(function() g.healthConnection:Disconnect() end) end
-        g.healthConnection, g.healthHumanoid = nil, humanoid
-        g.damageEvent, g.damageEventHealth, g.damageEventBaseline = false, nil, humanoid and humanoid.Health or nil
-        g.lastDamageAt = 0
-        if humanoid then
-            g.healthConnection = humanoid.HealthChanged:Connect(function(hp)
-                if not Settings.AutoBoss or Farm.autoEngaged then
-                    g.damageEventBaseline = hp
-                    return
-                end
-                local baseline = g.damageEventBaseline
-                g.damageEventBaseline = hp
-                if baseline and hp < baseline - Settings.GuardianDamageEventThreshold then
-                    g.damageEvent = true
-                    g.damageEventHealth = hp
-                    g.lastDamageAt = os.clock()
-                    g.lastAction, g.lastActionAt = "ENVIRONMENTAL DAMAGE", g.lastDamageAt
-                end
-            end)
-        end
-    end
-
     local function guardianResetObservation(rootPart, humanoid)
         local g = Farm.guardian
         local now = os.clock()
         g.lastHealth = humanoid and humanoid.Health or nil
-        g.damageEventBaseline = humanoid and humanoid.Health or g.damageEventBaseline
         g.damageSince, g.damageBase = 0, nil
         g.lastPosition, g.lastPositionAt = rootPart and rootPart.Position or nil, now
         g.stuckSince, g.lostSince = 0, 0
@@ -2074,29 +2035,7 @@ do
             or not rootPart or not rootPart:IsA("BasePart") or rootPart.Anchored or humanoid.Sit or humanoid.SeatPart then
             pause("WAITING", "Waiting for your living, unseated character."); return
         end
-        guardianBindHealth(humanoid)
         if Settings.AutoBoss then
-            local engagedNow = Farm.autoEngaged == true
-            if not engagedNow and guardianObservePlayer(humanoid, rootPart, false) then
-                local g = Farm.guardian
-                local damageHP = g.damageEventHealth or humanoid.Health
-                g.damageEvent, g.damageEventHealth, g.damageEventBaseline = false, nil, humanoid.Health
-                local hazardPath = Farm.autoCurrent or Farm.pinned
-                if hazardPath then Farm.autoHazardPaths[hazardPath] = true end
-                g.lastAction, g.lastActionAt = "DAMAGE WITHOUT COMBAT", os.clock()
-                advanceAutoBoss("Guardian: player taking damage with no boss being damaged", rootPart, true)
-                Farm.detail = string.format("Unsafe location skipped at %.0f HP remaining.", damageHP)
-                return
-            end
-            if Farm.guardian.damageEvent then
-                local hazardPath = Farm.autoCurrent or Farm.pinned
-                if hazardPath then Farm.autoHazardPaths[hazardPath] = true end
-                local damageHP = Farm.guardian.damageEventHealth or humanoid.Health
-                Farm.guardian.damageEvent, Farm.guardian.damageEventHealth = false, nil
-                advanceAutoBoss("Guardian: environmental damage at saved boss location", rootPart, true)
-                Farm.detail = string.format("Unsafe location skipped at %.0f HP remaining.", damageHP)
-                return
-            end
             local entry
 
             if Farm.autoRespawnResume and Farm.autoResumePath then
@@ -2117,11 +2056,7 @@ do
             if not entry then
                 Farm.stopM1(); Farm.restoreHitbox()
                 Farm.status = "AUTO BOSS WAITING"
-                local blocked = 0
-                for _ in pairs(Farm.autoHazardPaths) do blocked = blocked + 1 end
-                Farm.detail = blocked > 0
-                    and string.format("No safe saved boss location within %.0f studs. %d hazardous location%s blocked this run.", Settings.BossAutoRange, blocked, blocked == 1 and " is" or "s are")
-                    or string.format("No saved boss location within %.0f studs. Discover or import locations first.", Settings.BossAutoRange)
+                Farm.detail = string.format("No saved boss location within %.0f studs. Discover or import locations first.", Settings.BossAutoRange)
                 return
             end
             Farm.pinned = entry.path
@@ -2184,26 +2119,11 @@ do
                 humanoid.AutoRotate = false
                 prepareFarmCollision(character)
 
-                if Settings.AutoBoss and Farm.guardian.damageEvent then
-                    local damageHP = Farm.guardian.damageEventHealth or humanoid.Health
-                    local hazardPath = Farm.autoCurrent or Farm.pinned
-                    if hazardPath then Farm.autoHazardPaths[hazardPath] = true end
-                    Farm.guardian.damageEvent, Farm.guardian.damageEventHealth, Farm.guardian.damageEventBaseline = false, nil, humanoid.Health
-                    Farm.guardian.lastAction, Farm.guardian.lastActionAt = "ENVIRONMENTAL DAMAGE", os.clock()
-                    advanceAutoBoss("No boss loaded; environmental damage detected, moving on", rootPart, true)
-                    Farm.detail = string.format("Unsafe location skipped at %.0f HP remaining.", damageHP)
-                    return
-                end
-
                 if Farm.travelHealth and humanoid.Health < Farm.travelHealth - 0.01 then
                     local damagedHealth = humanoid.Health
                     Farm.travelHealth = nil
                     if Settings.AutoBoss then
-                        local hazardPath = Farm.autoCurrent or Farm.pinned
-                        if hazardPath then Farm.autoHazardPaths[hazardPath] = true end
-                        Farm.guardian.damageEvent, Farm.guardian.damageEventHealth, Farm.guardian.damageEventBaseline = false, nil, humanoid.Health
-                        Farm.guardian.lastDamageAt = os.clock()
-                        advanceAutoBoss("No boss loaded; environmental damage detected, moving on", rootPart, true)
+                        advanceAutoBoss("No boss loaded; environmental damage detected, moving on", rootPart, false)
                     else
                         pause("DANGER", string.format("No boss loaded; damage detected (%.0f HP). Returning to safety.", damagedHealth))
                     end
@@ -2213,7 +2133,7 @@ do
                 if Farm.travelKey ~= entry.path then
                     Farm.travelKey, Farm.travelAt = entry.path, os.clock()
                     Farm.travelHealth = humanoid.Health
-                    Farm.travelDestination = location - Vector3.new(0, math.clamp(Settings.FarmDepth,6,10),0)
+                    Farm.travelDestination = location - Vector3.new(0, math.clamp(Settings.FarmDepth,6,7),0)
                     Farm.nextScan = 0
                     if Settings.AutoBoss then
                         Farm.autoArrivedAt = os.clock()
@@ -2263,6 +2183,12 @@ do
 
         if Settings.AutoBoss then
             local engaged = Farm.autoEngaged == true
+            if guardianObservePlayer(humanoid, rootPart, engaged) then
+                Farm.guardian.lastAction, Farm.guardian.lastActionAt = "DAMAGE WITHOUT COMBAT", os.clock()
+                advanceAutoBoss("Guardian: player taking damage with no boss being damaged", rootPart, true)
+                return
+            end
+
             local entry = Farm.autoCurrent and Farm.catalog[Farm.autoCurrent] or nil
             if entry and guardianObserveTravel(rootPart, entry, targetRoot, engaged) then
                 Farm.guardian.lastAction, Farm.guardian.lastActionAt = "TRAVEL STUCK", os.clock()
@@ -2413,7 +2339,7 @@ do
             if pose.character and pose.character.Parent and pose.rootPart and pose.rootPart.Parent
                 and pose.targetRoot and pose.targetRoot.Parent then
 
-                local depth = math.clamp(Settings.FarmDepth, 6, 10)
+                local depth = math.clamp(Settings.FarmDepth, 6, 7)
                 local desiredPosition = pose.targetRoot.Position - Vector3.new(0, depth, 0)
                 local upright = math.abs(pose.rootPart.CFrame.UpVector.Y) > 0.55
                 local displaced = (pose.rootPart.Position - desiredPosition).Magnitude > 0.45
@@ -2858,8 +2784,8 @@ local Movement = {
     speedHumanoid = nil, speedOriginal = nil,
     flyHumanoid = nil, flyAutoRotate = nil,
     tBlocked = false,
-    status = "MOVEMENT",
-    detail = "All movement overrides are off.",
+    status = "NOCLIP ON",
+    detail = "No-clip is active automatically. T is blocked while No Clip is on.",
 }
 
 local function movementCharacter()
@@ -3137,7 +3063,7 @@ do
         if type(data.StaticMapScan) == "boolean" then Settings.StaticMapScan = data.StaticMapScan end
         if type(data.AutoRejoin) == "boolean" then Settings.AutoRejoin = data.AutoRejoin end
         if type(data.AutoExecute) == "boolean" then Settings.AutoExecute = data.AutoExecute end
-        if data.Theme == "Blackhole" or data.Theme == "Default" then System.theme = data.Theme end
+        if data.Theme == "Blackhole" or data.Theme == "Oblivion" or data.Theme == "Default" then System.theme = data.Theme end
         if finiteText(data.PrivateServerMap, 80) then Settings.PrivateServerMap = data.PrivateServerMap end
         if finiteText(data.TargetGameId, 40) then System.targetGameId = data.TargetGameId end
         if finiteText(data.LastPrivateJob, 120) then System.lastPrivateJob = data.LastPrivateJob end
@@ -4147,6 +4073,120 @@ local function safeText(parent, name, text, x, y, w, h, size, color, font)
     return label(parent, name, text, x, y, w, h, size, color, font)
 end
 
+-- OBLIVION V1 background field reconstructed from the supplied HTML/CSS.
+-- The browser version uses a centered gravity field, five warped elliptical rings,
+-- four rays, a pulsing six-pixel core and 26 drifting particles.
+local OBL = {visible = false, fields = {}, rays = {}, particles = {}}
+OBL.bg = frame(panel, "OblivionBackground", 0, 0, W, H, Color3.fromRGB(2,3,5), 12)
+OBL.bg.BackgroundTransparency = 0
+OBL.bg.ZIndex = 1
+OBL.bg.Active = false
+OBL.bg.Visible = false
+
+OBL.grav = frame(OBL.bg, "GravityField", 0, 0, 640, 640, Color3.new(1,1,1), 0)
+OBL.grav.BackgroundTransparency = 1
+OBL.grav.AnchorPoint = Vector2.new(0.5, 0.5)
+OBL.grav.Position = UDim2.fromScale(0.5, 0.52)
+OBL.grav.ZIndex = 2
+OBL.grav.Active = false
+
+local oblFieldData = {
+    {170,170,0.075,0.00,1},
+    {290,190,0.075,-18,0.70},
+    {430,285,0.075,28,0.45},
+    {570,380,0.075,-33,0.30},
+    {700,465,0.075,12,0.16},
+}
+for i, d in ipairs(oblFieldData) do
+    local f = frame(OBL.grav, "Field" .. i, 0, 0, d[1], d[2], Color3.new(1,1,1), 0)
+    f.AnchorPoint = Vector2.new(0.5,0.5)
+    f.Position = UDim2.fromScale(0.5,0.5)
+    f.BackgroundTransparency = 1
+    f.Rotation = d[4]
+    f.ZIndex = 2
+    local c = make("UICorner", f, {CornerRadius = UDim.new(0.5,0)})
+    local st = stroke(f, Color3.fromRGB(180,205,230), d[3], 1)
+    st.Transparency = 1 - d[5]
+    local top = stroke(f, Color3.fromRGB(240,248,255), 0.86, 1)
+    top.Transparency = math.clamp(1 - d[5] * 0.55, 0.55, 0.94)
+    OBL.fields[#OBL.fields+1] = {object=f, baseRotation=d[4], phase=i*0.7, baseOpacity=d[5], stroke=st, top=top}
+end
+
+local oblRayData = {{18,260},{96,260},{188,260},{275,260}}
+for i,d in ipairs(oblRayData) do
+    local ray = frame(OBL.grav, "Ray"..i, 0, 0, d[2], 1, Color3.fromRGB(240,248,255), 1)
+    ray.AnchorPoint = Vector2.new(0,0.5)
+    ray.Position = UDim2.fromScale(0.5,0.5)
+    ray.Rotation = d[1]
+    ray.BackgroundTransparency = 0.72
+    ray.ZIndex = 3
+    OBL.rays[#OBL.rays+1] = {object=ray, base=d[1], phase=i*1.13}
+end
+
+OBL.halo = frame(OBL.grav, "CoreHalo", 0,0,100,100, Color3.fromRGB(95,145,190), 50)
+OBL.halo.AnchorPoint = Vector2.new(0.5,0.5)
+OBL.halo.Position = UDim2.fromScale(0.5,0.52)
+OBL.halo.BackgroundTransparency = 0.94
+OBL.halo.ZIndex = 4
+OBL.core = frame(OBL.grav, "Core", 0,0,6,6, Color3.fromRGB(255,255,255), 3)
+OBL.core.AnchorPoint = Vector2.new(0.5,0.5)
+OBL.core.Position = UDim2.fromScale(0.5,0.52)
+OBL.core.BackgroundTransparency = 0
+OBL.core.ZIndex = 5
+stroke(OBL.core, Color3.fromRGB(180,220,255), 0.20, 1)
+
+for i=1,26 do
+    local p = frame(OBL.grav, "Particle"..i, 0,0,2,2, Color3.fromRGB(225,240,255), 1)
+    p.BackgroundTransparency = 0.45 + math.random()*0.35
+    p.ZIndex = 3
+    local o = {object=p, a=math.random()*math.pi*2, r=130+math.random()*270,
+        speed=0.00015+math.random()*0.00028, phase=math.random()*10}
+    OBL.particles[#OBL.particles+1] = o
+end
+
+OBL.clock = os.clock()
+OBL.last = OBL.clock
+connect(RunService.RenderStepped, function()
+    if not State.alive or not OBL.bg.Parent or not OBL.bg.Visible then return end
+    local now = os.clock()
+    local dt = math.min(now-OBL.last, 0.05)
+    OBL.last = now
+    local t = now-OBL.clock
+    local w = math.max(760, windowWidth or 760)
+    local h = math.max(520, windowHeight or 700)
+    local cx, cy = w*0.5, h*0.52
+    OBL.grav.Position = UDim2.fromOffset(cx, cy)
+    local gravSize = math.max(640, math.min(900, math.max(w, h)*0.62))
+    OBL.grav.Size = UDim2.fromOffset(gravSize, gravSize)
+    OBL.halo.Position = UDim2.fromScale(0.5,0.52)
+    OBL.core.Position = UDim2.fromScale(0.5,0.52)
+    local pulse=(math.sin(t*2.0)+1)*0.5
+    OBL.core.Size=UDim2.fromOffset(6+math.floor(pulse*1.5),6+math.floor(pulse*1.5))
+    OBL.halo.Size=UDim2.fromOffset(70+math.floor(pulse*34),70+math.floor(pulse*34))
+    OBL.halo.BackgroundTransparency=0.97-pulse*0.055
+    for _,f in ipairs(OBL.fields) do
+        f.object.Rotation=f.baseRotation+math.sin(t*0.22+f.phase)*4
+        local p=(math.sin(t*(0.7+f.phase*0.03)+f.phase)+1)*0.5
+        f.stroke.Transparency=math.clamp(1-(f.baseOpacity*(0.72+p*0.55)),0.72,0.985)
+        f.top.Transparency=math.clamp(0.82-p*0.18,0.55,0.94)
+    end
+    for _,r in ipairs(OBL.rays) do
+        r.object.Rotation=r.base+math.sin(t*0.25+r.phase)*1.8
+        r.object.BackgroundTransparency=0.84-(math.sin(t*0.7+r.phase)+1)*0.08
+    end
+    for _,o in ipairs(OBL.particles) do
+        o.r=o.r-o.speed*dt*1000
+        o.a=o.a+0.00018*dt
+        if o.r<12 then o.r=300+math.random()*190;o.a=math.random()*math.pi*2 end
+        local x=math.cos(o.a)*o.r
+        local y=math.sin(o.a)*o.r*0.62
+        local pull=math.max(0,1-o.r/330)
+        o.object.Position=UDim2.fromOffset(320+x,320+y)
+        o.object.Size=UDim2.fromOffset(math.max(1,math.floor((0.55+pull*1.2)*2)),math.max(1,math.floor((0.55+pull*1.2)*2)))
+        o.object.BackgroundTransparency=math.max(0.05,0.62*(1-pull*0.72))
+    end
+end)
+
 local function navIcon(parent, kind, x, y, color)
     local box = frame(parent, "Icon", x, y, 19, 19, Color3.new(1, 1, 1), 0)
     box.BackgroundTransparency = 1
@@ -4319,14 +4359,12 @@ BH.coreGlow.BackgroundTransparency = 0.90
 BH.coreGlow.ZIndex = 4
 
 BH.core = frame(BH.hero, "EventHorizon", 0, 0, 56, 56, Color3.new(0,0,0), 28)
-BH.core:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0.5, 0)
 BH.core.AnchorPoint = Vector2.new(0.5, 0.5)
 BH.core.Position = UDim2.fromOffset(W * 0.5, 76)
 BH.core.BackgroundTransparency = 0
 BH.core.ZIndex = 6
 
 BH.horizonSilver = frame(BH.hero, "HorizonSilver", 0, 0, 58, 58, Color3.new(1,1,1), 29)
-BH.horizonSilver:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0.5, 0)
 BH.horizonSilver.AnchorPoint = Vector2.new(0.5, 0.5)
 BH.horizonSilver.Position = UDim2.fromOffset(W * 0.5, 76)
 BH.horizonSilver.BackgroundTransparency = 1
@@ -4334,14 +4372,10 @@ BH.horizonSilver.ZIndex = 5
 BH.silverStroke = stroke(BH.horizonSilver, Color3.fromRGB(238,241,251), 0.18, 1.4)
 
 BH.horizonPurple = frame(BH.hero, "HorizonPurple", 0, 0, 58, 58, Color3.new(1,1,1), 29)
-BH.horizonPurple:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0.5, 0)
 BH.horizonPurple.AnchorPoint = Vector2.new(0.5, 0.5)
 BH.horizonPurple.Position = UDim2.fromOffset(W * 0.5, 76)
 BH.horizonPurple.BackgroundTransparency = 1
 BH.horizonPurple.ZIndex = 5
-for _, circular in ipairs({BH.core, BH.coreGlow, BH.horizonSilver, BH.horizonPurple}) do
-    make("UIAspectRatioConstraint", circular, {AspectRatio = 1, DominantAxis = Enum.DominantAxis.Width})
-end
 BH.purpleStroke = stroke(BH.horizonPurple, Color3.fromRGB(122,63,242), 0.28, 1.2)
 
 BH.front = frame(BH.hero, "FrontOrbit", 0, 0, W, 152, Color3.new(1,1,1), 0)
@@ -4404,15 +4438,12 @@ connect(RunService.RenderStepped, function()
     BH.last = now
     local t = now - BH.clock
     local heroWidth = math.max(420, BH.hero.AbsoluteSize.X)
-    -- Resize the orbit field from the original 720px design while keeping the
-    -- event horizon perfectly circular and keeping each orbit distinct.
-    local widthRatio = heroWidth / W
-    local orbitScale = math.clamp(widthRatio, 0.68, 2.40)
-    local segmentScale = math.clamp(0.92 + (widthRatio - 1) * 0.10, 0.88, 1.18)
+    -- The HTML reference uses a 300px-wide hero. Keep the orbit field proportional
+    -- to the resized Roblox hero while keeping the fixed-height panel usable.
+    local scale = heroWidth / 420
     local cx = heroWidth * 0.5
     local cy = 76
-    local coreScale = math.clamp(0.94 + (widthRatio - 1) * 0.07, 0.94, 1.12)
-    BH.atmosphere.Size = UDim2.fromOffset(heroWidth, 152)
+    local coreScale = math.clamp(0.92 + (heroWidth / 420) * 0.28, 0.92, 1.65)
     BH.core.Position = UDim2.fromOffset(cx, cy)
     BH.coreGlow.Position = UDim2.fromOffset(cx, cy)
     BH.horizonSilver.Position = UDim2.fromOffset(cx, cy)
@@ -4449,17 +4480,13 @@ connect(RunService.RenderStepped, function()
     for _, ring in ipairs({BH.backRing1, BH.backRing2, BH.frontRing}) do
         for _, seg in ipairs(ring.segments) do
             local angle = seg.angle
-            local rx = ring.rx * orbitScale
-            local maxRx = math.max(120, heroWidth * 0.46)
-            rx = math.min(rx, maxRx)
-            local ry = ring.ry + math.min(12, math.max(0, heroWidth - W) * 0.008)
+            local rx, ry = ring.rx * scale, ring.ry
             local x = cx + math.cos(angle) * rx
             local y = cy + math.sin(angle) * ry
             local tx, ty = -rx * math.sin(angle), ry * math.cos(angle)
             local rotation = math.deg(math.atan2(ty, tx))
-            local beamLength = math.floor(seg.length * segmentScale)
-            seg.seg.Size = UDim2.fromOffset(beamLength, seg.width)
-            seg.glow.Size = UDim2.fromOffset(beamLength + 8, seg.width + 6)
+            seg.seg.Size = UDim2.fromOffset(math.floor(seg.length * scale), seg.width)
+            seg.glow.Size = UDim2.fromOffset(math.floor(seg.length * scale) + 8, seg.width + 6)
             seg.seg.Position = UDim2.fromOffset(x, y)
             seg.seg.Rotation = rotation
             seg.glow.Position = UDim2.fromOffset(x, y)
@@ -4510,6 +4537,79 @@ local content = make("Frame", panel, {
     Name = "Content", Position = UDim2.fromOffset(0, 152), Size = UDim2.fromOffset(W, H - 152),
     BackgroundTransparency = 1, BorderSizePixel = 0, Active = false, ZIndex = 3,
 })
+
+-- HTML-matched Oblivion dashboard chrome: left main surface + right telemetry stack.
+OBL.mainPanel = frame(panel, "OblivionMainPanel", 190, 94, W-469, H-116, Color3.fromRGB(8,11,16), 8)
+OBL.mainPanel.BackgroundTransparency = 0.22
+OBL.mainPanel.ZIndex = 3
+stroke(OBL.mainPanel, Color3.fromRGB(195,215,235), 0.87, 1)
+OBL.mainPanel.Visible = false
+
+OBL.side = frame(panel, "OblivionTelemetry", W-267, 94, 245, H-116, Color3.fromRGB(8,11,16), 8)
+OBL.side.BackgroundTransparency = 0.22
+OBL.side.ZIndex = 3
+OBL.side.Visible = false
+stroke(OBL.side, Color3.fromRGB(195,215,235), 0.87, 1)
+
+OBL.sideTitle = safeText(OBL.side, "SideTitle", "FIELD TELEMETRY", 15, 14, 215, 18, 8, Color3.fromRGB(93,112,130), Enum.Font.GothamBold)
+OBL.metrics = {}
+local oblMetrics = {
+    {"Singularity","0.0001"}, {"Pull vector","INWARD"}, {"Stability","99.84%"}, {"Ambient","-72°C"},
+}
+for i,m in ipairs(oblMetrics) do
+    local y=38+(i-1)*31
+    local row=frame(OBL.side,"Metric"..i,15,y,215,30,Color3.new(1,1,1),0)
+    row.BackgroundTransparency=1
+    local l=safeText(row,"Label",m[1],0,0,110,28,9,Color3.fromRGB(115,132,148),Enum.Font.GothamMedium)
+    local v=safeText(row,"Value",m[2],105,0,110,28,9,Color3.fromRGB(185,199,214),Enum.Font.GothamMedium)
+    v.TextXAlignment=Enum.TextXAlignment.Right
+    local line=frame(row,"Line",0,29,215,1,Color3.fromRGB(255,255,255),0)
+    line.BackgroundTransparency=0.95
+    OBL.metrics[#OBL.metrics+1]={label=l,value=v}
+end
+
+OBL.readout=frame(OBL.side,"Readout",15,170,215,118,Color3.fromRGB(8,11,16),6)
+OBL.readout.BackgroundTransparency=0.22
+stroke(OBL.readout,Color3.fromRGB(195,215,235),0.91,1)
+safeText(OBL.readout,"Title","GRAVITATIONAL TRACE",12,9,190,16,8,Color3.fromRGB(93,112,130),Enum.Font.GothamBold)
+OBL.wave={}
+local waveFrame=frame(OBL.readout,"Wave",12,58,191,40,Color3.new(1,1,1),0)
+waveFrame.BackgroundTransparency=1
+for i=1,36 do
+    local b=frame(waveFrame,"Bar"..i,math.floor((i-1)*5.3),20,4,2,Color3.fromRGB(205,230,250),2)
+    b.BackgroundTransparency=0.55
+    OBL.wave[#OBL.wave+1]=b
+end
+
+OBL.logPanel=frame(OBL.side,"Log",15,300,215,math.max(150,H-422),Color3.fromRGB(8,11,16),6)
+OBL.logPanel.BackgroundTransparency=0.22
+stroke(OBL.logPanel,Color3.fromRGB(195,215,235),0.91,1)
+safeText(OBL.logPanel,"Title","SYSTEM LOG",12,9,190,16,8,Color3.fromRGB(93,112,130),Enum.Font.GothamBold)
+OBL.logs={}
+local logLines={"field initialized","core synchronized","inward drift detected","distortion nominal","boundary stable","awaiting input_"}
+for i,text in ipairs(logLines) do
+    local l=safeText(OBL.logPanel,"Log"..i,"22:56:"..string.format("%02d",i*3).."  "..text,12,31+(i-1)*20,190,18,8,Color3.fromRGB(89,106,124),Enum.Font.Code)
+    OBL.logs[#OBL.logs+1]=l
+end
+
+OBL.footer=safeText(panel,"Footer","OBLIVION // GRAVITY-BOUND INTERFACE",0,H-16,W-27,12,7,Color3.fromRGB(62,77,91),Enum.Font.GothamMedium)
+OBL.footer.TextXAlignment=Enum.TextXAlignment.Right
+OBL.footer.Visible=false
+
+connect(RunService.RenderStepped,function()
+    if not State.alive or not OBL.side.Parent or not OBL.side.Visible then return end
+    local t=os.clock()-OBL.clock
+    for i,b in ipairs(OBL.wave) do
+        local amp=4+math.abs(math.sin(t*2.2+i*0.43))*25
+        b.Position=UDim2.fromOffset((i-1)*5.3,20-amp*0.5)
+        b.Size=UDim2.fromOffset(4,math.max(2,math.floor(amp)))
+        b.BackgroundTransparency=0.42+(math.sin(t*1.4+i)*0.18)
+    end
+    if OBL.metrics[1] then OBL.metrics[1].value.Text=string.format("%.4f",0.0001+math.sin(t*0.4)*0.00003) end
+    if OBL.metrics[2] then OBL.metrics[2].value.Text=(Settings.AutoBoss and "INWARD" or "STABLE") end
+    if OBL.metrics[3] then OBL.metrics[3].value.Text=Settings.AutoBoss and "99.84%" or "99.91%" end
+    if OBL.metrics[4] then OBL.metrics[4].value.Text=string.format("%d°C",-72+math.floor(math.sin(t*0.25)*2)) end
+end)
 
 local function newPage(name)
     local page = make("ScrollingFrame", content, {
@@ -4636,19 +4736,13 @@ UI.healthDetail.Visible = false
 
 local farmPage = newPage("Farm")
 farmBody = farmPage
-pageHead(farmPage, "farm", "FARM ROUTE", "6 NODES")
+pageHead(farmPage, "farm", "FARM ROUTE", "5 NODES")
 makeRow(farmPage, 48, "Auto Farm", "Selects eligible 3000-3200 HP targets", function() return Settings.FarmEnabled end, Farm.setEnabled)
 makeRow(farmPage, 108, "Auto Boss", "Routes through saved boss locations", function() return Settings.AutoBoss end, Farm.setAutoBoss)
 makeRow(farmPage, 168, "Auto Collect", "Loots boss drops and world rewards", function() return Settings.FarmAutoLoot end, Farm.setLoot)
 makeRow(farmPage, 228, "Auto M1", "Uses the inventory-safe M1 path", function() return Settings.FarmM1 end, function(v) Settings.FarmM1 = v; Farm.step() end)
 makeSlider(farmPage, 288, "Boss Delay", function() return Settings.BossNoAttackTimeout end, function(v) Settings.BossNoAttackTimeout = math.max(1, v) end, 1, 10, "%.1fs")
-makeSlider(farmPage, 372, "Boss Distance", function() return Settings.FarmDepth end, function(v)
-    Settings.FarmDepth = math.clamp(math.floor(v + 0.5), 6, 10)
-    Farm.markDirty()
-    Farm.saveConfig(true, true)
-    Farm.step()
-end, 6, 10, "%.0f studs")
-local farmHint = safeText(farmPage, "Hint", "Boss Distance controls how many studs below the boss you stay while farming.", 16, 456, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+local farmHint = safeText(farmPage, "Hint", "Auto Boss keeps the same-boss respawn route when possible.", 16, 372, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
 farmHint.TextXAlignment = Enum.TextXAlignment.Center
 UI.farmHint = farmHint
 UI.farmCount = safeText(farmPage, "Count", "0", 0, 0, 1, 1, 1, C.dim)
@@ -4661,7 +4755,6 @@ UI.farmStatus = safeText(farmPage, "Status", "", 0, 0, 1, 1, 1, C.dim)
 UI.farmDetail = safeText(farmPage, "Detail", "", 0, 0, 1, 1, 1, C.dim)
 UI.refTargetName = safeText(farmPage, "RefTarget", "", 0, 0, 1, 1, 1, C.dim)
 UI.refBossDelay = safeText(farmPage, "RefDelay", "", 0, 0, 1, 1, 1, C.dim)
-UI.refBossDistance = safeText(farmPage, "RefDistance", "", 0, 0, 1, 1, 1, C.dim)
 UI.refRunDot = frame(farmPage, "RunDot", 0, 0, 1, 1, C.dim, 1)
 UI.refElapsed = safeText(farmPage, "Elapsed", "", 0, 0, 1, 1, 1, C.dim)
 
@@ -4742,6 +4835,15 @@ function ThemeUI.makePreset(y, title, desc, themeName)
         orbit.BackgroundTransparency = 1
         orbit.Rotation = -16
         stroke(orbit, C.violet2, 0.30, 1)
+    elseif themeName == "Oblivion" then
+        local dot = frame(icon, "Core", 15, 15, 6, 6, Color3.fromRGB(247,251,255), 3)
+        dot.BackgroundTransparency = 0
+        for i, d in ipairs({170, 120, 80}) do
+            local orbit = frame(icon, "Field"..i, 0,0,d/3,d/6,Color3.new(1,1,1),2)
+            orbit.AnchorPoint=Vector2.new(0.5,0.5); orbit.Position=UDim2.fromScale(0.5,0.5); orbit.BackgroundTransparency=1; orbit.Rotation=i*17
+            local u=make("UICorner",orbit,{CornerRadius=UDim.new(0.5,0)})
+            stroke(orbit,Color3.fromRGB(111,159,202),0.35+i*0.12,1)
+        end
     else
         local core = frame(icon, "Core", 11, 11, 14, 14, C.violet2, 7)
         core.BackgroundTransparency = 0.25
@@ -4764,7 +4866,10 @@ ThemeUI.defaultRow, ThemeUI.defaultButton = ThemeUI.makePreset(
 ThemeUI.blackholeRow, ThemeUI.blackholeButton = ThemeUI.makePreset(
     186, "Blackhole V1", "HTML-matched black-hole reactor interface", "Blackhole"
 )
-ThemeUI.hint = safeText(ThemeUI.page, "Hint", "Theme changes are saved immediately.", 16, 258, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+ThemeUI.oblivionRow, ThemeUI.oblivionButton = ThemeUI.makePreset(
+    258, "Oblivion V1", "Gravity-bound monochrome control interface", "Oblivion"
+)
+ThemeUI.hint = safeText(ThemeUI.page, "Hint", "Theme changes are saved immediately.", 16, 330, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
 ThemeUI.hint.TextXAlignment = Enum.TextXAlignment.Center
 
 UI.count = safeText(skillsPage, "Count", "4 / 4 ENABLED", 0, 0, 1, 1, 1, C.dim)
@@ -4844,12 +4949,19 @@ end
 local function updateTabVisuals()
     for key, tab in pairs(navButtons) do
         local selected = State.tab == key
-        tab.BackgroundColor3 = selected and Color3.fromRGB(30, 14, 48) or Color3.fromRGB(8, 4, 16)
-        tab.TextColor3 = selected and C.ink or C.faint
+        if System.theme == "Oblivion" then
+            tab.BackgroundColor3 = selected and Color3.fromRGB(16,20,26) or Color3.fromRGB(8,11,16)
+            tab.TextColor3 = selected and C.ink or C.faint
+        else
+            tab.BackgroundColor3 = selected and Color3.fromRGB(30, 14, 48) or Color3.fromRGB(8, 4, 16)
+            tab.TextColor3 = selected and C.ink or C.faint
+        end
         local strokeObj = UI.navStrokes[key]
-        if strokeObj then strokeObj.Transparency = selected and 0.42 or 0.88 end
+        if strokeObj then strokeObj.Transparency = selected and (System.theme == "Oblivion" and 0.78 or 0.42) or 0.88 end
         local bar = UI.navBars[key]
-        if bar then bar.Visible = selected end
+        if bar then bar.Visible = selected; if System.theme == "Oblivion" then bar.BackgroundColor3=C.bright end end
+        local oblivionLabel=tab:FindFirstChild("OblivionLabel")
+        if oblivionLabel then oblivionLabel.TextColor3=selected and C.ink or C.faint; oblivionLabel.Visible=System.theme=="Oblivion" end
         local icon = tab:FindFirstChild("Icon")
         if icon then
             for _, child in ipairs(icon:GetDescendants()) do
@@ -4863,6 +4975,7 @@ end
 local resizeGrip
 local windowPlaced = false
 local MIN_WINDOW_WIDTH = W
+local BASE_MIN_WINDOW_WIDTH = MIN_WINDOW_WIDTH
 local windowHeight = H
 
 resizeGrip = button(panel, "ResizeGrip", "", W - 28, H - 28, 28, 28, C.panel, 1)
@@ -4905,7 +5018,6 @@ local function applyWindowWidth(width)
     setObjectWidth(voidFX, windowWidth)
     if System.theme == "Blackhole" then
         BH.hero.Size = UDim2.fromOffset(windowWidth, 152)
-        BH.atmosphere.Size = UDim2.fromOffset(windowWidth, 152)
         BH.backA.Size = UDim2.fromOffset(windowWidth, 152)
         BH.backB.Size = UDim2.fromOffset(windowWidth, 152)
         BH.front.Size = UDim2.fromOffset(windowWidth, 152)
@@ -4919,6 +5031,18 @@ local function applyWindowWidth(width)
         tabs.Position = UDim2.fromOffset(0, 216)
         content.Position = UDim2.fromOffset(0, 280)
         content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
+    elseif System.theme == "Oblivion" then
+        local leftWidth = math.max(300, windowWidth - 469)
+        tabs.Position = UDim2.fromOffset(22, 94)
+        tabs.Size = UDim2.fromOffset(150, math.max(360, windowHeight - 116))
+        content.Position = UDim2.fromOffset(190, 94)
+        content.Size = UDim2.fromOffset(leftWidth, math.max(360, windowHeight - 116))
+        OBL.bg.Size = UDim2.fromOffset(windowWidth, windowHeight)
+        OBL.mainPanel.Position = UDim2.fromOffset(190, 94)
+        OBL.mainPanel.Size = UDim2.fromOffset(leftWidth, math.max(360, windowHeight - 116))
+        OBL.side.Position = UDim2.fromOffset(windowWidth - 267, 94)
+        OBL.side.Size = UDim2.fromOffset(245, math.max(360, windowHeight - 116))
+        OBL.logPanel.Size = UDim2.fromOffset(215, math.max(150, windowHeight - 422))
     else
         tabs.Position = UDim2.fromOffset(0, 88)
         content.Position = UDim2.fromOffset(0, 152)
@@ -4927,30 +5051,66 @@ local function applyWindowWidth(width)
     resizeVoidEffects(windowWidth)
 
     local navCount = #navNames
-    local availableNav = math.max(240, windowWidth - 24 - navGap * math.max(0, navCount - 1))
-    local dynamicNavW = math.floor(availableNav / navCount)
-    for i, key in ipairs(navNames) do
-        local tab = navButtons[key]
-        if tab then
-            tab.Size = UDim2.fromOffset(dynamicNavW, 44)
-            tab.Position = UDim2.fromOffset(navX + (i - 1) * (dynamicNavW + navGap), 10)
-            local icon = tab:FindFirstChild("Icon")
-            if icon then icon.Position = UDim2.fromOffset(math.floor((dynamicNavW - 19) / 2), 5) end
-            local bar = UI.navBars[key]
-            if bar then
-                bar.Position = UDim2.fromOffset(8, 40)
-                bar.Size = UDim2.fromOffset(math.max(12, dynamicNavW - 16), 2)
+    if System.theme == "Oblivion" then
+        local navHeight = math.max(360, windowHeight - 116)
+        local navButtonH = 43
+        for i, key in ipairs(navNames) do
+            local tab = navButtons[key]
+            if tab then
+                tab.Size = UDim2.fromOffset(132, navButtonH)
+                tab.Position = UDim2.fromOffset(8, 30 + (i - 1) * (navButtonH + 2))
+                tab.Text = ""
+                tab.TextTransparency = 1
+                tab.TextXAlignment = Enum.TextXAlignment.Left
+                tab.TextYAlignment = Enum.TextYAlignment.Center
+                local icon = tab:FindFirstChild("Icon")
+                if icon then icon.Position = UDim2.fromOffset(10, 12) end
+                local text = tab:FindFirstChild("OblivionLabel")
+                if not text then
+                    text = safeText(tab, "OblivionLabel", string.upper(key), 39, 0, 84, navButtonH, 10, C.faint, Enum.Font.GothamMedium)
+                    text.ZIndex = 8
+                end
+                text.Visible = true
+                text.TextColor3 = C.faint
+                local bar = UI.navBars[key]
+                if bar then
+                    bar.Position = UDim2.fromOffset(0, 9)
+                    bar.Size = UDim2.fromOffset(1, navButtonH - 18)
+                    bar.Visible = false
+                end
+            end
+        end
+    else
+        local availableNav = math.max(240, windowWidth - 24 - navGap * math.max(0, navCount - 1))
+        local dynamicNavW = math.floor(availableNav / navCount)
+        for i, key in ipairs(navNames) do
+            local tab = navButtons[key]
+            if tab then
+                tab.Size = UDim2.fromOffset(dynamicNavW, 44)
+                tab.Position = UDim2.fromOffset(navX + (i - 1) * (dynamicNavW + navGap), 10)
+                tab.TextTransparency = 0
+                tab.Text = string.upper(key)
+                local text = tab:FindFirstChild("OblivionLabel")
+                if text then text.Visible = false end
+                local icon = tab:FindFirstChild("Icon")
+                if icon then icon.Position = UDim2.fromOffset(math.floor((dynamicNavW - 19) / 2), 5) end
+                local bar = UI.navBars[key]
+                if bar then
+                    bar.Position = UDim2.fromOffset(8, 40)
+                    bar.Size = UDim2.fromOffset(math.max(12, dynamicNavW - 16), 2)
+                end
             end
         end
     end
 
     for _, page in pairs(pageMap) do
-        setObjectWidth(page, windowWidth)
+        local pageWidth = System.theme == "Oblivion" and math.max(300, windowWidth - 469) or windowWidth
+        setObjectWidth(page, pageWidth)
         for _, child in ipairs(page:GetChildren()) do
             if child.Name == "PaneHead" then
-                child.Size = UDim2.fromOffset(windowWidth - 32, child.Size.Y.Offset)
+                child.Size = UDim2.fromOffset((System.theme == "Oblivion" and math.max(300, windowWidth - 469) or windowWidth) - 32, child.Size.Y.Offset)
             elseif child.Name:match("^Row_") or child.Name:match("^Slider_") or child.Name == "KeyLoadout" then
-                local rowWidth = windowWidth - 32
+                local rowWidth = (System.theme == "Oblivion" and math.max(300, windowWidth - 469) or windowWidth) - 32
                 child.Size = UDim2.fromOffset(rowWidth, child.Size.Y.Offset)
                 local toggle = child:FindFirstChild("Toggle")
                 if toggle then toggle.Position = UDim2.fromOffset(rowWidth - 54, 14) end
@@ -4964,7 +5124,7 @@ local function applyWindowWidth(width)
                 end
             end
             if child:IsA("TextLabel") and (child.Name == "Hint") then
-                child.Size = UDim2.fromOffset(windowWidth - 32, child.Size.Y.Offset)
+                child.Size = UDim2.fromOffset((System.theme == "Oblivion" and math.max(300, windowWidth - 469) or windowWidth) - 32, child.Size.Y.Offset)
             end
         end
     end
@@ -5023,6 +5183,28 @@ local Theme = {
         toggleOn = Color3.fromRGB(70,38,125),
         toggleOff = Color3.fromRGB(24,24,31),
     },
+    Oblivion = {
+        black = Color3.fromRGB(2,3,5),
+        deep = Color3.fromRGB(3,6,9),
+        panel = Color3.fromRGB(8,11,16),
+        panel2 = Color3.fromRGB(12,16,22),
+        violet = Color3.fromRGB(111,159,202),
+        violet2 = Color3.fromRGB(185,199,214),
+        magenta = Color3.fromRGB(38,60,85),
+        cyan = Color3.fromRGB(247,251,255),
+        ink = Color3.fromRGB(247,251,255),
+        dim = Color3.fromRGB(100,116,132),
+        faint = Color3.fromRGB(80,97,115),
+        line = Color3.fromRGB(76,92,108),
+        accent = Color3.fromRGB(111,159,202),
+        bright = Color3.fromRGB(247,251,255),
+        muted = Color3.fromRGB(185,199,214),
+        surface = Color3.fromRGB(8,11,16),
+        text = Color3.fromRGB(247,251,255),
+        voidDeep = Color3.fromRGB(2,4,7),
+        toggleOn = Color3.fromRGB(38,60,85),
+        toggleOff = Color3.fromRGB(20,25,31),
+    },
     height = H,
     current = nil,
 }
@@ -5032,7 +5214,7 @@ function Theme.copy(source)
 end
 
 function Theme.restyleText()
-    local bh = System.theme == "Blackhole"
+    local bh = System.theme == "Blackhole" or System.theme == "Oblivion"
     for _, obj in ipairs(panel:GetDescendants()) do
         if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
             if obj.Name == "Desc" or obj.Name == "Sub" or obj.Name == "Modules" or obj.Name == "Hint"
@@ -5075,13 +5257,57 @@ function Theme.restyleRows()
 end
 
 function Theme.apply(themeName)
-    if themeName ~= "Blackhole" then themeName = "Default" end
+    if themeName ~= "Blackhole" and themeName ~= "Oblivion" then themeName = "Default" end
     System.theme = themeName
     local bh = themeName == "Blackhole"
-    Theme.current = bh and Theme.Blackhole or Theme.Default
+    local obl = themeName == "Oblivion"
+    Theme.current = bh and Theme.Blackhole or (obl and Theme.Oblivion or Theme.Default)
     Theme.copy(Theme.current)
 
-    if bh then
+    if obl then
+        MIN_WINDOW_WIDTH = 760
+        Theme.height = 700
+        windowHeight = Theme.height
+        windowWidth = math.max(windowWidth, MIN_WINDOW_WIDTH)
+        holder.Size = UDim2.fromOffset(windowWidth, windowHeight)
+        shadow.Size = UDim2.fromOffset(windowWidth + 12, windowHeight + 12)
+        panel.Size = UDim2.fromOffset(windowWidth, windowHeight)
+        panel.BackgroundColor3 = C.black
+        panel.BackgroundTransparency = 0
+        panelStroke.Color = Color3.fromRGB(215,230,245)
+        panelStroke.Transparency = 0.84
+        panelBackdrop.Visible = false
+        voidFX.Visible = false
+        ticker.Visible = false
+        OBL.bg.Visible = true
+        OBL.mainPanel.Visible = true
+        OBL.side.Visible = true
+        OBL.footer.Visible = true
+        header.Position = UDim2.fromOffset(22, 20)
+        header.Size = UDim2.fromOffset(windowWidth - 44, 58)
+        header.BackgroundColor3 = C.panel
+        header.BackgroundTransparency = 0.24
+        headerLine.Visible = false
+        brandTitle.Text = "OBLIVION V1"
+        brandTitle.TextColor3 = C.ink
+        header:FindFirstChild("Sub").Text = "CONTROL INTERFACE"
+        tabs.BackgroundColor3 = C.panel
+        tabs.BackgroundTransparency = 0.18
+        content.Position = UDim2.fromOffset(190, 94)
+        content.Size = UDim2.fromOffset(math.max(300, windowWidth - 469), windowHeight - 116)
+        edgeSheen.BackgroundColor3 = C.cyan
+        edgeSheen.BackgroundTransparency = 0.975
+        edgeSheen.Visible = true
+        local br = brandmark:FindFirstChildOfClass("UIStroke")
+        brandmark.Size = UDim2.fromOffset(26,26)
+        brandmark.Position = UDim2.fromOffset(18,18)
+        brandmark.BackgroundColor3 = C.black
+        if br then br.Color=C.bright; br.Transparency=0.78 end
+        markCore.BackgroundColor3 = C.bright; markCore.BackgroundTransparency=0
+        markH.BackgroundColor3 = C.violet; markH.BackgroundTransparency=0.15
+        markV.BackgroundColor3 = C.violet2; markV.BackgroundTransparency=0.15
+    elseif bh then
+        MIN_WINDOW_WIDTH = BASE_MIN_WINDOW_WIDTH
         Theme.height = 600
         windowHeight = Theme.height
         holder.Size = UDim2.fromOffset(windowWidth, windowHeight)
@@ -5094,8 +5320,15 @@ function Theme.apply(themeName)
         panelBackdrop.Visible = false
         voidFX.Visible = false
         ticker.Visible = false
+        OBL.bg.Visible = false
+        OBL.mainPanel.Visible = false
+        OBL.side.Visible = false
+        OBL.footer.Visible = false
         header.Position = UDim2.fromOffset(0, 0)
         header.Size = UDim2.fromOffset(windowWidth, 64)
+        header.BackgroundColor3 = C.panel
+        header.BackgroundTransparency = 0.08
+        headerLine.Visible = true
         headerLine.BackgroundColor3 = C.line
         headerLine.BackgroundTransparency = 0.70
         brandTitle.Text = "BLACKHOLE V1"
@@ -5113,8 +5346,8 @@ function Theme.apply(themeName)
         content.Position = UDim2.fromOffset(0, 280)
         content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
         edgeSheen.BackgroundColor3 = C.cyan
-        BH.atmosphere.BackgroundColor3 = Color3.fromRGB(12,8,20)
     else
+        MIN_WINDOW_WIDTH = BASE_MIN_WINDOW_WIDTH
         Theme.height = H
         windowHeight = Theme.height
         holder.Size = UDim2.fromOffset(windowWidth, windowHeight)
@@ -5127,8 +5360,15 @@ function Theme.apply(themeName)
         panelBackdrop.Visible = true
         voidFX.Visible = true
         ticker.Visible = true
+        OBL.bg.Visible = false
+        OBL.mainPanel.Visible = false
+        OBL.side.Visible = false
+        OBL.footer.Visible = false
         header.Position = UDim2.fromOffset(0, 0)
         header.Size = UDim2.fromOffset(windowWidth, 64)
+        header.BackgroundColor3 = C.panel
+        header.BackgroundTransparency = 0.08
+        headerLine.Visible = true
         headerLine.BackgroundColor3 = C.violet
         headerLine.BackgroundTransparency = 0.48
         brandTitle.Text = "VOID NEXUS"
@@ -5145,50 +5385,99 @@ function Theme.apply(themeName)
 
     brandmark.BackgroundColor3 = C.panel2
     local brandStroke = brandmark:FindFirstChildOfClass("UIStroke")
-    if brandStroke then brandStroke.Color = C.violet2 end
-    markCore.BackgroundColor3 = C.violet2
-    markH.BackgroundColor3 = C.violet2
-    markV.BackgroundColor3 = C.cyan
+    if brandStroke then brandStroke.Color = obl and C.bright or C.violet2 end
+    markCore.BackgroundColor3 = obl and C.bright or C.violet2
+    markH.BackgroundColor3 = obl and C.violet or C.violet2
+    markV.BackgroundColor3 = obl and C.violet2 or C.cyan
     ticker.BackgroundColor3 = C.black
     tickerText.TextColor3 = C.faint
     tabs:FindFirstChildOfClass("UIStroke").Color = C.line
     edgeSheenGradient.Color = ColorSequence.new(C.cyan, C.violet2)
 
     for key, tab in pairs(navButtons) do
-        tab.BackgroundColor3 = bh and C.panel2 or Color3.fromRGB(8,4,16)
+        tab.BackgroundColor3 = obl and Color3.fromRGB(10,14,19) or (bh and C.panel2 or Color3.fromRGB(8,4,16))
         local st = UI.navStrokes[key]
         if st then st.Color = C.line end
         local bar = UI.navBars[key]
-        if bar then bar.BackgroundColor3 = C.violet2 end
+        if bar then bar.BackgroundColor3 = obl and C.bright or C.violet2 end
     end
     Theme.restyleRows()
     Theme.restyleText()
 
     if ThemeUI.activeLabel then
-        ThemeUI.activeLabel.Text = bh and "BLACKHOLE V1" or "DEFAULT"
+        ThemeUI.activeLabel.Text = bh and "BLACKHOLE V1" or (obl and "OBLIVION V1" or "DEFAULT")
         ThemeUI.activeLabel.TextColor3 = C.ink
     end
     if ThemeUI.defaultButton then
-        ThemeUI.defaultButton.BackgroundColor3 = bh and C.panel2 or C.violet2
-        ThemeUI.defaultButton.TextColor3 = bh and C.faint or C.ink
+        ThemeUI.defaultButton.BackgroundColor3 = (not bh and not obl) and C.violet2 or C.panel2
+        ThemeUI.defaultButton.TextColor3 = (not bh and not obl) and C.ink or C.faint
     end
     if ThemeUI.blackholeButton then
         ThemeUI.blackholeButton.BackgroundColor3 = bh and C.violet2 or C.panel2
         ThemeUI.blackholeButton.TextColor3 = bh and C.ink or C.faint
     end
+    if ThemeUI.oblivionButton then
+        ThemeUI.oblivionButton.BackgroundColor3 = obl and C.violet2 or C.panel2
+        ThemeUI.oblivionButton.TextColor3 = obl and C.ink or C.faint
+    end
     if ThemeUI.defaultRow then
         local st = ThemeUI.defaultRow:FindFirstChildOfClass("UIStroke")
-        if st then st.Color = bh and C.line or C.violet2 end
+        if st then st.Color = (not bh and not obl) and C.violet2 or C.line end
     end
     if ThemeUI.blackholeRow then
         local st = ThemeUI.blackholeRow:FindFirstChildOfClass("UIStroke")
         if st then st.Color = bh and C.violet2 or C.line end
+    end
+    if ThemeUI.oblivionRow then
+        local st = ThemeUI.oblivionRow:FindFirstChildOfClass("UIStroke")
+        if st then st.Color = obl and C.violet2 or C.line end
     end
     if bh then
         BH.core.BackgroundColor3 = Color3.new(0,0,0)
         BH.coreGlow.BackgroundColor3 = Color3.fromRGB(65,35,135)
         BH.silverStroke.Color = Color3.fromRGB(238,241,251)
         BH.purpleStroke.Color = Color3.fromRGB(122,63,242)
+    elseif obl then
+        OBL.bg.BackgroundColor3 = C.black
+        OBL.core.BackgroundColor3 = C.bright
+        OBL.halo.BackgroundColor3 = Color3.fromRGB(95,145,190)
+        for _,f in ipairs(OBL.fields) do
+            f.stroke.Color = Color3.fromRGB(180,205,230)
+            f.top.Color = Color3.fromRGB(240,248,255)
+        end
+        for _,r in ipairs(OBL.rays) do r.object.BackgroundColor3 = C.bright end
+    end
+
+    -- Oblivion navigation is the HTML's left vertical rail. Other presets keep the existing horizontal tabs.
+    if obl then
+        local navLabel = tabs:FindFirstChild("OblivionNavLabel")
+        if not navLabel then
+            navLabel = safeText(tabs,"OblivionNavLabel","NAVIGATION",9,7,125,16,7,C.faint,Enum.Font.GothamBold)
+            navLabel.TextColor3=C.faint
+            navLabel.ZIndex=8
+        end
+        navLabel.Visible=true
+        for i,key in ipairs(navNames) do
+            local tab=navButtons[key]
+            if tab then
+                tab.Text=""; tab.TextTransparency=1
+                local text=tab:FindFirstChild("OblivionLabel")
+                if not text then text=safeText(tab,"OblivionLabel",string.upper(key),39,0,84,43,10,C.faint,Enum.Font.GothamMedium); text.ZIndex=8 end
+                text.Visible=true; text.TextColor3=(State.tab==key) and C.ink or C.faint
+                local icon=tab:FindFirstChild("Icon"); if icon then icon.Position=UDim2.fromOffset(10,12) end
+                local bar=UI.navBars[key]
+                if bar then bar.Position=UDim2.fromOffset(0,9); bar.Size=UDim2.fromOffset(1,25); bar.Visible=State.tab==key end
+            end
+        end
+    else
+        local navLabel=tabs:FindFirstChild("OblivionNavLabel"); if navLabel then navLabel.Visible=false end
+        for _,key in ipairs(navNames) do
+            local tab=navButtons[key]
+            if tab then
+                tab.Text=string.upper(key); tab.TextTransparency=0; tab.TextYAlignment=Enum.TextYAlignment.Bottom; tab.TextXAlignment=Enum.TextXAlignment.Center
+                local text=tab:FindFirstChild("OblivionLabel"); if text then text.Visible=false end
+            end
+        end
     end
 
     applyWindowWidth(windowWidth)
@@ -5214,7 +5503,7 @@ local function renderPageState()
         or State.tab == "ESP" and (Settings.ESPEnabled and "ESP" or "SYNCED")
         or State.tab == "Health" and (Settings.HealthEscapeEnabled and "HP" or "SYNCED")
         or State.tab == "Move" and (Settings.FlyEnabled and "FLY" or Settings.NoClip and "MOVE" or "SYNCED")
-        or State.tab == "Theme" and (System.theme == "Blackhole" and "BLACKHOLE" or "DEFAULT")
+        or State.tab == "Theme" and (System.theme == "Blackhole" and "BLACKHOLE" or System.theme == "Oblivion" and "OBLIVION" or "DEFAULT")
         or "SYNCED")
     UI.badge.TextColor3 = mainColor
     statusDot.BackgroundColor3 = mainColor
@@ -5350,189 +5639,168 @@ do
     local __loaderLayer
     local __loaderOK, __loaderERR = pcall(function()
         __loaderLayer = make("Frame", loaderCanvas, {
-            Name = "VoidLoading", Position = UDim2.fromScale(0, 0), Size = UDim2.fromScale(1, 1),
-            BackgroundColor3 = Color3.fromRGB(1, 1, 4), BackgroundTransparency = 0.06,
+            Name = "OblivionLoading", Position = UDim2.fromScale(0, 0), Size = UDim2.fromScale(1, 1),
+            BackgroundColor3 = Color3.fromRGB(2, 4, 8), BackgroundTransparency = 0,
             BorderSizePixel = 0, Active = true, ZIndex = 100,
         })
         local loadingLayer = __loaderLayer
 
-        -- BLACKHOLE / VOID NEXUS loader rebuilt from the supplied animated SVG:
-        -- 220x220 singularity, deep-space bloom, accretion disk, lens arc,
-        -- split photon ring, distant stars and slow breathing/flicker motion.
-        local loadCard = frame(loadingLayer, "LoadingCard", 0, 0, 326, 402, Color3.fromRGB(5, 3, 11), 18)
-        loadCard.AnchorPoint = Vector2.new(0.5, 0.5)
-        loadCard.Position = UDim2.fromScale(0.5, 0.5)
-        loadCard.BackgroundTransparency = 0.08
-        loadCard.ZIndex = 101
-        stroke(loadCard, Color3.fromRGB(104, 63, 160), 0.34, 1)
-
-        local loadScale = make("UIScale", loadCard, {Scale = 0.88})
-        TweenService:Create(loadScale, TweenInfo.new(0.62, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
-
-        local loadTitle = safeText(loadCard, "Title", System.theme == "Blackhole" and "BLACKHOLE V1" or "VOID NEXUS", 0, 16, 326, 22, 17, C.ink, Enum.Font.GothamBold)
-        loadTitle.TextXAlignment = Enum.TextXAlignment.Center
-        loadTitle.ZIndex = 103
-
-        local loadSub = safeText(loadCard, "Sub", System.theme == "Blackhole" and "GALACTIC REACTOR" or "VOID CORE ONLINE", 0, 40, 326, 16, 8, C.dim, Enum.Font.GothamBold)
-        loadSub.TextXAlignment = Enum.TextXAlignment.Center
-        loadSub.ZIndex = 103
-
-        local symbol = frame(loadCard, "Symbol", 0, 0, 220, 220, C.black, 110)
-        symbol.AnchorPoint = Vector2.new(0.5, 0.5)
-        symbol.Position = UDim2.new(0.5, 0, 0, 156)
-        symbol.BackgroundTransparency = 1
-        symbol.ZIndex = 102
-
-        local WHITE = Color3.fromRGB(255, 243, 214)
-        local STAR = Color3.fromRGB(231, 217, 255)
-        local PURPLE = Color3.fromRGB(123, 47, 247)
-        local PURPLE_DARK = Color3.fromRGB(76, 20, 140)
-        local MAGENTA = Color3.fromRGB(201, 98, 154)
-        local BLACK = Color3.fromRGB(0, 0, 0)
-
-        local function circle(parent, name, diameter, color, transparency, z)
-            local f = frame(parent, name, 0, 0, diameter, diameter, color, math.floor(diameter / 2))
-            f.AnchorPoint = Vector2.new(0.5, 0.5)
-            f.Position = UDim2.fromScale(0.5, 0.5)
-            f.BackgroundTransparency = transparency == nil and 1 or transparency
-            f.ZIndex = z or 102
-            return f
+        -- OBLIVION Loading reference recreated from the supplied HTML:
+        -- #020408 field, two breathing gravity rings, three collapsing broken arcs,
+        -- a pulsing 7px white core, expanding core ring and the OBLIVION status label.
+        local spaceA = frame(loadingLayer, "FieldA", 0, 0, 260, 260, Color3.new(1,1,1), 130)
+        local spaceB = frame(loadingLayer, "FieldB", 0, 0, 430, 430, Color3.new(1,1,1), 215)
+        for _, field in ipairs({spaceA, spaceB}) do
+            field.AnchorPoint = Vector2.new(0.5, 0.5)
+            field.Position = UDim2.fromScale(0.5, 0.5)
+            field.BackgroundTransparency = 1
+            field.ZIndex = 101
+            stroke(field, Color3.fromRGB(108, 168, 255), 0.955, 1)
         end
 
-        local function line(parent, name, x, y, w, h, color, transparency, z, rotation)
-            local f = frame(parent, name, x, y, w, h, color, math.floor(math.min(w, h) / 2))
-            f.AnchorPoint = Vector2.new(0.5, 0.5)
-            f.BackgroundTransparency = transparency == nil and 0 or transparency
-            f.ZIndex = z or 105
-            f.Rotation = rotation or 0
-            return f
-        end
+        local loader = frame(loadingLayer, "Loader", 0, 0, 300, 300, Color3.new(1,1,1), 0)
+        loader.AnchorPoint = Vector2.new(0.5, 0.5)
+        loader.Position = UDim2.fromScale(0.5, 0.5)
+        loader.BackgroundTransparency = 1
+        loader.ZIndex = 102
 
-        -- Deep-space bloom behind the system.
-        local bloomOuter = circle(symbol, "BloomOuter", 194, Color3.fromRGB(42, 16, 80), 0.94, 102)
-        local bloomMid = circle(symbol, "BloomMid", 164, Color3.fromRGB(21, 7, 48), 0.84, 103)
-        local bloomInner = circle(symbol, "BloomInner", 132, Color3.fromRGB(20, 8, 38), 0.72, 104)
+        local gravity = frame(loader, "Gravity", 0, 0, 300, 300, Color3.new(1,1,1), 0)
+        gravity.BackgroundTransparency = 1
+        gravity.ZIndex = 103
 
-        -- Four distant stars from the SVG.
-        local stars = {}
-        local starData = {
-            {30, 46, 2.2, 0.2}, {190, 34, 2.6, 1.1},
-            {26, 176, 2.0, 1.8}, {196, 182, 2.4, 0.7},
-        }
-        for i, d in ipairs(starData) do
-            local star = circle(symbol, "Star" .. i, d[3], STAR, 0.25, 106)
-            star.Position = UDim2.fromOffset(d[1], d[2])
-            stars[#stars + 1] = {object = star, phase = d[4]}
-        end
-
-        -- Everything below this point belongs to the breathing SVG "system" group.
-        local system = frame(symbol, "System", 0, 0, 220, 220, BLACK, 0)
-        system.BackgroundTransparency = 1
-        system.ZIndex = 107
-        local systemScale = make("UIScale", system, {Scale = 1})
-
-        -- Accretion disk: many small curved dashes approximate the SVG stroke-dasharray.
-        local diskGroup = frame(system, "AccretionDisk", 0, 0, 220, 220, BLACK, 0)
-        diskGroup.BackgroundTransparency = 1
-        diskGroup.ZIndex = 108
-        local diskDashes = {}
-        local diskCount = 34
-        for i = 1, diskCount do
-            local t = ((i - 1) / diskCount) * math.pi * 2
-            local rx, ry = 98, 24
-            local px = 110 + math.cos(t) * rx
-            local py = 110 + math.sin(t) * ry
-            local dx = -rx * math.sin(t)
-            local dy = ry * math.cos(t)
-            local tangent = math.deg(math.atan2(dy, dx))
-            local col
-            local normalized = (math.cos(t) + 1) * 0.5
-            if normalized > 0.70 then
-                col = PURPLE_DARK
-            elseif normalized > 0.43 then
-                col = MAGENTA
-            else
-                col = WHITE
+        local function makeArcRing(name, radius, dashPattern, strokeWidth, color, baseOpacity)
+            local group = frame(gravity, name, 0, 0, 300, 300, Color3.new(1,1,1), 0)
+            group.BackgroundTransparency = 1
+            group.AnchorPoint = Vector2.new(0.5, 0.5)
+            group.Position = UDim2.fromScale(0.5, 0.5)
+            group.ZIndex = 104
+            local scaleObj = make("UIScale", group, {Scale = 1})
+            local segments = {}
+            local count = 120
+            local circumference = 2 * math.pi * radius
+            local stepLen = circumference / count
+            local patternTotal = 0
+            for _, value in ipairs(dashPattern) do patternTotal = patternTotal + value end
+            for i = 0, count - 1 do
+                local distance = i * stepLen
+                local patternPos = distance % patternTotal
+                local cursor, visible = 0, false
+                for j, dash in ipairs(dashPattern) do
+                    if patternPos >= cursor and patternPos < cursor + dash then
+                        visible = (j % 2 == 1)
+                        break
+                    end
+                    cursor = cursor + dash
+                end
+                if visible then
+                    local theta = distance / radius
+                    local px = 150 + math.cos(theta) * radius
+                    local py = 150 + math.sin(theta) * radius
+                    local seg = frame(group, "Seg" .. tostring(i + 1), px, py,
+                        math.max(1.5, stepLen * 1.12), strokeWidth, color, math.max(1, strokeWidth / 2))
+                    seg.AnchorPoint = Vector2.new(0.5, 0.5)
+                    seg.Rotation = math.deg(theta + math.pi * 0.5)
+                    seg.BackgroundTransparency = 1 - baseOpacity
+                    seg.ZIndex = 105
+                    segments[#segments + 1] = {object = seg, base = baseOpacity}
+                end
             end
-            local dash = line(diskGroup, "Dash" .. i, px, py, 10 + (i % 3) * 2, 6, col, 0.28, 108, tangent)
-            dash.BackgroundTransparency = 0.34
-            diskDashes[#diskDashes + 1] = dash
-        end
-        diskGroup.Rotation = -7
-
-        -- Lensed far-side arc above the horizon.
-        local lensGroup = frame(system, "LensArc", 0, 0, 220, 220, BLACK, 0)
-        lensGroup.BackgroundTransparency = 1
-        lensGroup.ZIndex = 110
-        local lensSegments = {}
-        local lensCount = 22
-        for i = 1, lensCount do
-            local t1 = math.pi + ((i - 1) / lensCount) * math.pi
-            local t2 = math.pi + (i / lensCount) * math.pi
-            local rx, ry = 46, 15
-            local x1, y1 = 110 + math.cos(t1) * rx, 78 + math.sin(t1) * ry
-            local x2, y2 = 110 + math.cos(t2) * rx, 78 + math.sin(t2) * ry
-            local dx, dy = x2 - x1, y2 - y1
-            local len = math.sqrt(dx * dx + dy * dy)
-            local angle = math.deg(math.atan2(dy, dx))
-            local mix = i / lensCount
-            local col = mix < 0.5 and WHITE or PURPLE
-            local seg = line(lensGroup, "Lens" .. i, (x1 + x2) * 0.5, (y1 + y2) * 0.5, len + 1, 2.6, col, 0.30 + mix * 0.25, 110, angle)
-            lensSegments[#lensSegments + 1] = seg
+            return {group = group, scale = scaleObj, segments = segments}
         end
 
-        -- True black event horizon.
-        local eventHorizon = circle(system, "EventHorizon", 100, BLACK, 0, 112)
+        local arcOne = makeArcRing("ArcOne", 103, {86,34,18,52}, 2, Color3.fromRGB(245,251,255), 0.92)
+        local arcTwo = makeArcRing("ArcTwo", 76, {54,46,90,35}, 1.5, Color3.fromRGB(108,168,255), 0.72)
+        local arcThree = makeArcRing("ArcThree", 125, {110,28,28,60}, 1.2, Color3.fromRGB(108,168,255), 0.32)
 
-        -- Photon ring: bright cream/white approaching side and purple receding side.
-        local photonGroup = frame(system, "PhotonRing", 0, 0, 220, 220, BLACK, 0)
-        photonGroup.BackgroundTransparency = 1
-        photonGroup.ZIndex = 113
-        local photonSegments = {}
-        local photonCount = 44
-        for i = 1, photonCount do
-            local t = ((i - 1) / photonCount) * math.pi * 2
-            local r = 51
-            local px = 110 + math.cos(t) * r
-            local py = 110 + math.sin(t) * r
-            local tangent = math.deg(t + math.pi * 0.5)
-            local col = math.sin(t) < 0 and WHITE or PURPLE
-            local seg = line(photonGroup, "Photon" .. i, px, py, 4.4, 1.8, col, math.sin(t) < 0 and 0.04 or 0.32, 113, tangent)
-            photonSegments[#photonSegments + 1] = seg
+        local coreField = frame(loader, "CoreField", 0, 0, 88, 88, Color3.fromRGB(108,168,255), 44)
+        coreField.AnchorPoint = Vector2.new(0.5, 0.5)
+        coreField.Position = UDim2.fromScale(0.5, 0.5)
+        coreField.BackgroundTransparency = 0.97
+        coreField.ZIndex = 106
+
+        local core = frame(loader, "Core", 0, 0, 7, 7, Color3.fromRGB(255,255,255), 4)
+        core.AnchorPoint = Vector2.new(0.5, 0.5)
+        core.Position = UDim2.fromScale(0.5, 0.5)
+        core.BackgroundTransparency = 0
+        core.ZIndex = 109
+        stroke(core, Color3.fromRGB(108,168,255), 0.08, 1)
+
+        local coreRing = frame(loader, "CoreRing", 0, 0, 20, 20, Color3.new(1,1,1), 10)
+        coreRing.AnchorPoint = Vector2.new(0.5, 0.5)
+        coreRing.Position = UDim2.fromScale(0.5, 0.5)
+        coreRing.BackgroundTransparency = 1
+        coreRing.ZIndex = 108
+        stroke(coreRing, Color3.fromRGB(245,251,255), 0.48, 1)
+
+        local labelHolder = frame(loadingLayer, "Label", 0, 0, 340, 72, Color3.new(1,1,1), 0)
+        labelHolder.AnchorPoint = Vector2.new(0.5, 0)
+        labelHolder.Position = UDim2.new(0.5, 0, 0.5, 138)
+        labelHolder.BackgroundTransparency = 1
+        labelHolder.ZIndex = 110
+
+        local loadTitle = safeText(labelHolder, "Title", "OBLIVION...", 0, 0, 340, 18, 10,
+            Color3.fromRGB(245,251,255), Enum.Font.GothamBold)
+        loadTitle.TextXAlignment = Enum.TextXAlignment.Center
+        loadTitle.ZIndex = 111
+
+        local loadSub = safeText(labelHolder, "Sub", "GRAVITY FIELD SYNCHRONIZING", 0, 27, 340, 14, 8,
+            Color3.fromRGB(108,168,255), Enum.Font.GothamMedium)
+        loadSub.TextXAlignment = Enum.TextXAlignment.Center
+        loadSub.ZIndex = 111
+
+        local footer = safeText(loadingLayer, "Footer", "SYSTEM INITIALIZATION // 0x0000", 0, -34, 460, 12, 7,
+            Color3.fromRGB(113,128,150), Enum.Font.Code)
+        footer.AnchorPoint = Vector2.new(0.5, 1)
+        footer.Position = UDim2.new(0.5, 0, 1, -22)
+        footer.TextXAlignment = Enum.TextXAlignment.Center
+        footer.TextTransparency = 0.66
+        footer.ZIndex = 111
+
+        local statusTexts = {
+            {0.00, "INITIALIZING GRAVITY FIELD..."},
+            {0.18, "CALIBRATING COLLAPSE ARCS..."},
+            {0.38, "SYNCHRONIZING EVENT HORIZON..."},
+            {0.58, "BENDING SPACETIME..."},
+            {0.78, "STABILIZING OBLIVION FIELD..."},
+            {0.92, "OBLIVION ONLINE"},
+        }
+
+        local function keyframe(t, frames)
+            if t <= frames[1][1] then return frames[1][2], frames[1][3] end
+            for i = 2, #frames do
+                local a, b = frames[i-1], frames[i]
+                if t <= b[1] then
+                    local alpha = (t - a[1]) / math.max(0.0001, b[1] - a[1])
+                    return a[2] + (b[2] - a[2]) * alpha, a[3] + (b[3] - a[3]) * alpha
+                end
+            end
+            local last = frames[#frames]
+            return last[2], last[3]
         end
 
-        -- Small moving glow at the singularity.
-        local coreBloom = circle(system, "CoreBloom", 78, Color3.fromRGB(42, 16, 80), 0.72, 114)
-        local coreBloom2 = circle(system, "CoreBloom2", 66, Color3.fromRGB(123, 47, 247), 0.82, 115)
-        local core = circle(system, "Core", 100, BLACK, 0, 116)
+        local arcOneFrames = {
+            {0.00, 0, 1.00, 0.35}, {0.18, 72, 0.86, 0.80}, {0.42, 168, 0.53, 1.00},
+            {0.60, 245, 0.78, 0.65}, {0.82, 320, 1.08, 0.35}, {1.00, 360, 1.00, 0.35},
+        }
+        local arcTwoFrames = {
+            {0.00, 90, 1.05, 0.18}, {0.28, 12, 0.72, 0.55}, {0.52, -75, 0.45, 0.85},
+            {0.76, -160, 0.82, 0.45}, {1.00, -270, 1.05, 0.18},
+        }
+        local arcThreeFrames = {
+            {0.00, 180, 1.00, 0.10}, {0.32, 92, 0.82, 0.28}, {0.55, 15, 0.56, 0.48},
+            {0.78, -72, 0.90, 0.24}, {1.00, -180, 1.00, 0.10},
+        }
 
-        local loadStatus = safeText(loadCard, "Status", "OPENING THE VOID...", 0, 286, 326, 18, 9, C.bright, Enum.Font.GothamBold)
-        loadStatus.TextXAlignment = Enum.TextXAlignment.Center
-        loadStatus.ZIndex = 121
-
-        local loadRail = frame(loadCard, "Rail", 39, 318, 248, 4, Color3.fromRGB(27, 16, 44), 2)
-        loadRail.ZIndex = 121
-        local loadFill = frame(loadRail, "Fill", 0, 0, 0, 4, Color3.fromRGB(123, 47, 247), 2)
-        loadFill.ZIndex = 122
-        local loadPercent = safeText(loadCard, "Percent", "0%", 0, 330, 326, 16, 8, C.dim, Enum.Font.GothamMedium)
-        loadPercent.TextXAlignment = Enum.TextXAlignment.Center
-        loadPercent.ZIndex = 121
-
-        local loadHint = safeText(loadCard, "Hint", "VOID NEXUS // GALACTIC LINK", 0, 365, 326, 14, 7, C.dim, Enum.Font.GothamMedium)
-        loadHint.TextXAlignment = Enum.TextXAlignment.Center
-        loadHint.ZIndex = 121
+        local function applyArcVisual(ring, rotation, scale, opacity)
+            ring.group.Rotation = rotation
+            ring.scale.Scale = scale
+            for _, item in ipairs(ring.segments) do
+                item.object.BackgroundTransparency = 1 - item.base * opacity
+            end
+        end
 
         local loadStart = os.clock()
-        local loadDuration = 2.65
-        local loadStages = {
-            {0.00, "OPENING THE VOID..."},
-            {0.18, "LOCATING SINGULARITY..."},
-            {0.37, "IGNITING ACCRETION DISK..."},
-            {0.56, "BENDING SPACETIME..."},
-            {0.75, "SYNCHRONIZING ORBITAL RINGS..."},
-            {0.90, System.theme == "Blackhole" and "BLACKHOLE V1 ONLINE" or "VOID NEXUS ONLINE"},
-        }
-
+        local loadDuration = 3.20
         local loadAnimConn
         loadAnimConn = connect(RunService.RenderStepped, function()
             if not State.alive or not loadingLayer.Parent then
@@ -5543,71 +5811,65 @@ do
             local elapsed = os.clock() - loadStart
             local progress = math.clamp(elapsed / loadDuration, 0, 1)
 
-            -- SVG .system breathe animation.
-            local breathe = (math.sin(elapsed * math.pi * 2 / 6.5) + 1) * 0.5
-            systemScale.Scale = 1 + breathe * 0.025
+            -- HTML .space::before / .space::after field animation.
+            local fieldPulse = (math.sin(elapsed * math.pi * 2 / 5) + 1) * 0.5
+            local fieldPulse2 = (math.sin(elapsed * math.pi * 2 / 5 - math.pi) + 1) * 0.5
+            local fieldScale1 = 0.82 + fieldPulse * 0.26
+            local fieldScale2 = 0.82 + fieldPulse2 * 0.26
+            spaceA.Size = UDim2.fromOffset(260 * fieldScale1, 260 * fieldScale1)
+            spaceB.Size = UDim2.fromOffset(430 * fieldScale2, 430 * fieldScale2)
+            local s1 = spaceA:FindFirstChildOfClass("UIStroke")
+            local s2 = spaceB:FindFirstChildOfClass("UIStroke")
+            if s1 then s1.Transparency = 0.80 + fieldPulse * 0.18 end
+            if s2 then s2.Transparency = 0.80 + fieldPulse2 * 0.18 end
 
-            -- SVG bloomPulse animation.
-            local bloomPulse = (math.sin(elapsed * math.pi * 2 / 7) + 1) * 0.5
-            bloomOuter.BackgroundTransparency = 0.95 - bloomPulse * 0.08
-            bloomMid.BackgroundTransparency = 0.88 - bloomPulse * 0.08
-            bloomInner.BackgroundTransparency = 0.76 - bloomPulse * 0.08
+            local p1 = (elapsed % 2.8) / 2.8
+            local p2 = (elapsed % 3.5) / 3.5
+            local p3 = (elapsed % 4.2) / 4.2
+            local r1, sc1, op1 = keyframe(p1, arcOneFrames)
+            local r2, sc2, op2 = keyframe(p2, arcTwoFrames)
+            local r3, sc3, op3 = keyframe(p3, arcThreeFrames)
+            applyArcVisual(arcOne, r1, sc1, op1)
+            applyArcVisual(arcTwo, r2, sc2, op2)
+            applyArcVisual(arcThree, r3, sc3, op3)
 
-            -- SVG twinkle animation, with the original delays preserved.
-            for _, info in ipairs(stars) do
-                local pulse = (math.sin((elapsed + info.phase) * math.pi * 2 / 3) + 1) * 0.5
-                info.object.BackgroundTransparency = 0.88 - pulse * 0.68
+            -- HTML corePulse / coreRing / coreField animations.
+            local corePulse = (math.sin(elapsed * math.pi * 2 / 1.45) + 1) * 0.5
+            local coreScale = 0.72 + corePulse * 0.63
+            core.Size = UDim2.fromOffset(7 * coreScale, 7 * coreScale)
+            core.BackgroundTransparency = 0.28 - corePulse * 0.28
+
+            local ringProgress = (elapsed % 1.45) / 1.45
+            local ringScale = 0.25 + ringProgress * 1.55
+            coreRing.Size = UDim2.fromOffset(20 * ringScale, 20 * ringScale)
+            local ringStroke = coreRing:FindFirstChildOfClass("UIStroke")
+            if ringStroke then ringStroke.Transparency = math.clamp(0.48 + ringProgress * 0.52, 0.48, 1) end
+
+            local fieldCorePulse = (math.sin(elapsed * math.pi * 2 / 2.2) + 1) * 0.5
+            coreField.Size = UDim2.fromOffset(88 * (0.72 + fieldCorePulse * 0.43), 88 * (0.72 + fieldCorePulse * 0.43))
+            coreField.BackgroundTransparency = 0.985 - fieldCorePulse * 0.10
+
+            -- HTML title dots.
+            local dotCount = math.floor((elapsed / 0.42) % 4)
+            loadTitle.Text = "OBLIVION" .. string.rep(".", dotCount)
+            local status = statusTexts[1][2]
+            for i = #statusTexts, 1, -1 do
+                if progress >= statusTexts[i][1] then status = statusTexts[i][2]; break end
             end
-
-            -- SVG flow approximation: the dashed accretion disk slowly advances around the horizon.
-            diskGroup.Rotation = -7 + elapsed * (360 / 5.5)
-            for i, dash in ipairs(diskDashes) do
-                local phase = ((i - 1) / diskCount) * math.pi * 2
-                local pulse = (math.sin(elapsed * 2.0 + phase) + 1) * 0.5
-                dash.BackgroundTransparency = math.clamp(0.62 - pulse * 0.30, 0.22, 0.68)
-            end
-
-            -- Lens arc shimmer.
-            local arcPulse = (math.sin(elapsed * math.pi * 2 / 4.2) + 1) * 0.5
-            for i, seg in ipairs(lensSegments) do
-                local p = (i - 1) / math.max(1, #lensSegments - 1)
-                seg.BackgroundTransparency = math.clamp(0.52 - arcPulse * 0.30 + p * 0.12, 0.14, 0.68)
-            end
-
-            -- Photon-ring flicker/shimmer.
-            local ringPulse = (math.sin(elapsed * math.pi * 2 / 3.4) + 1) * 0.5
-            for i, seg in ipairs(photonSegments) do
-                local p = (i - 1) / photonCount
-                local wave = (math.sin(elapsed * 3.0 + p * math.pi * 4) + 1) * 0.5
-                seg.BackgroundTransparency = math.clamp(0.38 - ringPulse * 0.28 - wave * 0.12, 0.03, 0.58)
-            end
-
-            -- Soft singularity breathing.
-            local corePulse = (math.sin(elapsed * math.pi * 2 / 3.8) + 1) * 0.5
-            coreBloom.BackgroundTransparency = 0.82 - corePulse * 0.16
-            coreBloom2.BackgroundTransparency = 0.88 - corePulse * 0.16
-
-            -- Loading text / progress.
-            loadStatus.Text = loadStages[1][2]
-            for i = #loadStages, 1, -1 do
-                if progress >= loadStages[i][1] then
-                    loadStatus.Text = loadStages[i][2]
-                    break
-                end
-            end
-            loadFill.Size = UDim2.new(progress, 0, 1, 0)
-            loadPercent.Text = string.format("%d%%", math.floor(progress * 100 + 0.5))
+            loadSub.Text = status
 
             if progress >= 1 then
                 loadAnimConn:Disconnect()
-                loadStatus.Text = System.theme == "Blackhole" and "BLACKHOLE V1 ONLINE" or "VOID NEXUS ONLINE"
-                task.wait(0.10)
+                loadTitle.Text = "OBLIVION"
+                loadSub.Text = "GRAVITY FIELD SYNCHRONIZED"
+                task.wait(0.12)
                 if not State.alive then return end
 
-                TweenService:Create(loadScale, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.78}):Play()
-                TweenService:Create(loadingLayer, TweenInfo.new(0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
+                local exitScale = make("UIScale", loader, {Scale = 1})
+                TweenService:Create(exitScale, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.82}):Play()
+                TweenService:Create(loadingLayer, TweenInfo.new(0.36, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
 
-                task.delay(0.36, function()
+                task.delay(0.40, function()
                     if not State.alive then return end
                     if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled = false end
                     if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end
@@ -5633,7 +5895,7 @@ do
         if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end
         holder.Visible = true
         root.Enabled = true
-        warn("AutoSkills VOID loader failed safely: " .. tostring(__loaderERR))
+        warn("AutoSkills OBLIVION loader failed safely: " .. tostring(__loaderERR))
     end
 end
 

@@ -860,6 +860,18 @@ do
     local ids, nextID = setmetatable({}, {__mode = "k"}), 0
     local collisionState, farmCharacter, origin = {}, nil, nil
     local rotationState, expanded
+    -- Boss-combat performance cache: collision state is prepared once per
+    -- farming character instead of walking Character:GetDescendants() every
+    -- physics frame while attacking.
+    local function prepareFarmCollision(character)
+        if not character then return end
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") and collisionState[part] == nil then
+                collisionState[part] = part.CanCollide
+                part.CanCollide = false
+            end
+        end
+    end
     function Farm.restoreHitbox()
         local saved = expanded
         expanded = nil
@@ -2015,12 +2027,7 @@ do
                     rotationState = {humanoid = humanoid, autoRotate = humanoid.AutoRotate}
                 end
                 humanoid.AutoRotate = false
-                for _, part in ipairs(character:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        if collisionState[part] == nil then collisionState[part] = part.CanCollide end
-                        part.CanCollide = false
-                    end
-                end
+                prepareFarmCollision(character)
                 if Farm.travelKey ~= entry.path then
                     Farm.travelKey, Farm.travelAt = entry.path, os.clock()
                     Farm.travelDestination = location - Vector3.new(0, math.clamp(Settings.FarmDepth,6,7),0)
@@ -2115,15 +2122,10 @@ do
         if not farmCharacter then
             farmCharacter, origin = character, character:GetPivot()
             rotationState = {humanoid = humanoid, autoRotate = humanoid.AutoRotate}
+            prepareFarmCollision(character)
         end
         humanoid.AutoRotate = false
         expandHitbox(targetRoot)
-        for _, part in ipairs(character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                if collisionState[part] == nil then collisionState[part] = part.CanCollide end
-                part.CanCollide = false
-            end
-        end
         local destination = targetRoot.Position - Vector3.new(0, math.clamp(Settings.FarmDepth, 6, 7), 0)
         character:PivotTo(character:GetPivot() + (destination - rootPart.Position))
         -- Forward points at the NPC above. A horizontal up vector avoids the
@@ -2191,11 +2193,19 @@ do
     end
     local runOK, Run = pcall(function() return game:GetService("RunService") end)
     if runOK then
-        -- Apply noclip before physics each frame; discovery remains throttled.
-        connect(Run.Stepped, function() Farm.step() end)
+        -- Farm logic does not need to execute every physics frame. Movement/NoClip
+        -- still runs every frame separately; this keeps boss combat responsive
+        -- while removing the expensive repeated farm update from the render/physics cadence.
+        local nextFarmStep = 0
+        connect(Run.Stepped, function()
+            local now = os.clock()
+            if now < nextFarmStep then return end
+            nextFarmStep = now + 0.05
+            Farm.step()
+        end)
     else
         task.spawn(function()
-            while State.alive do Farm.step(); task.wait(0.03) end
+            while State.alive do Farm.step(); task.wait(0.05) end
         end)
     end
 end

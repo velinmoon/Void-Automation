@@ -11,7 +11,7 @@ local Settings = {
     StaticMapScan = true, StaticScanRange = 500000,
     AutoRejoin = true, AutoExecute = true,
     PrivateServerMap = "Ouwigahara", PrivateJoinHold = 1.35,
-    NoClip = false, FlyEnabled = false, FlySpeed = 85,
+    NoClip = true, FlyEnabled = false, FlySpeed = 85,
     SpeedEnabled = false, WalkSpeed = 32,
     ToggleKey = Enum.KeyCode.F6,
     StopKey = Enum.KeyCode.F7,
@@ -490,13 +490,13 @@ do
 end
 
 local System
-local BUILT_IN_BOSS_SEED_CODE = "ASLOC1:22fb26d3:eyJmb3JtYXQiOiJBdXRvU2tpbGxzTG9jYXRpb25zIiwic2NoZW1hIjoxLCJwbGFjZUlkIjoiMTM2NDA2ODgxNTc2NTE3IiwiYm9zc2VzIjpbeyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuRmluYWwgU2VsZWN0aW9uIFBsYWlucy5BY3RpdmVOcGNzLkZ1amlrby5GdWppa28iLCJuYW1lIjoiRnVqaWtvIiwibWF4aW11bSI6MzIwMCwicG9zaXRpb24iOlstMjQ1Ny4wMTI5Mzk0NTMxMjUsMzguMzQyMzUwMDA2MTAzNTE2LDExMTYuOTg0ODYzMjgxMjVdLCJzcGF3biI6Wy0yNDU3LjAxMjkzOTQ1MzEyNSwzOC4zNDIzNTAwMDYxMDM1MTYsMTExNi45ODQ4NjMyODEyNV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5Ba2F6by5Ba2F6byIsIm5hbWUiOiJBa2F6byIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbLTExMzQuNTEyNjk1MzEyNSwxMzgxLjMxNzAxNjYwMTU2MjUsLTE3NDUuMjM3OTE1MDM5MDYyNV0sInNwYXduIjpbLTExMzQuNTEyNjk1MzEyNSwxMzgxLjMxNzAxNjYwMTU2MjUsLTE3NDUuMjM3OTE1MDM5MDYyNV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5EYXRhaS5EYXRhaSIsIm5hbWUiOiJEYXRhaSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbLTE2NC42NTM4MDg1OTM3NSwxMDQzLjQ5NDUwNjgzNTkzNzUsLTExMzguOTMzOTU5OTYwOTM3NV0sInNwYXduIjpbLTE2NC42NTM4MDg1OTM3NSwxMDQzLjQ5NDUwNjgzNTkzNzUsLTExMzguOTMzOTU5OTYwOTM3NV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5FbnJ1LkVucnUiLCJuYW1lIjoiRW5ydSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbODIyLjE5NTI1MTQ2NDg0MzgsNzk2LjA4MzkyMzMzOTg0MzgsNTQzLjQxNjc0ODA0Njg3NV0sInNwYXduIjpbODIyLjE5NTI1MTQ2NDg0MzgsNzk2LjA4MzkyMzMzOTg0MzgsNTQzLjQxNjc0ODA0Njg3NV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5HaXllbi5HaXllbiIsIm5hbWUiOiJHaXllbiIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbMzg2LjQxMDYxNDAxMzY3MTksMTAxOC40OTQ5MzQwODIwMzEyLC04My42NDQwNTA1OTgxNDQ1M10sInNwYXduIjpbMzg2LjQxMDYxNDAxMzY3MTksMTAxOC40OTQ5MzQwODIwMzEyLC04My42NDQwNTA1OTgxNDQ1M119LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5HeW9yZWkuR3lvcmVpIiwibmFtZSI6Ikd5b3JlaSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbMjU3NS43MTM2MjMwNDY4NzUsMTA4OS40OTQ2Mjg5MDYyNSwtNzQyLjgyNTk4ODc2OTUzMTJdLCJzcGF3biI6WzI1NzUuNzEzNjIzMDQ2ODc1LDEwODkuNDk0NjI4OTA2MjUsLTc0Mi44MjU5ODg3Njk1MzEyXX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLkd5dXRhaS5HeXV0YWkiLCJuYW1lIjoiR3l1dGFpIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstMjY0LjQzMzcxNTgyMDMxMjUsMTA0NS43MzQ4NjMyODEyNSwtMTEzNy4zNjA4Mzk4NDM3NV0sInNwYXduIjpbLTI2NC40MzM3MTU4MjAzMTI1LDEwNDUuNzM0ODYzMjgxMjUsLTExMzcuMzYwODM5ODQzNzVdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuTmV6dXJhLk5lenVyYSIsIm5hbWUiOiJOZXp1cmEiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wy0xNDYyLjU0MTYyNTk3NjU2MjUsMjc2LjQ0OTEyNzE5NzI2NTYsOTM3LjQ0OTcwNzAzMTI1XSwic3Bhd24iOlstMTQ2Mi41NDE2MjU5NzY1NjI1LDI3Ni40NDkxMjcxOTcyNjU2LDkzNy40NDk3MDcwMzEyNV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5PYmFyaS5PYmFyaSIsIm5hbWUiOiJPYmFyaSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbNzcxLjQ1MTA0OTgwNDY4NzUsMTEyMS40OTQ4NzMwNDY4NzUsLTEwNDYuNzk5NjgyNjE3MTg3NV0sInNwYXduIjpbNzcxLjQ1MTA0OTgwNDY4NzUsMTEyMS40OTQ4NzMwNDY4NzUsLTEwNDYuNzk5NjgyNjE3MTg3NV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5SZWFwZXIuUmVhcGVyIiwibmFtZSI6IlJlYXBlciIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbOTcuNTMwMzE5MjEzODY3MTksMTA0NS40OTk1MTE3MTg3NSwtNTcxLjY0ODY4MTY0MDYyNV0sInNwYXduIjpbOTcuNTMwMzE5MjEzODY3MTksMTA0NS40OTk1MTE3MTg3NSwtNTcxLjY0ODY4MTY0MDYyNV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5SZW5ndS5SZW5ndSIsIm5hbWUiOiJSZW5ndSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbLTcxNS44MDIxODUwNTg1OTM4LDk2NS40OTQ1Njc4NzEwOTM4LDg4NC40NDA5NzkwMDM5MDYyXSwic3Bhd24iOlstNzE1LjgwMjE4NTA1ODU5MzgsOTY1LjQ5NDU2Nzg3MTA5MzgsODg0LjQ0MDk3OTAwMzkwNjJdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuU2FuZXJpLlNhbmVyaSIsIm5hbWUiOiJTYW5lcmkiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wy0zNzkuNjM5MjgyMjI2NTYyNSwxMDkzLjkxOTQzMzU5Mzc1LC00MjAuNDg5MTM1NzQyMTg3NV0sInNwYXduIjpbLTM3OS42MzkyODIyMjY1NjI1LDEwOTMuOTE5NDMzNTkzNzUsLTQyMC40ODkxMzU3NDIxODc1XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLlNoaW5vcmEuU2hpbm9yYSIsIm5hbWUiOiJTaGlub3JhIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstNDUxLjE2MzY2NTc3MTQ4NDQsOTY0Ljk2NTY5ODI0MjE4NzUsLTEuMzYxNjc0MDcwMzU4Mjc2NF0sInNwYXduIjpbLTQ1MS4xNjM2NjU3NzE0ODQ0LDk2NC45NjU2OTgyNDIxODc1LC0xLjM2MTY3NDA3MDM1ODI3NjRdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuU3VtYXJpLlN1bWFyaSIsIm5hbWUiOiJTdW1hcmkiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6WzM5My45MTIyNjE5NjI4OTA2LDEwMjAuNDk5OTM4OTY0ODQzOCwtNjE5LjE4MTMzNTQ0OTIxODhdLCJzcGF3biI6WzM5My45MTIyNjE5NjI4OTA2LDEwMjAuNDk5OTM4OTY0ODQzOCwtNjE5LjE4MTMzNTQ0OTIxODhdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuVGVuZ2FpLlRlbmdhaSIsIm5hbWUiOiJUZW5nYWkiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wy0xMzYuMzE3NzAzMjQ3MDcwMywxMzQ5LjQ5NDc1MDk3NjU2MjUsLTI2MjguMzY0OTkwMjM0Mzc1XSwic3Bhd24iOlstMTM2LjMxNzcwMzI0NzA3MDMsMTM0OS40OTQ3NTA5NzY1NjI1LC0yNjI4LjM2NDk5MDIzNDM3NV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5ZYWhhcmkuWWFoYXJpIiwibmFtZSI6IllhaGFyaSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbODI3LjkwMzI1OTI3NzM0MzgsMTAyMS43MDMwNjM5NjQ4NDM4LC02MzkuMjQ0MTQwNjI1XSwic3Bhd24iOls4MjcuOTAzMjU5Mjc3MzQzOCwxMDIxLjcwMzA2Mzk2NDg0MzgsLTYzOS4yNDQxNDA2MjVdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuWmVudGFyby5aZW50YXJvIiwibmFtZSI6IlplbnRhcm8iLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6WzEzMzMuMTkzMTE1MjM0Mzc1LDgyMS40OTUwNTYxNTIzNDM4LC0xMDE2Ljg4OTY0ODQzNzVdLCJzcGF3biI6WzEzMzMuMTkzMTE1MjM0Mzc1LDgyMS40OTUwNTYxNTIzNDM4LC0xMDE2Ljg4OTY0ODQzNzVdfV0sIm1hcmtlcnMiOltdfQ=="
+local BUILT_IN_BOSS_SEED_CODE = "ASLOC1:c045d752:eyJtYXJrZXJzIjpbXSwiYm9zc2VzIjpbeyJwYXRoIjoiRGVicmVlLlJlZ2lvbnMuQnV0dGVyZmx5IEVzdGF0ZS5TdGF0aW9uYXJ5TnBjcy5SZW4iLCJuYW1lIjoiUmVuIiwibWF4aW11bSI6MTAwLCJwb3NpdGlvbiI6Wy0xNjYyLjA3OTcxMTkxNDA2MjYsMzE0LjAwMDE1MjU4Nzg5MDYsLTEyNC43NjA1ODE5NzAyMTQ4NV0sInNwYXduIjpbLTE2NjIuMDc5NzExOTE0MDYyNiwzMTQuMDAwMTUyNTg3ODkwNiwtMTI0Ljc2MDU4MTk3MDIxNDg1XX0seyJwYXRoIjoiRGVicmVlLlJlZ2lvbnMuTWlzdGZhbGwgSGFyYm9yLlN0YXRpb25hcnlOcGNzLkVzdGF0ZSBXb3JrZXIgTmlrbyIsIm5hbWUiOiJFc3RhdGUgV29ya2VyIE5pa28iLCJtYXhpbXVtIjoxMDAsInBvc2l0aW9uIjpbMzQxLjA2NzcxODUwNTg1OTQsOTM4LjkwNDk2ODI2MTcxODgsNTgwLjU4Njk3NTA5NzY1NjNdLCJzcGF3biI6WzM0MS4wNjc3MTg1MDU4NTk0LDkzOC45MDQ5NjgyNjE3MTg4LDU4MC41ODY5NzUwOTc2NTYzXX0seyJwYXRoIjoiSHVtYW5vaWRzLkZpZ2h0aW5nIHN0YXR1ZSIsIm5hbWUiOiJGaWdodGluZyBzdGF0dWUiLCJtYXhpbXVtIjoxMDAwMDAwLCJwb3NpdGlvbiI6WzIwODIuNTI0MTY5OTIxODc1LDE1NDMuNzYwOTg2MzI4MTI1LC0yMTUuOTYyOTgyMTc3NzM0MzhdLCJzcGF3biI6WzIwODIuNTI0MTY5OTIxODc1LDE1NDMuNzYwOTg2MzI4MTI1LC0yMTUuOTYyOTgyMTc3NzM0MzhdfSx7InBhdGgiOiJIdW1hbm9pZHMuUG93ZXIgc3RhdHVlIiwibmFtZSI6IlBvd2VyIHN0YXR1ZSIsIm1heGltdW0iOjEwMDAwMDAsInBvc2l0aW9uIjpbLTY5Ny40NDEzNDUyMTQ4NDM4LDEzODYuNTQyNDgwNDY4NzUsLTE5MTQuMjg5NTUwNzgxMjVdLCJzcGF3biI6Wy02OTcuNDQxMzQ1MjE0ODQzOCwxMzg2LjU0MjQ4MDQ2ODc1LC0xOTE0LjI4OTU1MDc4MTI1XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuQnV0dGVyZmx5IEVzdGF0ZS5BY3RpdmVOcGNzLkxlc3NlciBEZW1vbi5MZXNzZXIgRGVtb24iLCJuYW1lIjoiTGVzc2VyIERlbW9uIiwibWF4aW11bSI6MjcwLCJwb3NpdGlvbiI6Wy02ODEuODkxNDc5NDkyMTg3NSwyMjQuMzEyMzc3OTI5Njg3NSwzOTUuNjY1Mzc0NzU1ODU5NF0sInNwYXduIjpbLTY4MS44OTE0Nzk0OTIxODc1LDIyNC4zMTIzNzc5Mjk2ODc1LDM5NS42NjUzNzQ3NTU4NTk0XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuRmluYWwgU2VsZWN0aW9uIFBsYWlucy5BY3RpdmVOcGNzLkZ1amlrby5GdWppa28iLCJuYW1lIjoiRnVqaWtvIiwibWF4aW11bSI6MzIwMCwicG9zaXRpb24iOlstMjQ1Ny4wMTI5Mzk0NTMxMjUsMzguMzQyMzUwMDA2MTAzNTE5LDExMTYuOTg0ODYzMjgxMjVdLCJzcGF3biI6Wy0yNDU3LjAxMjkzOTQ1MzEyNSwzOC4zNDIzNTAwMDYxMDM1MTksMTExNi45ODQ4NjMyODEyNV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLkZpbmFsIFNlbGVjdGlvbiBQbGFpbnMuQWN0aXZlTnBjcy5NaXp1bm9lIERlbW9uIFNsYXllci5NaXp1bm9lIERlbW9uIFNsYXllciIsIm5hbWUiOiJNaXp1bm9lIERlbW9uIFNsYXllciIsIm1heGltdW0iOjI3MCwicG9zaXRpb24iOlstMTgwNy4zMDAwNDg4MjgxMjUsMjkuNDk5MTEzMDgyODg1NzQzLDUxMC4zMjI0MTgyMTI4OTA2XSwic3Bhd24iOlstMTgwNy4zMDAwNDg4MjgxMjUsMjkuNDk5MTEzMDgyODg1NzQzLDUxMC4zMjI0MTgyMTI4OTA2XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLkFrYXpvLkFrYXpvIiwibmFtZSI6IkFrYXpvIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstMTEzNC41MTI2OTUzMTI1LDEzODEuMzE3MDE2NjAxNTYyNiwtMTc0NS4yMzc5MTUwMzkwNjI2XSwic3Bhd24iOlstMTEzNC41MTI2OTUzMTI1LDEzODEuMzE3MDE2NjAxNTYyNiwtMTc0NS4yMzc5MTUwMzkwNjI2XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLkRhdGFpLkRhdGFpIiwibmFtZSI6IkRhdGFpIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstMTY0LjY1MzgwODU5Mzc1LDEwNDMuNDk0NTA2ODM1OTM3NiwtMTEzOC45MzM5NTk5NjA5Mzc2XSwic3Bhd24iOlstMTY0LjY1MzgwODU5Mzc1LDEwNDMuNDk0NTA2ODM1OTM3NiwtMTEzOC45MzM5NTk5NjA5Mzc2XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLkVucnUuRW5ydSIsIm5hbWUiOiJFbnJ1IiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOls4MjIuMTk1MjUxNDY0ODQzOCw3OTYuMDgzOTIzMzM5ODQzOCw1NDMuNDE2NzQ4MDQ2ODc1XSwic3Bhd24iOls4MjIuMTk1MjUxNDY0ODQzOCw3OTYuMDgzOTIzMzM5ODQzOCw1NDMuNDE2NzQ4MDQ2ODc1XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLkdpeWVuLkdpeWVuIiwibmFtZSI6IkdpeWVuIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlszODYuNDEwNjE0MDEzNjcxOSwxMDE4LjQ5NDkzNDA4MjAzMTMsLTgzLjY0NDA1MDU5ODE0NDUzXSwic3Bhd24iOlszODYuNDEwNjE0MDEzNjcxOSwxMDE4LjQ5NDkzNDA4MjAzMTMsLTgzLjY0NDA1MDU5ODE0NDUzXX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLkd5b3JlaS5HeW9yZWkiLCJuYW1lIjoiR3lvcmVpIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlsyNTc1LjcxMzYyMzA0Njg3NSwxMDg5LjQ5NDYyODkwNjI1LC03NDIuODI1OTg4NzY5NTMxM10sInNwYXduIjpbMjU3NS43MTM2MjMwNDY4NzUsMTA4OS40OTQ2Mjg5MDYyNSwtNzQyLjgyNTk4ODc2OTUzMTNdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuR3l1dGFpLkd5dXRhaSIsIm5hbWUiOiJHeXV0YWkiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wy0yNjQuNDMzNzE1ODIwMzEyNSwxMDQ1LjczNDg2MzI4MTI1LC0xMTM3LjM2MDgzOTg0Mzc1XSwic3Bhd24iOlstMjY0LjQzMzcxNTgyMDMxMjUsMTA0NS43MzQ4NjMyODEyNSwtMTEzNy4zNjA4Mzk4NDM3NV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5JbnNlY3QgVHJhaW5lZS5JbnNlY3QgVHJhaW5lZSIsIm5hbWUiOiJJbnNlY3QgVHJhaW5lZSIsIm1heGltdW0iOjYwMCwicG9zaXRpb24iOlstMTM5Mi42NDYxMTgxNjQwNjI2LDI2NC4wMDAxMjIwNzAzMTI1LDcxLjU1NTY5NDU4MDA3ODEzXSwic3Bhd24iOlstMTM5Mi42NDYxMTgxNjQwNjI2LDI2NC4wMDAxMjIwNzAzMTI1LDcxLjU1NTY5NDU4MDA3ODEzXX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLk5lenVyYS5OZXp1cmEiLCJuYW1lIjoiTmV6dXJhIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstMTQ2Mi41NDE2MjU5NzY1NjI2LDI3Ni40NDkxMjcxOTcyNjU2LDkzNy40NDk3MDcwMzEyNV0sInNwYXduIjpbLTE0NjIuNTQxNjI1OTc2NTYyNiwyNzYuNDQ5MTI3MTk3MjY1Niw5MzcuNDQ5NzA3MDMxMjVdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuT2JhcmkuT2JhcmkiLCJuYW1lIjoiT2JhcmkiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wzc3MS40NTEwNDk4MDQ2ODc1LDExMjEuNDk0ODczMDQ2ODc1LC0xMDQ2Ljc5OTY4MjYxNzE4NzZdLCJzcGF3biI6Wzc3MS40NTEwNDk4MDQ2ODc1LDExMjEuNDk0ODczMDQ2ODc1LC0xMDQ2Ljc5OTY4MjYxNzE4NzZdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuUmVhcGVyLlJlYXBlciIsIm5hbWUiOiJSZWFwZXIiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wzk3LjUzMDMxOTIxMzg2NzE5LDEwNDUuNDk5NTExNzE4NzUsLTU3MS42NDg2ODE2NDA2MjVdLCJzcGF3biI6Wzk3LjUzMDMxOTIxMzg2NzE5LDEwNDUuNDk5NTExNzE4NzUsLTU3MS42NDg2ODE2NDA2MjVdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuUmVuZ3UuUmVuZ3UiLCJuYW1lIjoiUmVuZ3UiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wy03MTUuODAyMTg1MDU4NTkzOCw5NjUuNDk0NTY3ODcxMDkzOCw4ODQuNDQwOTc5MDAzOTA2M10sInNwYXduIjpbLTcxNS44MDIxODUwNTg1OTM4LDk2NS40OTQ1Njc4NzEwOTM4LDg4NC40NDA5NzkwMDM5MDYzXX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLlNhbmVyaS5TYW5lcmkiLCJuYW1lIjoiU2FuZXJpIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstMzc5LjYzOTI4MjIyNjU2MjUsMTA5My45MTk0MzM1OTM3NSwtNDIwLjQ4OTEzNTc0MjE4NzVdLCJzcGF3biI6Wy0zNzkuNjM5MjgyMjI2NTYyNSwxMDkzLjkxOTQzMzU5Mzc1LC00MjAuNDg5MTM1NzQyMTg3NV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5TaGlub3JhLlNoaW5vcmEiLCJuYW1lIjoiU2hpbm9yYSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbLTQ1MS4xNjM2NjU3NzE0ODQ0LDk2NC45NjU2OTgyNDIxODc1LC0xLjM2MTY3NDA3MDM1ODI3NjRdLCJzcGF3biI6Wy00NTEuMTYzNjY1NzcxNDg0NCw5NjQuOTY1Njk4MjQyMTg3NSwtMS4zNjE2NzQwNzAzNTgyNzY0XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLlN1bWFyaS5TdW1hcmkiLCJuYW1lIjoiU3VtYXJpIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlszOTMuOTEyMjYxOTYyODkwNiwxMDIwLjQ5OTkzODk2NDg0MzgsLTYxOS4xODEzMzU0NDkyMTg4XSwic3Bhd24iOlszOTMuOTEyMjYxOTYyODkwNiwxMDIwLjQ5OTkzODk2NDg0MzgsLTYxOS4xODEzMzU0NDkyMTg4XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLlRlbmdhaS5UZW5nYWkiLCJuYW1lIjoiVGVuZ2FpIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstMTM2LjMxNzcwMzI0NzA3MDMsMTM0OS40OTQ3NTA5NzY1NjI2LC0yNjI4LjM2NDk5MDIzNDM3NV0sInNwYXduIjpbLTEzNi4zMTc3MDMyNDcwNzAzLDEzNDkuNDk0NzUwOTc2NTYyNiwtMjYyOC4zNjQ5OTAyMzQzNzVdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuV2F0ZXIgVHJhaW5lZSBTYWJpdG8uV2F0ZXIgVHJhaW5lZSBTYWJpdG8iLCJuYW1lIjoiV2F0ZXIgVHJhaW5lZSBTYWJpdG8iLCJtYXhpbXVtIjo2MDAsInBvc2l0aW9uIjpbODE3LjU0MzcwMTE3MTg3NSwxMDE4LjcwMzA2Mzk2NDg0MzgsMTAxLjg3NjU1NjM5NjQ4NDM4XSwic3Bhd24iOls4MTcuNTQzNzAxMTcxODc1LDEwMTguNzAzMDYzOTY0ODQzOCwxMDEuODc2NTU2Mzk2NDg0MzhdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuWWFoYXJpLllhaGFyaSIsIm5hbWUiOiJZYWhhcmkiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6WzgyNy45MDMyNTkyNzczNDM4LDEwMjEuNzAzMDYzOTY0ODQzOCwtNjM5LjI0NDE0MDYyNV0sInNwYXduIjpbODI3LjkwMzI1OTI3NzM0MzgsMTAyMS43MDMwNjM5NjQ4NDM4LC02MzkuMjQ0MTQwNjI1XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLlplbnRhcm8uWmVudGFybyIsIm5hbWUiOiJaZW50YXJvIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlsxMzMzLjE5MzExNTIzNDM3NSw4MjEuNDk1MDU2MTUyMzQzOCwtMTAxNi44ODk2NDg0Mzc1XSwic3Bhd24iOlsxMzMzLjE5MzExNTIzNDM3NSw4MjEuNDk1MDU2MTUyMzQzOCwtMTAxNi44ODk2NDg0Mzc1XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzdGZhbGwgSGFyYm9yLkFjdGl2ZU5wY3MuTWl6dW5vdG8uTWl6dW5vdG8iLCJuYW1lIjoiTWl6dW5vdG8iLCJtYXhpbXVtIjoyMzAsInBvc2l0aW9uIjpbLTg1MC41NzIyNjU2MjUsOTczLjQ1ODA2ODg0NzY1NjMsLTE1Mi4zNDIyODUxNTYyNV0sInNwYXduIjpbLTg1MC41NzIyNjU2MjUsOTczLjQ1ODA2ODg0NzY1NjMsLTE1Mi4zNDIyODUxNTYyNV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLlRlbXBvcmFyeS5BY3RpdmVOcGNzLkNhY2hlIExhbmNlci5DYWNoZSBMYW5jZXIiLCJuYW1lIjoiQ2FjaGUgTGFuY2VyIiwibWF4aW11bSI6NDAwLCJwb3NpdGlvbiI6Wy04MzYuODcyMTMxMzQ3NjU2Myw5NDguNDk4ODQwMzMyMDMxMyw3MDQuNjA0NDkyMTg3NV0sInNwYXduIjpbLTgzNi44NzIxMzEzNDc2NTYzLDk0OC40OTg4NDAzMzIwMzEzLDcwNC42MDQ0OTIxODc1XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuVGVtcG9yYXJ5LkFjdGl2ZU5wY3MuR3JvdmUgUmFpZGVyLkdyb3ZlIFJhaWRlciIsIm5hbWUiOiJHcm92ZSBSYWlkZXIiLCJtYXhpbXVtIjoyNDUsInBvc2l0aW9uIjpbOTAyLjk5ODE2ODk0NTMxMjUsMTAxOS41MTU1NjM5NjQ4NDM4LDI0Ljg5MTAwNDU2MjM3NzkzXSwic3Bhd24iOls5MDIuOTk4MTY4OTQ1MzEyNSwxMDE5LjUxNTU2Mzk2NDg0MzgsMjQuODkxMDA0NTYyMzc3OTNdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5UZW1wb3JhcnkuQWN0aXZlTnBjcy5MYW5jZXIgQ2FwdGFpbi5MYW5jZXIgQ2FwdGFpbiIsIm5hbWUiOiJMYW5jZXIgQ2FwdGFpbiIsIm1heGltdW0iOjEyMDAsInBvc2l0aW9uIjpbLTgzNC40MTkwMDYzNDc2NTYzLDk0OC40MzYzNDAzMzIwMzEzLDcwOS4zNzAxNzgyMjI2NTYzXSwic3Bhd24iOlstODM0LjQxOTAwNjM0NzY1NjMsOTQ4LjQzNjM0MDMzMjAzMTMsNzA5LjM3MDE3ODIyMjY1NjNdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5UZW1wb3JhcnkuQWN0aXZlTnBjcy5SYWlkIENhcHRhaW4uUmFpZCBDYXB0YWluIiwibmFtZSI6IlJhaWQgQ2FwdGFpbiIsIm1heGltdW0iOjczNSwicG9zaXRpb24iOls5MDguOTk4MjI5OTgwNDY4OCwxMDE5LjAxNTU2Mzk2NDg0MzgsMjMuMjAzNDc5NzY2ODQ1NzA0XSwic3Bhd24iOls5MDguOTk4MjI5OTgwNDY4OCwxMDE5LjAxNTU2Mzk2NDg0MzgsMjMuMjAzNDc5NzY2ODQ1NzA0XX0seyJwYXRoIjoiSHVtYW5vaWRzLldlYXBvbnMgU3RhdHVlIiwibmFtZSI6IldlYXBvbnMgU3RhdHVlIiwibWF4aW11bSI6MTAwMDAwMCwicG9zaXRpb24iOlstMTM4MS43MjEwNjkzMzU5Mzc2LDEwMTAuMjU4MTE3Njc1NzgxMywxMTA5LjM4ODQyNzczNDM3NV0sInNwYXduIjpbLTEzODEuNzIxMDY5MzM1OTM3NiwxMDEwLjI1ODExNzY3NTc4MTMsMTEwOS4zODg0Mjc3MzQzNzVdfV0sImZvcm1hdCI6IkF1dG9Ta2lsbHNMb2NhdGlvbnMiLCJzY2hlbWEiOjEsInBsYWNlSWQiOiIxMzY0MDY4ODE1NzY1MTcifQ=="
 local Farm = {catalog = {}, remembered = {}, pinned = nil, records = {}, selected = nil, nextScan = 0, status = "OFF",
     detail = "Select a target, then enable Auto farm.", count = 0, aliveCount = 0,
     autoVisited = {}, autoCurrent = nil, autoLastPath = nil, autoArrivedAt = 0,
     autoCombatAt = 0, autoLastProgressAt = 0, autoLastHP = nil, autoDefeated = false,
     autoRespawnResume = false, autoResumePath = nil,
-    autoCycles = 0, autoSkipped = 0, travelHealth = nil,
+    autoCycles = 0, autoSkipped = 0, travelHealth = nil, guardianHazards = {},
     guardian = {lastHealth = nil, damageSince = 0, damageBase = nil, lastPosition = nil,
         lastPositionAt = 0, stuckSince = 0, lostSince = 0, verifyAt = 0, recoveries = 0,
         lastAction = "STANDBY", lastActionAt = 0}
@@ -1687,6 +1687,7 @@ do
     end
     local function resetAutoBossRoute(clearLast)
         Farm.autoVisited = {}
+        Farm.guardianHazards = {}
         Farm.autoCurrent = nil
         Farm.autoArrivedAt = 0
         Farm.autoCombatAt = 0
@@ -1741,6 +1742,22 @@ do
 
         return bestSame or bestAny
     end
+    local function guardianMarkHazard(entry)
+        if not entry or not entry.path then return end
+        -- A location that is actively damaging the player without a live boss
+        -- is temporarily blacklisted so Auto Boss cannot immediately return to
+        -- the same snow/biome hazard and loop forever.
+        Farm.guardianHazards[entry.path] = os.clock() + 90
+    end
+
+    local function guardianIsHazard(entry, now)
+        if not entry or not entry.path then return false end
+        local untilAt = Farm.guardianHazards[entry.path]
+        if untilAt and untilAt > (now or os.clock()) then return true end
+        if untilAt then Farm.guardianHazards[entry.path] = nil end
+        return false
+    end
+
     local function pickAutoBoss(rootPart)
         Farm.scan(true)
         local position = rootPart and rootPart.Position
@@ -1750,6 +1767,7 @@ do
             for _, entry in ipairs(Farm.remembered) do
                 local location = autoBossLocation(entry)
                 if autoBossEligible(entry) and not Farm.autoVisited[entry.path]
+                    and not guardianIsHazard(entry)
                     and (not excludeLast or entry.path ~= Farm.autoLastPath) then
                     local distance = (location - position).Magnitude
                     if distance <= Settings.BossAutoRange and (not bestDistance or distance < bestDistance) then
@@ -1790,6 +1808,27 @@ do
     end
     local function advanceAutoBoss(reason, rootPart, skipped)
         local previous = Farm.autoCurrent and Farm.catalog[Farm.autoCurrent]
+        local reasonText = tostring(reason or "")
+        local environmentalHazard = previous and (
+            reasonText:find("environmental damage", 1, true)
+            or reasonText:find("taking damage", 1, true)
+        )
+        if environmentalHazard then
+            guardianMarkHazard(previous)
+            -- Leave the damaging biome before selecting the next route entry.
+            -- If there is no safe boss left, this returns the player to the
+            -- position where Auto Boss was activated instead of leaving them
+            -- standing inside the hazard and taking damage to death.
+            local character = Player.Character
+            if origin and farmCharacter and farmCharacter == character then
+                pcall(function() character:PivotTo(origin) end)
+                rootPart = character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart or rootPart
+                if rootPart then
+                    rootPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                    rootPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
+                end
+            end
+        end
         if skipped then Farm.autoSkipped = Farm.autoSkipped + 1 end
         Farm.stopM1()
         Farm.restoreHitbox()
@@ -2035,15 +2074,16 @@ do
             or not rootPart or not rootPart:IsA("BasePart") or rootPart.Anchored or humanoid.Sit or humanoid.SeatPart then
             pause("WAITING", "Waiting for your living, unseated character."); return
         end
+        -- Environmental damage watchdog runs before target acquisition. This is
+        -- important for snow/biome damage where no boss is actually loaded:
+        -- leave the saved location immediately instead of repeatedly standing
+        -- inside the damaging zone waiting for a target to appear.
+        if Settings.AutoBoss and not Farm.autoEngaged and guardianObservePlayer(humanoid, rootPart, false) then
+            Farm.guardian.lastAction, Farm.guardian.lastActionAt = "ENVIRONMENTAL DAMAGE", os.clock()
+            advanceAutoBoss("Guardian: environmental damage detected before boss load", rootPart, true)
+            return
+        end
         if Settings.AutoBoss then
-            -- Environmental-damage watchdog runs before target selection so hazards
-            -- such as the snow biome cannot trap Auto Boss at an empty saved location.
-            if guardianObservePlayer(humanoid, rootPart, Farm.autoEngaged == true) then
-                Farm.guardian.lastAction, Farm.guardian.lastActionAt = "DAMAGE WITHOUT COMBAT", os.clock()
-                advanceAutoBoss("Guardian: environmental damage with no boss active", rootPart, true)
-                return
-            end
-
             local entry
 
             if Farm.autoRespawnResume and Farm.autoResumePath then
@@ -2064,7 +2104,7 @@ do
             if not entry then
                 Farm.stopM1(); Farm.restoreHitbox()
                 Farm.status = "AUTO BOSS WAITING"
-                Farm.detail = string.format("No saved boss location within %.0f studs. Discover or import locations first.", Settings.BossAutoRange)
+                Farm.detail = string.format("No safe saved boss location within %.0f studs. Hazard locations are temporarily skipped.", Settings.BossAutoRange)
                 return
             end
             Farm.pinned = entry.path
@@ -3071,7 +3111,15 @@ do
         if type(data.StaticMapScan) == "boolean" then Settings.StaticMapScan = data.StaticMapScan end
         if type(data.AutoRejoin) == "boolean" then Settings.AutoRejoin = data.AutoRejoin end
         if type(data.AutoExecute) == "boolean" then Settings.AutoExecute = data.AutoExecute end
-        if data.Theme == "Blackhole" or data.Theme == "Oblivion" or data.Theme == "Default" then System.theme = data.Theme end
+        if data.Theme == "Blackhole" or data.Theme == "Oblivion" or data.Theme == "Default" then
+            System.theme = data.Theme
+            -- Version-1 configs used "Default" for the old Void Nexus UI.
+            -- Treat that legacy value as the new Oblivion default once, while
+            -- still preserving an explicitly saved Blackhole/Oblivion choice.
+            if tonumber(data.schema) and tonumber(data.schema) < 2 and data.Theme == "Default" then
+                System.theme = "Oblivion"
+            end
+        end
         if finiteText(data.PrivateServerMap, 80) then Settings.PrivateServerMap = data.PrivateServerMap end
         if finiteText(data.TargetGameId, 40) then System.targetGameId = data.TargetGameId end
         if finiteText(data.LastPrivateJob, 120) then System.lastPrivateJob = data.LastPrivateJob end
@@ -3086,7 +3134,7 @@ do
 
         local ok, err = pcall(function()
             writer(System.configPath, HttpService:JSONEncode({
-                schema = 1,
+                schema = 2,
                 StaticMapScan = Settings.StaticMapScan,
                 AutoRejoin = Settings.AutoRejoin,
                 AutoExecute = Settings.AutoExecute,
@@ -4117,7 +4165,7 @@ for i, d in ipairs(oblFieldData) do
     st.Transparency = 1 - d[5]
     local top = stroke(f, Color3.fromRGB(240,248,255), 0.86, 1)
     top.Transparency = math.clamp(1 - d[5] * 0.55, 0.55, 0.94)
-    OBL.fields[#OBL.fields+1] = {object=f, baseRotation=d[4], phase=i*0.7, baseOpacity=d[5], stroke=st, top=top}
+    OBL.fields[#OBL.fields+1] = {object=f, baseW=d[1], baseH=d[2], baseRotation=d[4], phase=i*0.7, baseOpacity=d[5], stroke=st, top=top}
 end
 
 local oblRayData = {{18,260},{96,260},{188,260},{275,260}}
@@ -4164,7 +4212,11 @@ connect(RunService.RenderStepped, function()
     local h = math.max(520, windowHeight or 700)
     local cx, cy = w*0.5, h*0.52
     OBL.grav.Position = UDim2.fromOffset(cx, cy)
-    local gravSize = math.max(640, math.min(900, math.max(w, h)*0.62))
+    -- Keep the entire gravity field centered on the live UI bounds. The old
+    -- implementation used a fixed 320px particle origin, which made the
+    -- effect stay in the top-left after horizontal resizing.
+    local gravSize = math.max(640, math.min(1500, math.max(w, h)*0.78))
+    local fieldScale = gravSize / 760
     OBL.grav.Size = UDim2.fromOffset(gravSize, gravSize)
     OBL.halo.Position = UDim2.fromScale(0.5,0.52)
     OBL.core.Position = UDim2.fromScale(0.5,0.52)
@@ -4173,6 +4225,7 @@ connect(RunService.RenderStepped, function()
     OBL.halo.Size=UDim2.fromOffset(70+math.floor(pulse*34),70+math.floor(pulse*34))
     OBL.halo.BackgroundTransparency=0.97-pulse*0.055
     for _,f in ipairs(OBL.fields) do
+        f.object.Size = UDim2.fromOffset(math.floor(f.baseW * fieldScale), math.floor(f.baseH * fieldScale))
         f.object.Rotation=f.baseRotation+math.sin(t*0.22+f.phase)*4
         local p=(math.sin(t*(0.7+f.phase*0.03)+f.phase)+1)*0.5
         f.stroke.Transparency=math.clamp(1-(f.baseOpacity*(0.72+p*0.55)),0.72,0.985)
@@ -4180,16 +4233,18 @@ connect(RunService.RenderStepped, function()
     end
     for _,r in ipairs(OBL.rays) do
         r.object.Rotation=r.base+math.sin(t*0.25+r.phase)*1.8
+        r.object.Size=UDim2.fromOffset(math.floor(r.object.Size.X.Offset > 0 and 260*fieldScale or 260*fieldScale), 1)
         r.object.BackgroundTransparency=0.84-(math.sin(t*0.7+r.phase)+1)*0.08
     end
     for _,o in ipairs(OBL.particles) do
         o.r=o.r-o.speed*dt*1000
         o.a=o.a+0.00018*dt
         if o.r<12 then o.r=300+math.random()*190;o.a=math.random()*math.pi*2 end
-        local x=math.cos(o.a)*o.r
-        local y=math.sin(o.a)*o.r*0.62
+        local x=math.cos(o.a)*o.r*fieldScale
+        local y=math.sin(o.a)*o.r*0.62*fieldScale
         local pull=math.max(0,1-o.r/330)
-        o.object.Position=UDim2.fromOffset(320+x,320+y)
+        local gc = gravSize * 0.5
+        o.object.Position=UDim2.fromOffset(gc+x,gc+y)
         o.object.Size=UDim2.fromOffset(math.max(1,math.floor((0.55+pull*1.2)*2)),math.max(1,math.floor((0.55+pull*1.2)*2)))
         o.object.BackgroundTransparency=math.max(0.05,0.62*(1-pull*0.72))
     end
@@ -4448,10 +4503,10 @@ connect(RunService.RenderStepped, function()
     local heroWidth = math.max(420, BH.hero.AbsoluteSize.X)
     -- The HTML reference uses a 300px-wide hero. Keep the orbit field proportional
     -- to the resized Roblox hero while keeping the fixed-height panel usable.
-    local scale = heroWidth / 420
+    local scale = heroWidth / 720
     local cx = heroWidth * 0.5
     local cy = 76
-    local coreScale = math.clamp(0.92 + (heroWidth / 420) * 0.28, 0.92, 1.65)
+    local coreScale = math.clamp(0.94 + (heroWidth / 720) * 0.22, 0.94, 1.55)
     BH.core.Position = UDim2.fromOffset(cx, cy)
     BH.coreGlow.Position = UDim2.fromOffset(cx, cy)
     BH.horizonSilver.Position = UDim2.fromOffset(cx, cy)
@@ -4540,6 +4595,96 @@ UI.farmTab = navButtons.Farm
 UI.moveTab = navButtons.Move
 UI.systemTab = navButtons.System
 UI.themeTab = navButtons.Theme
+
+-- Oblivion-specific navigation glyphs. These replace the small generic icons
+-- only while the Oblivion preset is active, using layered geometric strokes
+-- that match the monochrome gravity/reactor aesthetic.
+OBL.navIcons = {}
+local function buildOblivionIcon(tab, kind)
+    local oldIcon = tab:FindFirstChild("Icon")
+    if oldIcon then oldIcon.Visible = false end
+    local box = frame(tab, "OblivionIcon", 10, 12, 19, 19, Color3.new(1,1,1), 0)
+    box.BackgroundTransparency = 1
+    box.ZIndex = 9
+    local parts = {}
+    local function seg(name, x, y, w, h, rot)
+        local b = frame(box, name, x, y, w, h, C.faint, math.max(1, math.floor(math.min(w,h)/2)))
+        b.Rotation = rot or 0
+        b.ZIndex = 10
+        parts[#parts+1] = b
+        return b
+    end
+    local function outline(name, x, y, w, h, rot, radius)
+        local b = frame(box, name, x, y, w, h, Color3.new(1,1,1), radius or 4)
+        b.BackgroundTransparency = 1
+        b.Rotation = rot or 0
+        b.ZIndex = 10
+        local st = stroke(b, C.faint, 0.12, 1)
+        parts[#parts+1] = st
+        return b
+    end
+    if kind == "skills" then
+        seg("BladeA", 2, 8, 15, 2, 45)
+        seg("BladeB", 2, 9, 15, 2, -45)
+        seg("GuardA", 3, 4, 5, 1, 45)
+        seg("GuardB", 11, 14, 5, 1, 45)
+        seg("Core", 8, 8, 3, 3, 0)
+    elseif kind == "esp" then
+        outline("Eye", 1, 5, 17, 9, 0, 7)
+        seg("TargetH", 6, 9, 7, 1, 0)
+        seg("TargetV", 9, 6, 1, 7, 0)
+        outline("FrameL", 1, 7, 3, 5, 0, 1)
+        outline("FrameR", 15, 7, 3, 5, 0, 1)
+    elseif kind == "health" then
+        outline("Core", 4, 4, 11, 11, 0, 6)
+        seg("CrossH", 2, 9, 15, 1, 0)
+        seg("CrossV", 9, 2, 1, 15, 0)
+        seg("Node", 8, 8, 3, 3, 0)
+    elseif kind == "farm" then
+        outline("Diamond", 3, 3, 13, 13, 45, 2)
+        seg("AxisH", 4, 9, 11, 1, 0)
+        seg("AxisV", 9, 4, 1, 11, 0)
+        seg("Node", 8, 8, 3, 3, 0)
+    elseif kind == "move" then
+        seg("Stem", 9, 2, 1, 15, 0)
+        seg("HeadL", 4, 5, 7, 1, 45)
+        seg("HeadR", 9, 5, 7, 1, -45)
+        seg("Base", 3, 16, 13, 1, 0)
+        seg("Mid", 4, 9, 11, 1, 0)
+    elseif kind == "system" then
+        outline("Reactor", 3, 3, 13, 13, 0, 3)
+        seg("Top", 8, 1, 3, 3, 0)
+        seg("Bottom", 8, 15, 3, 3, 0)
+        seg("Left", 1, 8, 3, 3, 0)
+        seg("Right", 15, 8, 3, 3, 0)
+        seg("Core", 7, 7, 5, 5, 0)
+    else
+        outline("OrbitA", 1, 6, 17, 7, -18, 7)
+        outline("OrbitB", 4, 2, 11, 15, 18, 7)
+        seg("Core", 8, 8, 3, 3, 0)
+    end
+    OBL.navIcons[tab.Name:gsub("Tab$", "")] = {root = box, parts = parts, old = oldIcon}
+end
+for i, key in ipairs(navNames) do
+    buildOblivionIcon(navButtons[key], navKinds[i])
+end
+function OBL.updateNavIcons()
+    for key, info in pairs(OBL.navIcons) do
+        local active = State.tab == key
+        local color = active and C.bright or C.faint
+        for _, obj in ipairs(info.parts) do
+            if obj:IsA("UIStroke") then
+                obj.Color = color
+                obj.Transparency = active and 0.02 or 0.18
+            elseif obj:IsA("GuiObject") then
+                obj.BackgroundColor3 = color
+                obj.BackgroundTransparency = active and 0.02 or 0.08
+            end
+        end
+        info.root.Visible = System.theme == "Oblivion"
+        if info.old then info.old.Visible = System.theme ~= "Oblivion" end
+    end
+end
 
 local content = make("Frame", panel, {
     Name = "Content", Position = UDim2.fromOffset(0, 152), Size = UDim2.fromOffset(W, H - 152),
@@ -4868,14 +5013,14 @@ function ThemeUI.makePreset(y, title, desc, themeName)
     return row, select, rowStroke
 end
 
-ThemeUI.defaultRow, ThemeUI.defaultButton = ThemeUI.makePreset(
-    114, "Default", "Original Void Nexus interface", "Default"
+ThemeUI.oblivionRow, ThemeUI.oblivionButton = ThemeUI.makePreset(
+    114, "Oblivion V1", "Gravity-bound monochrome control interface", "Oblivion"
 )
 ThemeUI.blackholeRow, ThemeUI.blackholeButton = ThemeUI.makePreset(
     186, "Blackhole V1", "HTML-matched black-hole reactor interface", "Blackhole"
 )
-ThemeUI.oblivionRow, ThemeUI.oblivionButton = ThemeUI.makePreset(
-    258, "Oblivion V1", "Gravity-bound monochrome control interface", "Oblivion"
+ThemeUI.defaultRow, ThemeUI.defaultButton = ThemeUI.makePreset(
+    258, "Default", "Original Void Nexus interface", "Default"
 )
 ThemeUI.hint = safeText(ThemeUI.page, "Hint", "Theme changes are saved immediately.", 16, 330, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
 ThemeUI.hint.TextXAlignment = Enum.TextXAlignment.Center
@@ -4978,6 +5123,7 @@ local function updateTabVisuals()
             end
         end
     end
+    if OBL.updateNavIcons then OBL.updateNavIcons() end
 end
 
 local resizeGrip
@@ -5265,7 +5411,7 @@ function Theme.restyleRows()
 end
 
 function Theme.apply(themeName)
-    if themeName ~= "Blackhole" and themeName ~= "Oblivion" then themeName = "Default" end
+    if themeName ~= "Blackhole" and themeName ~= "Oblivion" and themeName ~= "Default" then themeName = "Oblivion" end
     System.theme = themeName
     local bh = themeName == "Blackhole"
     local obl = themeName == "Oblivion"
@@ -5291,6 +5437,8 @@ function Theme.apply(themeName)
         OBL.mainPanel.Visible = true
         OBL.side.Visible = true
         OBL.footer.Visible = true
+        -- Never leave the Blackhole hero layered over Oblivion.
+        BH.hero.Visible = false
         header.Position = UDim2.fromOffset(22, 20)
         header.Size = UDim2.fromOffset(windowWidth - 44, 58)
         header.BackgroundColor3 = C.panel
@@ -5487,6 +5635,7 @@ function Theme.apply(themeName)
             end
         end
     end
+    if OBL.updateNavIcons then OBL.updateNavIcons() end
 
     applyWindowWidth(windowWidth)
     fitWindow(false)
@@ -5646,296 +5795,288 @@ pcall(function() Theme.apply(System.theme) end)
 do
     local __loaderLayer
     local __loaderOK, __loaderERR = pcall(function()
-        -- Exact visual direction from Oblivion_Loading(2).html.
-        -- Roblox cannot directly render the HTML/SVG, so the SVG arcs are reconstructed
-        -- from thin UI segments while preserving the original geometry, dash patterns,
-        -- colors and animation timings.
         __loaderLayer = make("Frame", loaderCanvas, {
-            Name = "OblivionLoading", Position = UDim2.fromScale(0, 0), Size = UDim2.fromScale(1, 1),
-            BackgroundColor3 = Color3.fromRGB(2, 4, 8), BackgroundTransparency = 0,
+            Name = "VoidLoading", Position = UDim2.fromScale(0, 0), Size = UDim2.fromScale(1, 1),
+            BackgroundColor3 = Color3.fromRGB(1, 1, 4), BackgroundTransparency = 0.06,
             BorderSizePixel = 0, Active = true, ZIndex = 100,
         })
         local loadingLayer = __loaderLayer
 
-        -- HTML body radial background recreated with layered transparent circles.
-        local bgGlow = frame(loadingLayer, "CenterGlow", 0, 0, 620, 620, Color3.fromRGB(41, 79, 135), 310)
-        bgGlow.AnchorPoint = Vector2.new(0.5, 0.5)
-        bgGlow.Position = UDim2.fromScale(0.5, 0.5)
-        bgGlow.BackgroundTransparency = 0.965
-        bgGlow.ZIndex = 100
+        -- BLACKHOLE / VOID NEXUS loader rebuilt from the supplied animated SVG:
+        -- 220x220 singularity, deep-space bloom, accretion disk, lens arc,
+        -- split photon ring, distant stars and slow breathing/flicker motion.
+        local loadCard = frame(loadingLayer, "LoadingCard", 0, 0, 326, 402, Color3.fromRGB(5, 3, 11), 18)
+        loadCard.AnchorPoint = Vector2.new(0.5, 0.5)
+        loadCard.Position = UDim2.fromScale(0.5, 0.5)
+        loadCard.BackgroundTransparency = 0.08
+        loadCard.ZIndex = 101
+        stroke(loadCard, Color3.fromRGB(104, 63, 160), 0.34, 1)
 
-        local bgGlow2 = frame(loadingLayer, "CenterGlow2", 0, 0, 430, 430, Color3.fromRGB(108, 168, 255), 215)
-        bgGlow2.AnchorPoint = Vector2.new(0.5, 0.5)
-        bgGlow2.Position = UDim2.fromScale(0.5, 0.5)
-        bgGlow2.BackgroundTransparency = 0.982
-        bgGlow2.ZIndex = 100
+        local loadScale = make("UIScale", loadCard, {Scale = 0.88})
+        TweenService:Create(loadScale, TweenInfo.new(0.62, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
 
-        local function makeCenteredCircle(parent, name, diameter, color, transparency, z)
-            local obj = frame(parent, name, 0, 0, diameter, diameter, color, math.floor(diameter / 2))
-            obj.AnchorPoint = Vector2.new(0.5, 0.5)
-            obj.Position = UDim2.fromScale(0.5, 0.5)
-            obj.BackgroundTransparency = transparency
-            obj.ZIndex = z or 101
-            return obj
+        local loadTitle = safeText(loadCard, "Title", System.theme == "Blackhole" and "BLACKHOLE V1" or System.theme == "Oblivion" and "OBLIVION V1" or "VOID NEXUS", 0, 16, 326, 22, 17, C.ink, Enum.Font.GothamBold)
+        loadTitle.TextXAlignment = Enum.TextXAlignment.Center
+        loadTitle.ZIndex = 103
+
+        local loadSub = safeText(loadCard, "Sub", System.theme == "Blackhole" and "GALACTIC REACTOR" or System.theme == "Oblivion" and "GRAVITY CONTROL INTERFACE" or "VOID CORE ONLINE", 0, 40, 326, 16, 8, C.dim, Enum.Font.GothamBold)
+        loadSub.TextXAlignment = Enum.TextXAlignment.Center
+        loadSub.ZIndex = 103
+
+        local symbol = frame(loadCard, "Symbol", 0, 0, 220, 220, C.black, 110)
+        symbol.AnchorPoint = Vector2.new(0.5, 0.5)
+        symbol.Position = UDim2.new(0.5, 0, 0, 156)
+        symbol.BackgroundTransparency = 1
+        symbol.ZIndex = 102
+
+        local WHITE = Color3.fromRGB(255, 243, 214)
+        local STAR = Color3.fromRGB(231, 217, 255)
+        local PURPLE = System.theme == "Oblivion" and Color3.fromRGB(111,159,202) or Color3.fromRGB(123, 47, 247)
+        local PURPLE_DARK = System.theme == "Oblivion" and Color3.fromRGB(38,60,85) or Color3.fromRGB(76, 20, 140)
+        local MAGENTA = System.theme == "Oblivion" and Color3.fromRGB(185,199,214) or Color3.fromRGB(201, 98, 154)
+        local BLACK = Color3.fromRGB(0, 0, 0)
+
+        local function circle(parent, name, diameter, color, transparency, z)
+            local f = frame(parent, name, 0, 0, diameter, diameter, color, math.floor(diameter / 2))
+            f.AnchorPoint = Vector2.new(0.5, 0.5)
+            f.Position = UDim2.fromScale(0.5, 0.5)
+            f.BackgroundTransparency = transparency == nil and 1 or transparency
+            f.ZIndex = z or 102
+            return f
         end
 
-        -- .space::before / .space::after from the HTML.
-        local field1 = makeCenteredCircle(loadingLayer, "Field260", 260, Color3.fromRGB(108, 168, 255), 0.955, 101)
-        local field1Stroke = stroke(field1, Color3.fromRGB(108, 168, 255), 0.955, 1)
-        field1Stroke.Transparency = 0.955
-        local field2 = makeCenteredCircle(loadingLayer, "Field430", 430, Color3.fromRGB(108, 168, 255), 0.985, 101)
-        local field2Stroke = stroke(field2, Color3.fromRGB(108, 168, 255), 0.955, 1)
-        field2Stroke.Transparency = 0.955
+        local function line(parent, name, x, y, w, h, color, transparency, z, rotation)
+            local f = frame(parent, name, x, y, w, h, color, math.floor(math.min(w, h) / 2))
+            f.AnchorPoint = Vector2.new(0.5, 0.5)
+            f.BackgroundTransparency = transparency == nil and 0 or transparency
+            f.ZIndex = z or 105
+            f.Rotation = rotation or 0
+            return f
+        end
 
-        local loader = make("Frame", loadingLayer, {
-            Name = "Loader", Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(300, 300),
-            AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1,
-            BorderSizePixel = 0, Active = false, ZIndex = 102,
-        })
+        -- Deep-space bloom behind the system.
+        local bloomOuter = circle(symbol, "BloomOuter", 194, Color3.fromRGB(42, 16, 80), 0.94, 102)
+        local bloomMid = circle(symbol, "BloomMid", 164, Color3.fromRGB(21, 7, 48), 0.84, 103)
+        local bloomInner = circle(symbol, "BloomInner", 132, Color3.fromRGB(20, 8, 38), 0.72, 104)
 
-        -- Very subtle stars/dust. The original HTML has no explicit particles, only the field,
-        -- so these remain intentionally sparse and dim.
-        local starData = {
-            {22, 34, 2}, {61, 94, 1}, {250, 46, 2}, {273, 116, 1},
-            {36, 245, 1}, {265, 254, 2}, {145, 24, 1}, {194, 274, 1},
-        }
+        -- Four distant stars from the SVG.
         local stars = {}
+        local starData = {
+            {30, 46, 2.2, 0.2}, {190, 34, 2.6, 1.1},
+            {26, 176, 2.0, 1.8}, {196, 182, 2.4, 0.7},
+        }
         for i, d in ipairs(starData) do
-            local st = frame(loadingLayer, "Star" .. i, d[1], d[2], d[3], d[3], Color3.fromRGB(245, 251, 255), 1)
-            st.BackgroundTransparency = 0.68 + (i % 3) * 0.08
-            st.ZIndex = 101
-            stars[#stars + 1] = {object = st, phase = i * 0.71}
+            local star = circle(symbol, "Star" .. i, d[3], STAR, 0.25, 106)
+            star.Position = UDim2.fromOffset(d[1], d[2])
+            stars[#stars + 1] = {object = star, phase = d[4]}
         end
 
-        local function dashVisible(distance, pattern, total)
-            local p = distance % total
-            local cursor = 0
-            for i = 1, #pattern do
-                local length = pattern[i]
-                if p >= cursor and p < cursor + length then
-                    return (i % 2) == 1
-                end
-                cursor = cursor + length
+        -- Everything below this point belongs to the breathing SVG "system" group.
+        local system = frame(symbol, "System", 0, 0, 220, 220, BLACK, 0)
+        system.BackgroundTransparency = 1
+        system.ZIndex = 107
+        local systemScale = make("UIScale", system, {Scale = 1})
+
+        -- Accretion disk: many small curved dashes approximate the SVG stroke-dasharray.
+        local diskGroup = frame(system, "AccretionDisk", 0, 0, 220, 220, BLACK, 0)
+        diskGroup.BackgroundTransparency = 1
+        diskGroup.ZIndex = 108
+        local diskDashes = {}
+        local diskCount = 34
+        for i = 1, diskCount do
+            local t = ((i - 1) / diskCount) * math.pi * 2
+            local rx, ry = 98, 24
+            local px = 110 + math.cos(t) * rx
+            local py = 110 + math.sin(t) * ry
+            local dx = -rx * math.sin(t)
+            local dy = ry * math.cos(t)
+            local tangent = math.deg(math.atan2(dy, dx))
+            local col
+            local normalized = (math.cos(t) + 1) * 0.5
+            if normalized > 0.70 then
+                col = PURPLE_DARK
+            elseif normalized > 0.43 then
+                col = MAGENTA
+            else
+                col = WHITE
             end
-            return false
+            local dash = line(diskGroup, "Dash" .. i, px, py, 10 + (i % 3) * 2, 6, col, 0.28, 108, tangent)
+            dash.BackgroundTransparency = 0.34
+            diskDashes[#diskDashes + 1] = dash
+        end
+        diskGroup.Rotation = -7
+
+        -- Lensed far-side arc above the horizon.
+        local lensGroup = frame(system, "LensArc", 0, 0, 220, 220, BLACK, 0)
+        lensGroup.BackgroundTransparency = 1
+        lensGroup.ZIndex = 110
+        local lensSegments = {}
+        local lensCount = 22
+        for i = 1, lensCount do
+            local t1 = math.pi + ((i - 1) / lensCount) * math.pi
+            local t2 = math.pi + (i / lensCount) * math.pi
+            local rx, ry = 46, 15
+            local x1, y1 = 110 + math.cos(t1) * rx, 78 + math.sin(t1) * ry
+            local x2, y2 = 110 + math.cos(t2) * rx, 78 + math.sin(t2) * ry
+            local dx, dy = x2 - x1, y2 - y1
+            local len = math.sqrt(dx * dx + dy * dy)
+            local angle = math.deg(math.atan2(dy, dx))
+            local mix = i / lensCount
+            local col = mix < 0.5 and WHITE or PURPLE
+            local seg = line(lensGroup, "Lens" .. i, (x1 + x2) * 0.5, (y1 + y2) * 0.5, len + 1, 2.6, col, 0.30 + mix * 0.25, 110, angle)
+            lensSegments[#lensSegments + 1] = seg
         end
 
-        local function buildArc(name, radius, thickness, color, pattern, z)
-            local group = make("Frame", loader, {
-                Name = name, Position = UDim2.fromScale(0, 0), Size = UDim2.fromOffset(300, 300),
-                BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = z,
-            })
-            local segments = {}
-            local count = 120
-            local circumference = 2 * math.pi * radius
-            local totalPattern = 0
-            for _, value in ipairs(pattern) do totalPattern = totalPattern + value end
-            local step = circumference / count
-            for i = 0, count - 1 do
-                local distance = i * step
-                if dashVisible(distance, pattern, totalPattern) then
-                    local angle = (distance / radius) - math.pi * 0.5
-                    local x = 150 + math.cos(angle) * radius
-                    local y = 150 + math.sin(angle) * radius
-                    local seg = frame(group, "S" .. tostring(i), 0, 0, math.max(2, step * 0.92), thickness, color, math.max(1, thickness / 2))
-                    seg.AnchorPoint = Vector2.new(0.5, 0.5)
-                    seg.Position = UDim2.fromOffset(x, y)
-                    seg.Rotation = math.deg(angle) + 90
-                    seg.BackgroundTransparency = 0.22
-                    seg.ZIndex = z
-                    segments[#segments + 1] = {object = seg, phase = i / count}
-                end
-            end
-            return {group = group, segments = segments, radius = radius}
+        -- True black event horizon.
+        local eventHorizon = circle(system, "EventHorizon", 100, BLACK, 0, 112)
+
+        -- Photon ring: bright cream/white approaching side and purple receding side.
+        local photonGroup = frame(system, "PhotonRing", 0, 0, 220, 220, BLACK, 0)
+        photonGroup.BackgroundTransparency = 1
+        photonGroup.ZIndex = 113
+        local photonSegments = {}
+        local photonCount = 44
+        for i = 1, photonCount do
+            local t = ((i - 1) / photonCount) * math.pi * 2
+            local r = 51
+            local px = 110 + math.cos(t) * r
+            local py = 110 + math.sin(t) * r
+            local tangent = math.deg(t + math.pi * 0.5)
+            local col = math.sin(t) < 0 and WHITE or PURPLE
+            local seg = line(photonGroup, "Photon" .. i, px, py, 4.4, 1.8, col, math.sin(t) < 0 and 0.04 or 0.32, 113, tangent)
+            photonSegments[#photonSegments + 1] = seg
         end
 
-        local WHITE = Color3.fromRGB(245, 251, 255)
-        local BLUE = Color3.fromRGB(108, 168, 255)
-        local BLUE_DARK = Color3.fromRGB(41, 79, 135)
+        -- Small moving glow at the singularity.
+        local coreBloom = circle(system, "CoreBloom", 78, Color3.fromRGB(42, 16, 80), 0.72, 114)
+        local coreBloom2 = circle(system, "CoreBloom2", 66, Color3.fromRGB(123, 47, 247), 0.82, 115)
+        local core = circle(system, "Core", 100, BLACK, 0, 116)
 
-        -- Exact SVG circle geometry / dash arrays from Oblivion_Loading(2).html.
-        local arcOne = buildArc("ArcOne", 103, 2, WHITE, {86, 34, 18, 52}, 104)
-        local arcTwo = buildArc("ArcTwo", 76, 2, BLUE, {54, 46, 90, 35}, 103)
-        local arcThree = buildArc("ArcThree", 125, 1, BLUE, {110, 28, 28, 60}, 102)
+        local loadStatus = safeText(loadCard, "Status", "OPENING THE VOID...", 0, 286, 326, 18, 9, C.bright, Enum.Font.GothamBold)
+        loadStatus.TextXAlignment = Enum.TextXAlignment.Center
+        loadStatus.ZIndex = 121
 
-        -- HTML .core-field radial pulse approximation.
-        local coreField = makeCenteredCircle(loader, "CoreField", 88, BLUE, 0.965, 105)
-        local coreFieldInner = makeCenteredCircle(loader, "CoreFieldInner", 62, BLUE_DARK, 0.94, 105)
+        local loadRail = frame(loadCard, "Rail", 39, 318, 248, 4, Color3.fromRGB(27, 16, 44), 2)
+        loadRail.ZIndex = 121
+        local loadFill = frame(loadRail, "Fill", 0, 0, 0, 4, Color3.fromRGB(123, 47, 247), 2)
+        loadFill.ZIndex = 122
+        local loadPercent = safeText(loadCard, "Percent", "0%", 0, 330, 326, 16, 8, C.dim, Enum.Font.GothamMedium)
+        loadPercent.TextXAlignment = Enum.TextXAlignment.Center
+        loadPercent.ZIndex = 121
 
-        -- HTML .core and its expanding ring.
-        local core = makeCenteredCircle(loader, "Core", 7, WHITE, 0, 107)
-        core.BackgroundTransparency = 0
-        local coreRing = makeCenteredCircle(loader, "CoreRing", 7, WHITE, 1, 106)
-        local coreRingStroke = stroke(coreRing, WHITE, 0.50, 1)
-
-        -- HTML label/footer.
-        local title = safeText(loadingLayer, "Title", "OBLIVION...", 0, 0, 300, 18, 10, WHITE, Enum.Font.GothamBold)
-        title.AnchorPoint = Vector2.new(0.5, 0)
-        title.Position = UDim2.new(0.5, 0, 0.5, 132)
-        title.TextXAlignment = Enum.TextXAlignment.Center
-        title.TextYAlignment = Enum.TextYAlignment.Center
-        title.ZIndex = 110
-        title.TextTransparency = 0.10
-
-        local sub = safeText(loadingLayer, "Sub", "GRAVITY FIELD SYNCHRONIZING", 0, 0, 300, 16, 8, Color3.fromRGB(108, 168, 255), Enum.Font.GothamMedium)
-        sub.AnchorPoint = Vector2.new(0.5, 0)
-        sub.Position = UDim2.new(0.5, 0, 0.5, 158)
-        sub.TextXAlignment = Enum.TextXAlignment.Center
-        sub.ZIndex = 110
-        sub.TextTransparency = 0.42
-
-        local footer = safeText(loadingLayer, "Footer", "SYSTEM INITIALIZATION // 0x0000", 0, 0, 420, 14, 7, Color3.fromRGB(113, 128, 150), Enum.Font.GothamMedium)
-        footer.AnchorPoint = Vector2.new(0.5, 1)
-        footer.Position = UDim2.new(0.5, 0, 1, -22)
-        footer.TextXAlignment = Enum.TextXAlignment.Center
-        footer.ZIndex = 110
-        footer.TextTransparency = 0.66
+        local loadHint = safeText(loadCard, "Hint", System.theme == "Oblivion" and "OBLIVION // GRAVITY-BOUND INTERFACE" or "VOID NEXUS // GALACTIC LINK", 0, 365, 326, 14, 7, C.dim, Enum.Font.GothamMedium)
+        loadHint.TextXAlignment = Enum.TextXAlignment.Center
+        loadHint.ZIndex = 121
 
         local loadStart = os.clock()
-        local loadDuration = 3.0
+        local loadDuration = 2.65
+        local loadStages = System.theme == "Oblivion" and {
+            {0.00, "INITIALIZING FIELD..."},
+            {0.18, "CALIBRATING GRAVITY..."},
+            {0.37, "WARPING THE PERIMETER..."},
+            {0.56, "SYNCHRONIZING CORE..."},
+            {0.75, "STABILIZING OBLIVION FIELD..."},
+            {0.90, "OBLIVION V1 ONLINE"},
+        } or {
+            {0.00, "OPENING THE VOID..."},
+            {0.18, "LOCATING SINGULARITY..."},
+            {0.37, "IGNITING ACCRETION DISK..."},
+            {0.56, "BENDING SPACETIME..."},
+            {0.75, "SYNCHRONIZING ORBITAL RINGS..."},
+            {0.90, System.theme == "Blackhole" and "BLACKHOLE V1 ONLINE" or "VOID NEXUS ONLINE"},
+        }
+
         local loadAnimConn
-        local loaderFinished = false
-
-        local function finishLoader(force)
-            if loaderFinished then return end
-            loaderFinished = true
-            if loadAnimConn then pcall(function() loadAnimConn:Disconnect() end); loadAnimConn = nil end
-            if not State.alive then return end
-
-            -- The requested loading window is exactly 3 seconds. Reveal the UI immediately
-            -- after that duration rather than adding another hidden loading delay.
-            task.delay(0.02, function()
-                if not State.alive then return end
-                if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled = false end
-                if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end
-                holder.Visible = true
-                root.Enabled = true
-
-                local bootScale = make("UIScale", holder, {Scale = 0.94})
-                local bootStroke = panel:FindFirstChildOfClass("UIStroke")
-                TweenService:Create(bootScale, TweenInfo.new(0.48, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Scale = 1}):Play()
-                if bootStroke then
-                    bootStroke.Transparency = 1
-                    TweenService:Create(bootStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 0.28}):Play()
-                end
-                if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end
-            end)
-        end
-
         loadAnimConn = connect(RunService.RenderStepped, function()
             if not State.alive or not loadingLayer.Parent then
                 if loadAnimConn then loadAnimConn:Disconnect() end
                 return
             end
 
-            local okFrame, frameErr = pcall(function()
-                local elapsed = os.clock() - loadStart
-                local progress = math.clamp(elapsed / loadDuration, 0, 1)
+            local elapsed = os.clock() - loadStart
+            local progress = math.clamp(elapsed / loadDuration, 0, 1)
 
-                -- .space field animation: 5s ease-in-out, opposite phase.
-                local fieldPulse = (math.sin((elapsed / 5) * math.pi * 2 - math.pi / 2) + 1) * 0.5
-                local fieldScale = 0.82 + fieldPulse * 0.26
-                field1.Size = UDim2.fromOffset(260 * fieldScale, 260 * fieldScale)
-                field2.Size = UDim2.fromOffset(430 * fieldScale, 430 * fieldScale)
-                field1Stroke.Transparency = 0.97 - fieldPulse * 0.035
-                field2Stroke.Transparency = 0.97 - ((1 - fieldPulse) * 0.035)
+            -- SVG .system breathe animation.
+            local breathe = (math.sin(elapsed * math.pi * 2 / 6.5) + 1) * 0.5
+            systemScale.Scale = 1 + breathe * 0.025
 
-                -- Three SVG arcs: preserve the original collapse keyframe rhythm.
-                local function arcState(elapsedTime, duration, phase, scaleA, scaleB, scaleC, opacityA, opacityB, opacityC)
-                    local q = (elapsedTime / duration + phase) % 1
-                    local rot, scale, opacity
-                    if q < 0.18 then
-                        local u = q / 0.18
-                        rot = 0 + 72 * u; scale = 1 + (scaleB - 1) * u; opacity = opacityA + (opacityB - opacityA) * u
-                    elseif q < 0.42 then
-                        local u = (q - 0.18) / 0.24
-                        rot = 72 + 96 * u; scale = scaleB + (scaleC - scaleB) * u; opacity = opacityB + (1 - opacityB) * u
-                    elseif q < 0.60 then
-                        local u = (q - 0.42) / 0.18
-                        rot = 168 + 77 * u; scale = scaleC + (0.78 - scaleC) * u; opacity = 1 + (0.65 - 1) * u
-                    elseif q < 0.82 then
-                        local u = (q - 0.60) / 0.22
-                        rot = 245 + 75 * u; scale = 0.78 + (1.08 - 0.78) * u; opacity = 0.65 + (0.35 - 0.65) * u
-                    else
-                        local u = (q - 0.82) / 0.18
-                        rot = 320 + 40 * u; scale = 1.08 + (1 - 1.08) * u; opacity = 0.35
-                    end
-                    return rot, scale, opacity
-                end
+            -- SVG bloomPulse animation.
+            local bloomPulse = (math.sin(elapsed * math.pi * 2 / 7) + 1) * 0.5
+            bloomOuter.BackgroundTransparency = 0.95 - bloomPulse * 0.08
+            bloomMid.BackgroundTransparency = 0.88 - bloomPulse * 0.08
+            bloomInner.BackgroundTransparency = 0.76 - bloomPulse * 0.08
 
-                local r1, s1, o1 = arcState(elapsed, 2.8, 0, 0.86, 0.53, 0.78, 0.35, 0.80, 1.0)
-                arcOne.group.Rotation = r1
-                arcOne.group.Size = UDim2.fromOffset(300 * s1, 300 * s1)
-                arcOne.group.Position = UDim2.new(0.5, 0, 0.5, 0)
-                arcOne.group.AnchorPoint = Vector2.new(0.5, 0.5)
-                for _, info in ipairs(arcOne.segments) do info.object.BackgroundTransparency = math.clamp(1 - o1 * (0.78 + 0.22 * math.sin(elapsed * 2 + info.phase * 7)), 0.05, 0.82) end
-
-                local q2 = (elapsed / 3.5) % 1
-                local r2, s2, o2
-                if q2 < 0.28 then
-                    local u = q2 / 0.28; r2 = 90 - 78*u; s2 = 1.05 - 0.33*u; o2 = 0.18 + 0.37*u
-                elseif q2 < 0.52 then
-                    local u = (q2-0.28)/0.24; r2 = 12 - 87*u; s2 = 0.72 - 0.27*u; o2 = 0.55 + 0.30*u
-                elseif q2 < 0.76 then
-                    local u = (q2-0.52)/0.24; r2 = -75 - 85*u; s2 = 0.45 + 0.37*u; o2 = 0.85 - 0.40*u
-                else
-                    local u = (q2-0.76)/0.24; r2 = -160 - 110*u; s2 = 0.82 + 0.23*u; o2 = 0.45 - 0.27*u
-                end
-                arcTwo.group.Rotation = r2
-                arcTwo.group.Size = UDim2.fromOffset(300 * s2, 300 * s2)
-                arcTwo.group.Position = UDim2.new(0.5, 0, 0.5, 0)
-                arcTwo.group.AnchorPoint = Vector2.new(0.5, 0.5)
-                for _, info in ipairs(arcTwo.segments) do info.object.BackgroundTransparency = math.clamp(1 - o2 * (0.76 + 0.24 * math.sin(elapsed * 1.7 + info.phase * 9)), 0.08, 0.92) end
-
-                local q3 = (elapsed / 4.2) % 1
-                local r3, s3, o3
-                if q3 < 0.32 then
-                    local u = q3 / 0.32; r3 = 180 - 88*u; s3 = 1 - 0.18*u; o3 = 0.10 + 0.18*u
-                elseif q3 < 0.55 then
-                    local u = (q3-0.32)/0.23; r3 = 92 - 77*u; s3 = 0.82 - 0.26*u; o3 = 0.28 + 0.20*u
-                elseif q3 < 0.78 then
-                    local u = (q3-0.55)/0.23; r3 = 15 - 87*u; s3 = 0.56 + 0.34*u; o3 = 0.48 - 0.24*u
-                else
-                    local u = (q3-0.78)/0.22; r3 = -72 - 108*u; s3 = 0.90 + 0.10*u; o3 = 0.24 - 0.14*u
-                end
-                arcThree.group.Rotation = r3
-                arcThree.group.Size = UDim2.fromOffset(300 * s3, 300 * s3)
-                arcThree.group.Position = UDim2.new(0.5, 0, 0.5, 0)
-                arcThree.group.AnchorPoint = Vector2.new(0.5, 0.5)
-                for _, info in ipairs(arcThree.segments) do info.object.BackgroundTransparency = math.clamp(1 - o3 * (0.80 + 0.20 * math.sin(elapsed * 1.3 + info.phase * 5)), 0.10, 0.97) end
-
-                -- coreField / core / coreRing timings copied from the HTML.
-                local corePulse = (math.sin((elapsed / 1.45) * math.pi * 2 - math.pi * 0.45) + 1) * 0.5
-                local coreScale = 0.72 + corePulse * 0.63
-                core.Size = UDim2.fromOffset(7 * coreScale, 7 * coreScale)
-                coreField.Size = UDim2.fromOffset(88 * (0.72 + ((math.sin((elapsed / 2.2) * math.pi * 2 - math.pi/2) + 1) * 0.5) * 0.43), 88 * (0.72 + ((math.sin((elapsed / 2.2) * math.pi * 2 - math.pi/2) + 1) * 0.5) * 0.43))
-                coreFieldInner.Size = UDim2.fromOffset(62 + corePulse * 20, 62 + corePulse * 20)
-                core.BackgroundTransparency = 0.28 - corePulse * 0.28
-                coreRing.Size = UDim2.fromOffset(7 * (0.25 + corePulse * 1.55), 7 * (0.25 + corePulse * 1.55))
-                coreRingStroke.Transparency = 0.45 + corePulse * 0.50
-
-                -- HTML dots interval: 420ms, 0-3 dots.
-                local dotCount = math.floor((elapsed / 0.42) % 4)
-                title.Text = "OBLIVION" .. string.rep(".", dotCount)
-
-                -- Progress is not part of the HTML; this remains a tiny hidden timing aid only.
-                -- The visible loader is intentionally just the original Oblivion composition.
-                if progress >= 1 then
-                    finishLoader(false)
-                end
-            end)
-
-            if not okFrame then
-                warn("AutoSkills Oblivion loader frame error: " .. tostring(frameErr))
-                finishLoader(true)
+            -- SVG twinkle animation, with the original delays preserved.
+            for _, info in ipairs(stars) do
+                local pulse = (math.sin((elapsed + info.phase) * math.pi * 2 / 3) + 1) * 0.5
+                info.object.BackgroundTransparency = 0.88 - pulse * 0.68
             end
-        end)
 
-        -- Exact requested duration: 3 seconds, with a small safety watchdog.
-        task.delay(loadDuration + 1.5, function()
-            if State.alive and not loaderFinished and loadingLayer and loadingLayer.Parent then
-                warn("AutoSkills Oblivion loader watchdog: forcing UI reveal after timeout.")
-                finishLoader(true)
+            -- SVG flow approximation: the dashed accretion disk slowly advances around the horizon.
+            diskGroup.Rotation = -7 + elapsed * (360 / 5.5)
+            for i, dash in ipairs(diskDashes) do
+                local phase = ((i - 1) / diskCount) * math.pi * 2
+                local pulse = (math.sin(elapsed * 2.0 + phase) + 1) * 0.5
+                dash.BackgroundTransparency = math.clamp(0.62 - pulse * 0.30, 0.22, 0.68)
+            end
+
+            -- Lens arc shimmer.
+            local arcPulse = (math.sin(elapsed * math.pi * 2 / 4.2) + 1) * 0.5
+            for i, seg in ipairs(lensSegments) do
+                local p = (i - 1) / math.max(1, #lensSegments - 1)
+                seg.BackgroundTransparency = math.clamp(0.52 - arcPulse * 0.30 + p * 0.12, 0.14, 0.68)
+            end
+
+            -- Photon-ring flicker/shimmer.
+            local ringPulse = (math.sin(elapsed * math.pi * 2 / 3.4) + 1) * 0.5
+            for i, seg in ipairs(photonSegments) do
+                local p = (i - 1) / photonCount
+                local wave = (math.sin(elapsed * 3.0 + p * math.pi * 4) + 1) * 0.5
+                seg.BackgroundTransparency = math.clamp(0.38 - ringPulse * 0.28 - wave * 0.12, 0.03, 0.58)
+            end
+
+            -- Soft singularity breathing.
+            local corePulse = (math.sin(elapsed * math.pi * 2 / 3.8) + 1) * 0.5
+            coreBloom.BackgroundTransparency = 0.82 - corePulse * 0.16
+            coreBloom2.BackgroundTransparency = 0.88 - corePulse * 0.16
+
+            -- Loading text / progress.
+            loadStatus.Text = loadStages[1][2]
+            for i = #loadStages, 1, -1 do
+                if progress >= loadStages[i][1] then
+                    loadStatus.Text = loadStages[i][2]
+                    break
+                end
+            end
+            loadFill.Size = UDim2.new(progress, 0, 1, 0)
+            loadPercent.Text = string.format("%d%%", math.floor(progress * 100 + 0.5))
+
+            if progress >= 1 then
+                loadAnimConn:Disconnect()
+                loadStatus.Text = System.theme == "Blackhole" and "BLACKHOLE V1 ONLINE" or System.theme == "Oblivion" and "OBLIVION V1 ONLINE" or "VOID NEXUS ONLINE"
+                task.wait(0.10)
+                if not State.alive then return end
+
+                TweenService:Create(loadScale, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.78}):Play()
+                TweenService:Create(loadingLayer, TweenInfo.new(0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
+
+                task.delay(0.36, function()
+                    if not State.alive then return end
+                    if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled = false end
+                    if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end
+
+                    holder.Visible = true
+                    root.Enabled = true
+
+                    local bootScale = make("UIScale", holder, {Scale = 0.94})
+                    local bootStroke = panel:FindFirstChildOfClass("UIStroke")
+                    TweenService:Create(bootScale, TweenInfo.new(0.48, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Scale = 1}):Play()
+                    if bootStroke then
+                        bootStroke.Transparency = 1
+                        TweenService:Create(bootStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 0.28}):Play()
+                    end
+                    if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end
+                end)
             end
         end)
     end)
@@ -6172,14 +6313,7 @@ if type(BUILT_IN_BOSS_SEED_CODE) == "string"
     end
 end
 
-task.delay(0.25, function()
-    if State.alive then
-        task.spawn(function()
-            pcall(function() Farm.scan(true) end)
-            pcall(render)
-        end)
-    end
-end)
+Farm.scan(true)
 
 if Settings.StaticMapScan then
     task.delay(0.8, function()

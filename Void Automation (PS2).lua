@@ -3574,6 +3574,7 @@ local C = {
     green = Color3.fromRGB(125, 255, 176),
     amber = Color3.fromRGB(255, 199, 96),
     red = Color3.fromRGB(255, 103, 127),
+    white = Color3.fromRGB(255, 255, 255),
     -- Compatibility aliases used by the ESP/older render paths.
     accent = Color3.fromRGB(168, 85, 247),
     bright = Color3.fromRGB(143, 227, 255),

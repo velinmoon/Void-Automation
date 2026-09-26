@@ -682,130 +682,6 @@ do
     local function safeText(value,limit)
         return short(value,limit) and not value:find("[%z\1-\31\127]")
     end
-
-    -- Shared boss-location sync: local saves remain intact, while discovered boss
-    -- locations are also merged into a public per-place store so other users of
-    -- the same script can receive them without changing the GitHub file.
-    Farm.remoteStatus, Farm.remoteReady, Farm.remoteSaving = "Not started", false, false
-    Farm.remoteDirty, Farm.remoteNextPush = false, 0
-    local remoteNamespace = ("voidnexus_bosses_v2_%s"):format(place):gsub("[^%w_%-]", "")
-    local remoteURL = "https://mantledb.sh/v2/" .. remoteNamespace .. "/bosses"
-    local function remoteRequester()
-        local candidates = {
-            type(environment.request)=="function" and environment.request or nil,
-            type(environment.http_request)=="function" and environment.http_request or nil,
-            type(_G.request)=="function" and _G.request or nil,
-            type(_G.http_request)=="function" and _G.http_request or nil,
-            type(syn)=="table" and type(syn.request)=="function" and syn.request or nil,
-            type(http)=="table" and type(http.request)=="function" and http.request or nil,
-        }
-        for _, fn in ipairs(candidates) do if fn then return fn end end
-    end
-    local function remoteCall(method, body)
-        local fn=remoteRequester()
-        if not fn then return nil,"executor HTTP request API unavailable" end
-        local payload={
-            Url=remoteURL, Method=method,
-            Headers={ ["Content-Type"]="application/json", ["Accept"]="application/json" },
-        }
-        if body then payload.Body=body end
-        local ok,response=pcall(fn,payload)
-        if not ok or type(response)~="table" then return nil,tostring(response) end
-        local status=tonumber(response.StatusCode or response.Status or response.status_code or 200) or 200
-        local text=response.Body or response.body or response.ResponseBody or ""
-        if status<200 or status>=300 then return nil,"HTTP "..tostring(status).." "..tostring(text):sub(1,160) end
-        return text
-    end
-    local function remoteBossKey(entry)
-        local p=entry and entry.spawn
-        if not p or not finite(p.X) or not finite(p.Y) or not finite(p.Z) then return nil end
-        local name=Farm.bossKey(entry.name)
-        local rx=math.floor(p.X*10+0.5)/10
-        local ry=math.floor(p.Y*10+0.5)/10
-        local rz=math.floor(p.Z*10+0.5)/10
-        return "b_"..checksum(name.."|"..rx.."|"..ry.."|"..rz)
-    end
-    local function remoteMergeEntry(key,data)
-        if type(key)~="string" or type(data)~="table" then return false end
-        if not safeText(data.name,200) or not finite(data.maximum) or not attackHealthAllowed(data.maximum) then return false end
-        local spawn=unpackPosition(data.spawn)
-        if not spawn then return false end
-        for _,current in pairs(Farm.catalog) do
-            if current.spawn and Farm.bossKey(current.name)==Farm.bossKey(data.name)
-                and (current.spawn-spawn).Magnitude<384 then return false end
-        end
-        local path="@remote:"..key
-        if Farm.catalog[path] then return false end
-        Farm.catalog[path]={path=path,name=data.name,id="Shared location",spawn=spawn,position=spawn,maximum=data.maximum,rigPath=nil}
-        return true
-    end
-    function Farm.remotePull()
-        if Farm.remotePulling then return false end
-        Farm.remotePulling=true
-        local body,err=remoteCall("GET")
-        if not body then
-            Farm.remoteStatus="Unavailable: "..tostring(err)
-            Farm.remotePulling=false
-            return false
-        end
-        local ok,data=pcall(function() return HTTP:JSONDecode(body) end)
-        if not ok or type(data)~="table" then
-            Farm.remoteStatus="Invalid shared data"
-            Farm.remotePulling=false
-            return false
-        end
-        local added=0
-        for key,entry in pairs(data) do
-            if remoteMergeEntry(key,entry) then added=added+1 end
-        end
-        Farm.remoteReady=true
-        Farm.remoteStatus=string.format("Shared sync online | +%d remote boss locations",added)
-        Farm.remotePulling=false
-        if added>0 then Farm.markDirty() end
-        return true
-    end
-    function Farm.remotePush(force)
-        if Farm.remoteSaving then return false end
-        if not force and not Farm.remoteDirty then return false end
-        local now=os.clock()
-        if not force and now<Farm.remoteNextPush then return false end
-        local patch={}
-        for _,entry in pairs(Farm.catalog) do
-            if entry.spawn and attackHealthAllowed(entry.maximum) then
-                local key=remoteBossKey(entry)
-                if key then
-                    patch[key]={name=entry.name,maximum=entry.maximum,spawn=pack(entry.spawn)}
-                end
-            end
-        end
-        if next(patch)==nil then Farm.remoteDirty=false;return false end
-        local encoded=HTTP:JSONEncode(patch)
-        if #encoded>60000 then
-            Farm.remoteStatus="Shared sync skipped: payload too large"
-            return false
-        end
-        Farm.remoteSaving=true
-        local body,err=remoteCall("PATCH",encoded)
-        Farm.remoteSaving=false
-        Farm.remoteNextPush=now+12
-        if body then
-            Farm.remoteDirty=false
-            Farm.remoteStatus="Shared sync saved"
-            return true
-        end
-        Farm.remoteStatus="Shared sync failed: "..tostring(err)
-        return false
-    end
-    function Farm.remoteSchedule()
-        Farm.remoteDirty=true
-        if Farm.remoteNextPush==0 or os.clock()>=Farm.remoteNextPush then
-            task.spawn(function()
-                task.wait(0.4)
-                if State.alive then pcall(Farm.remotePush,false) end
-            end)
-        end
-    end
-
     function Farm.exportCode()
         if not okHTTP then return nil,"JSON service unavailable" end
         Farm.scan(true)
@@ -928,7 +804,6 @@ do
         end
         table.sort(Farm.remembered,function(a,b) return a.path<b.path end)
         Farm.saveConfig(false)
-        Farm.remoteSchedule()
     end
 end
 
@@ -942,7 +817,7 @@ do
         if not character or not humanoid or not rootPart or not targetRoot then return end
         if not character.Parent or not targetRoot.Parent then return end
         humanoid.AutoRotate = false
-        local depth = math.clamp(Settings.FarmDepth, 6, 7)
+        local depth = math.clamp(Settings.FarmDepth, 6, 10)
         local destination = targetRoot.Position - Vector3.new(0, depth, 0)
         local flat = Vector3.new(targetRoot.Position.X - destination.X, 0, targetRoot.Position.Z - destination.Z)
         local yaw = 0
@@ -2300,7 +2175,7 @@ do
                 if Farm.travelKey ~= entry.path then
                     Farm.travelKey, Farm.travelAt = entry.path, os.clock()
                     Farm.travelHealth = humanoid.Health
-                    Farm.travelDestination = location - Vector3.new(0, math.clamp(Settings.FarmDepth,6,7),0)
+                    Farm.travelDestination = location - Vector3.new(0, math.clamp(Settings.FarmDepth,6,10),0)
                     Farm.nextScan = 0
                     if Settings.AutoBoss then
                         Farm.autoArrivedAt = os.clock()
@@ -2506,7 +2381,7 @@ do
             if pose.character and pose.character.Parent and pose.rootPart and pose.rootPart.Parent
                 and pose.targetRoot and pose.targetRoot.Parent then
 
-                local depth = math.clamp(Settings.FarmDepth, 6, 7)
+                local depth = math.clamp(Settings.FarmDepth, 6, 10)
                 local desiredPosition = pose.targetRoot.Position - Vector3.new(0, depth, 0)
                 local upright = math.abs(pose.rootPart.CFrame.UpVector.Y) > 0.55
                 local displaced = (pose.rootPart.Position - desiredPosition).Magnitude > 0.45
@@ -4724,13 +4599,14 @@ UI.healthDetail.Visible = false
 
 local farmPage = newPage("Farm")
 farmBody = farmPage
-pageHead(farmPage, "farm", "FARM ROUTE", "5 NODES")
+pageHead(farmPage, "farm", "FARM ROUTE", "6 NODES")
 makeRow(farmPage, 48, "Auto Farm", "Selects eligible 3000-3200 HP targets", function() return Settings.FarmEnabled end, Farm.setEnabled)
 makeRow(farmPage, 108, "Auto Boss", "Routes through saved boss locations", function() return Settings.AutoBoss end, Farm.setAutoBoss)
 makeRow(farmPage, 168, "Auto Collect", "Loots boss drops and world rewards", function() return Settings.FarmAutoLoot end, Farm.setLoot)
 makeRow(farmPage, 228, "Auto M1", "Uses the inventory-safe M1 path", function() return Settings.FarmM1 end, function(v) Settings.FarmM1 = v; Farm.step() end)
 makeSlider(farmPage, 288, "Boss Delay", function() return Settings.BossNoAttackTimeout end, function(v) Settings.BossNoAttackTimeout = math.max(1, v) end, 1, 10, "%.1fs")
-local farmHint = safeText(farmPage, "Hint", "Auto Boss keeps the same-boss respawn route when possible.", 16, 372, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+makeSlider(farmPage, 372, "Boss Distance", function() return Settings.FarmDepth end, function(v) Settings.FarmDepth = math.clamp(math.floor(v + 0.5), 6, 10); Farm.step() end, 6, 10, "%.0f studs")
+local farmHint = safeText(farmPage, "Hint", "Boss Distance controls how many studs below the boss you stay while farming.", 16, 456, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
 farmHint.TextXAlignment = Enum.TextXAlignment.Center
 UI.farmHint = farmHint
 UI.farmCount = safeText(farmPage, "Count", "0", 0, 0, 1, 1, 1, C.dim)
@@ -5930,12 +5806,6 @@ task.spawn(function()
         task.wait(0.1)
     end
 end)
-task.spawn(function()
-    while State.alive do
-        if Farm.remoteDirty then pcall(function() Farm.remotePush(false) end) end
-        task.wait(8)
-    end
-end)
 
 if type(BUILT_IN_BOSS_SEED_CODE) == "string"
     and BUILT_IN_BOSS_SEED_CODE:sub(1, 7) == "ASLOC1:" then
@@ -5947,7 +5817,6 @@ if type(BUILT_IN_BOSS_SEED_CODE) == "string"
     end
 end
 
-pcall(function() Farm.remotePull() end)
 Farm.scan(true)
 
 if Settings.StaticMapScan then
@@ -5962,9 +5831,6 @@ if Settings.BossFirstDiscovery then
     Farm.bootDiscovery()
 end
 
-task.delay(2.0, function()
-    if State.alive and not Farm.remoteReady then pcall(function() Farm.remotePull(); Farm.scan(true); render() end) end
-end)
 task.delay(1.5, function()
     if State.alive and System and System.writeFriendReady then
         System.writeFriendReady()

@@ -1,6 +1,3 @@
-loadstring([=====[
--- AutoSkills / Void bootstrap (compact build)
-local __AUTOSKILLS_SOURCE = [====[
 
 local Settings = {
     BossAutoSave = true, BossFirstDiscovery = false, BossGridSearch = true,
@@ -11,7 +8,7 @@ local Settings = {
     StaticMapScan = true, StaticScanRange = 500000,
     AutoRejoin = true, AutoExecute = true,
     PrivateServerMap = "Ouwigahara", PrivateJoinHold = 1.35,
-    NoClip = true, FlyEnabled = false, FlySpeed = 85,
+    NoClip = false, FlyEnabled = false, FlySpeed = 85,
     SpeedEnabled = false, WalkSpeed = 32,
     ToggleKey = Enum.KeyCode.F6,
     StopKey = Enum.KeyCode.F7,
@@ -490,15 +487,16 @@ do
 end
 
 local System
-local BUILT_IN_BOSS_SEED_CODE = "__AUTOSKILLS_BOSS_SEED_PLACEHOLDER__"
+local BUILT_IN_BOSS_SEED_CODE = "ASLOC1:c045d752:eyJtYXJrZXJzIjpbXSwiYm9zc2VzIjpbeyJwYXRoIjoiRGVicmVlLlJlZ2lvbnMuQnV0dGVyZmx5IEVzdGF0ZS5TdGF0aW9uYXJ5TnBjcy5SZW4iLCJuYW1lIjoiUmVuIiwibWF4aW11bSI6MTAwLCJwb3NpdGlvbiI6Wy0xNjYyLjA3OTcxMTkxNDA2MjYsMzE0LjAwMDE1MjU4Nzg5MDYsLTEyNC43NjA1ODE5NzAyMTQ4NV0sInNwYXduIjpbLTE2NjIuMDc5NzExOTE0MDYyNiwzMTQuMDAwMTUyNTg3ODkwNiwtMTI0Ljc2MDU4MTk3MDIxNDg1XX0seyJwYXRoIjoiRGVicmVlLlJlZ2lvbnMuTWlzdGZhbGwgSGFyYm9yLlN0YXRpb25hcnlOcGNzLkVzdGF0ZSBXb3JrZXIgTmlrbyIsIm5hbWUiOiJFc3RhdGUgV29ya2VyIE5pa28iLCJtYXhpbXVtIjoxMDAsInBvc2l0aW9uIjpbMzQxLjA2NzcxODUwNTg1OTQsOTM4LjkwNDk2ODI2MTcxODgsNTgwLjU4Njk3NTA5NzY1NjNdLCJzcGF3biI6WzM0MS4wNjc3MTg1MDU4NTk0LDkzOC45MDQ5NjgyNjE3MTg4LDU4MC41ODY5NzUwOTc2NTYzXX0seyJwYXRoIjoiSHVtYW5vaWRzLkZpZ2h0aW5nIHN0YXR1ZSIsIm5hbWUiOiJGaWdodGluZyBzdGF0dWUiLCJtYXhpbXVtIjoxMDAwMDAwLCJwb3NpdGlvbiI6WzIwODIuNTI0MTY5OTIxODc1LDE1NDMuNzYwOTg2MzI4MTI1LC0yMTUuOTYyOTgyMTc3NzM0MzhdLCJzcGF3biI6WzIwODIuNTI0MTY5OTIxODc1LDE1NDMuNzYwOTg2MzI4MTI1LC0yMTUuOTYyOTgyMTc3NzM0MzhdfSx7InBhdGgiOiJIdW1hbm9pZHMuUG93ZXIgc3RhdHVlIiwibmFtZSI6IlBvd2VyIHN0YXR1ZSIsIm1heGltdW0iOjEwMDAwMDAsInBvc2l0aW9uIjpbLTY5Ny40NDEzNDUyMTQ4NDM4LDEzODYuNTQyNDgwNDY4NzUsLTE5MTQuMjg5NTUwNzgxMjVdLCJzcGF3biI6Wy02OTcuNDQxMzQ1MjE0ODQzOCwxMzg2LjU0MjQ4MDQ2ODc1LC0xOTE0LjI4OTU1MDc4MTI1XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuQnV0dGVyZmx5IEVzdGF0ZS5BY3RpdmVOcGNzLkxlc3NlciBEZW1vbi5MZXNzZXIgRGVtb24iLCJuYW1lIjoiTGVzc2VyIERlbW9uIiwibWF4aW11bSI6MjcwLCJwb3NpdGlvbiI6Wy02ODEuODkxNDc5NDkyMTg3NSwyMjQuMzEyMzc3OTI5Njg3NSwzOTUuNjY1Mzc0NzU1ODU5NF0sInNwYXduIjpbLTY4MS44OTE0Nzk0OTIxODc1LDIyNC4zMTIzNzc5Mjk2ODc1LDM5NS42NjUzNzQ3NTU4NTk0XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuRmluYWwgU2VsZWN0aW9uIFBsYWlucy5BY3RpdmVOcGNzLkZ1amlrby5GdWppa28iLCJuYW1lIjoiRnVqaWtvIiwibWF4aW11bSI6MzIwMCwicG9zaXRpb24iOlstMjQ1Ny4wMTI5Mzk0NTMxMjUsMzguMzQyMzUwMDA2MTAzNTE5LDExMTYuOTg0ODYzMjgxMjVdLCJzcGF3biI6Wy0yNDU3LjAxMjkzOTQ1MzEyNSwzOC4zNDIzNTAwMDYxMDM1MTksMTExNi45ODQ4NjMyODEyNV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLkZpbmFsIFNlbGVjdGlvbiBQbGFpbnMuQWN0aXZlTnBjcy5NaXp1bm9lIERlbW9uIFNsYXllci5NaXp1bm9lIERlbW9uIFNsYXllciIsIm5hbWUiOiJNaXp1bm9lIERlbW9uIFNsYXllciIsIm1heGltdW0iOjI3MCwicG9zaXRpb24iOlstMTgwNy4zMDAwNDg4MjgxMjUsMjkuNDk5MTEzMDgyODg1NzQzLDUxMC4zMjI0MTgyMTI4OTA2XSwic3Bhd24iOlstMTgwNy4zMDAwNDg4MjgxMjUsMjkuNDk5MTEzMDgyODg1NzQzLDUxMC4zMjI0MTgyMTI4OTA2XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLkFrYXpvLkFrYXpvIiwibmFtZSI6IkFrYXpvIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstMTEzNC41MTI2OTUzMTI1LDEzODEuMzE3MDE2NjAxNTYyNiwtMTc0NS4yMzc5MTUwMzkwNjI2XSwic3Bhd24iOlstMTEzNC41MTI2OTUzMTI1LDEzODEuMzE3MDE2NjAxNTYyNiwtMTc0NS4yMzc5MTUwMzkwNjI2XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLkRhdGFpLkRhdGFpIiwibmFtZSI6IkRhdGFpIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstMTY0LjY1MzgwODU5Mzc1LDEwNDMuNDk0NTA2ODM1OTM3NiwtMTEzOC45MzM5NTk5NjA5Mzc2XSwic3Bhd24iOlstMTY0LjY1MzgwODU5Mzc1LDEwNDMuNDk0NTA2ODM1OTM3NiwtMTEzOC45MzM5NTk5NjA5Mzc2XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLkVucnUuRW5ydSIsIm5hbWUiOiJFbnJ1IiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOls4MjIuMTk1MjUxNDY0ODQzOCw3OTYuMDgzOTIzMzM5ODQzOCw1NDMuNDE2NzQ4MDQ2ODc1XSwic3Bhd24iOls4MjIuMTk1MjUxNDY0ODQzOCw3OTYuMDgzOTIzMzM5ODQzOCw1NDMuNDE2NzQ4MDQ2ODc1XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLkdpeWVuLkdpeWVuIiwibmFtZSI6IkdpeWVuIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlszODYuNDEwNjE0MDEzNjcxOSwxMDE4LjQ5NDkzNDA4MjAzMTMsLTgzLjY0NDA1MDU5ODE0NDUzXSwic3Bhd24iOlszODYuNDEwNjE0MDEzNjcxOSwxMDE4LjQ5NDkzNDA4MjAzMTMsLTgzLjY0NDA1MDU5ODE0NDUzXX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLkd5b3JlaS5HeW9yZWkiLCJuYW1lIjoiR3lvcmVpIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlsyNTc1LjcxMzYyMzA0Njg3NSwxMDg5LjQ5NDYyODkwNjI1LC03NDIuODI1OTg4NzY5NTMxM10sInNwYXduIjpbMjU3NS43MTM2MjMwNDY4NzUsMTA4OS40OTQ2Mjg5MDYyNSwtNzQyLjgyNTk4ODc2OTUzMTNdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuR3l1dGFpLkd5dXRhaSIsIm5hbWUiOiJHeXV0YWkiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wy0yNjQuNDMzNzE1ODIwMzEyNSwxMDQ1LjczNDg2MzI4MTI1LC0xMTM3LjM2MDgzOTg0Mzc1XSwic3Bhd24iOlstMjY0LjQzMzcxNTgyMDMxMjUsMTA0NS43MzQ4NjMyODEyNSwtMTEzNy4zNjA4Mzk4NDM3NV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5JbnNlY3QgVHJhaW5lZS5JbnNlY3QgVHJhaW5lZSIsIm5hbWUiOiJJbnNlY3QgVHJhaW5lZSIsIm1heGltdW0iOjYwMCwicG9zaXRpb24iOlstMTM5Mi42NDYxMTgxNjQwNjI2LDI2NC4wMDAxMjIwNzAzMTI1LDcxLjU1NTY5NDU4MDA3ODEzXSwic3Bhd24iOlstMTM5Mi42NDYxMTgxNjQwNjI2LDI2NC4wMDAxMjIwNzAzMTI1LDcxLjU1NTY5NDU4MDA3ODEzXX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLk5lenVyYS5OZXp1cmEiLCJuYW1lIjoiTmV6dXJhIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstMTQ2Mi41NDE2MjU5NzY1NjI2LDI3Ni40NDkxMjcxOTcyNjU2LDkzNy40NDk3MDcwMzEyNV0sInNwYXduIjpbLTE0NjIuNTQxNjI1OTc2NTYyNiwyNzYuNDQ5MTI3MTk3MjY1Niw5MzcuNDQ5NzA3MDMxMjVdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuT2JhcmkuT2JhcmkiLCJuYW1lIjoiT2JhcmkiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wzc3MS40NTEwNDk4MDQ2ODc1LDExMjEuNDk0ODczMDQ2ODc1LC0xMDQ2Ljc5OTY4MjYxNzE4NzZdLCJzcGF3biI6Wzc3MS40NTEwNDk4MDQ2ODc1LDExMjEuNDk0ODczMDQ2ODc1LC0xMDQ2Ljc5OTY4MjYxNzE4NzZdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuUmVhcGVyLlJlYXBlciIsIm5hbWUiOiJSZWFwZXIiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wzk3LjUzMDMxOTIxMzg2NzE5LDEwNDUuNDk5NTExNzE4NzUsLTU3MS42NDg2ODE2NDA2MjVdLCJzcGF3biI6Wzk3LjUzMDMxOTIxMzg2NzE5LDEwNDUuNDk5NTExNzE4NzUsLTU3MS42NDg2ODE2NDA2MjVdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuUmVuZ3UuUmVuZ3UiLCJuYW1lIjoiUmVuZ3UiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wy03MTUuODAyMTg1MDU4NTkzOCw5NjUuNDk0NTY3ODcxMDkzOCw4ODQuNDQwOTc5MDAzOTA2M10sInNwYXduIjpbLTcxNS44MDIxODUwNTg1OTM4LDk2NS40OTQ1Njc4NzEwOTM4LDg4NC40NDA5NzkwMDM5MDYzXX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLlNhbmVyaS5TYW5lcmkiLCJuYW1lIjoiU2FuZXJpIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstMzc5LjYzOTI4MjIyNjU2MjUsMTA5My45MTk0MzM1OTM3NSwtNDIwLjQ4OTEzNTc0MjE4NzVdLCJzcGF3biI6Wy0zNzkuNjM5MjgyMjI2NTYyNSwxMDkzLjkxOTQzMzU5Mzc1LC00MjAuNDg5MTM1NzQyMTg3NV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5TaGlub3JhLlNoaW5vcmEiLCJuYW1lIjoiU2hpbm9yYSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbLTQ1MS4xNjM2NjU3NzE0ODQ0LDk2NC45NjU2OTgyNDIxODc1LC0xLjM2MTY3NDA3MDM1ODI3NjRdLCJzcGF3biI6Wy00NTEuMTYzNjY1NzcxNDg0NCw5NjQuOTY1Njk4MjQyMTg3NSwtMS4zNjE2NzQwNzAzNTgyNzY0XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLlN1bWFyaS5TdW1hcmkiLCJuYW1lIjoiU3VtYXJpIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlszOTMuOTEyMjYxOTYyODkwNiwxMDIwLjQ5OTkzODk2NDg0MzgsLTYxOS4xODEzMzU0NDkyMTg4XSwic3Bhd24iOlszOTMuOTEyMjYxOTYyODkwNiwxMDIwLjQ5OTkzODk2NDg0MzgsLTYxOS4xODEzMzU0NDkyMTg4XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLlRlbmdhaS5UZW5nYWkiLCJuYW1lIjoiVGVuZ2FpIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstMTM2LjMxNzcwMzI0NzA3MDMsMTM0OS40OTQ3NTA5NzY1NjI2LC0yNjI4LjM2NDk5MDIzNDM3NV0sInNwYXduIjpbLTEzNi4zMTc3MDMyNDcwNzAzLDEzNDkuNDk0NzUwOTc2NTYyNiwtMjYyOC4zNjQ5OTAyMzQzNzVdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuV2F0ZXIgVHJhaW5lZSBTYWJpdG8uV2F0ZXIgVHJhaW5lZSBTYWJpdG8iLCJuYW1lIjoiV2F0ZXIgVHJhaW5lZSBTYWJpdG8iLCJtYXhpbXVtIjo2MDAsInBvc2l0aW9uIjpbODE3LjU0MzcwMTE3MTg3NSwxMDE4LjcwMzA2Mzk2NDg0MzgsMTAxLjg3NjU1NjM5NjQ4NDM4XSwic3Bhd24iOls4MTcuNTQzNzAxMTcxODc1LDEwMTguNzAzMDYzOTY0ODQzOCwxMDEuODc2NTU2Mzk2NDg0MzhdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuWWFoYXJpLllhaGFyaSIsIm5hbWUiOiJZYWhhcmkiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6WzgyNy45MDMyNTkyNzczNDM4LDEwMjEuNzAzMDYzOTY0ODQzOCwtNjM5LjI0NDE0MDYyNV0sInNwYXduIjpbODI3LjkwMzI1OTI3NzM0MzgsMTAyMS43MDMwNjM5NjQ4NDM4LC02MzkuMjQ0MTQwNjI1XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLlplbnRhcm8uWmVudGFybyIsIm5hbWUiOiJaZW50YXJvIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlsxMzMzLjE5MzExNTIzNDM3NSw4MjEuNDk1MDU2MTUyMzQzOCwtMTAxNi44ODk2NDg0Mzc1XSwic3Bhd24iOlsxMzMzLjE5MzExNTIzNDM3NSw4MjEuNDk1MDU2MTUyMzQzOCwtMTAxNi44ODk2NDg0Mzc1XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzdGZhbGwgSGFyYm9yLkFjdGl2ZU5wY3MuTWl6dW5vdG8uTWl6dW5vdG8iLCJuYW1lIjoiTWl6dW5vdG8iLCJtYXhpbXVtIjoyMzAsInBvc2l0aW9uIjpbLTg1MC41NzIyNjU2MjUsOTczLjQ1ODA2ODg0NzY1NjMsLTE1Mi4zNDIyODUxNTYyNV0sInNwYXduIjpbLTg1MC41NzIyNjU2MjUsOTczLjQ1ODA2ODg0NzY1NjMsLTE1Mi4zNDIyODUxNTYyNV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLlRlbXBvcmFyeS5BY3RpdmVOcGNzLkNhY2hlIExhbmNlci5DYWNoZSBMYW5jZXIiLCJuYW1lIjoiQ2FjaGUgTGFuY2VyIiwibWF4aW11bSI6NDAwLCJwb3NpdGlvbiI6Wy04MzYuODcyMTMxMzQ3NjU2Myw5NDguNDk4ODQwMzMyMDMxMyw3MDQuNjA0NDkyMTg3NV0sInNwYXduIjpbLTgzNi44NzIxMzEzNDc2NTYzLDk0OC40OTg4NDAzMzIwMzEzLDcwNC42MDQ0OTIxODc1XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuVGVtcG9yYXJ5LkFjdGl2ZU5wY3MuR3JvdmUgUmFpZGVyLkdyb3ZlIFJhaWRlciIsIm5hbWUiOiJHcm92ZSBSYWlkZXIiLCJtYXhpbXVtIjoyNDUsInBvc2l0aW9uIjpbOTAyLjk5ODE2ODk0NTMxMjUsMTAxOS41MTU1NjM5NjQ4NDM4LDI0Ljg5MTAwNDU2MjM3NzkzXSwic3Bhd24iOls5MDIuOTk4MTY4OTQ1MzEyNSwxMDE5LjUxNTU2Mzk2NDg0MzgsMjQuODkxMDA0NTYyMzc3OTNdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5UZW1wb3JhcnkuQWN0aXZlTnBjcy5MYW5jZXIgQ2FwdGFpbi5MYW5jZXIgQ2FwdGFpbiIsIm5hbWUiOiJMYW5jZXIgQ2FwdGFpbiIsIm1heGltdW0iOjEyMDAsInBvc2l0aW9uIjpbLTgzNC40MTkwMDYzNDc2NTYzLDk0OC40MzYzNDAzMzIwMzEzLDcwOS4zNzAxNzgyMjI2NTYzXSwic3Bhd24iOlstODM0LjQxOTAwNjM0NzY1NjMsOTQ4LjQzNjM0MDMzMjAzMTMsNzA5LjM3MDE3ODIyMjY1NjNdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5UZW1wb3JhcnkuQWN0aXZlTnBjcy5SYWlkIENhcHRhaW4uUmFpZCBDYXB0YWluIiwibmFtZSI6IlJhaWQgQ2FwdGFpbiIsIm1heGltdW0iOjczNSwicG9zaXRpb24iOls5MDguOTk4MjI5OTgwNDY4OCwxMDE5LjAxNTU2Mzk2NDg0MzgsMjMuMjAzNDc5NzY2ODQ1NzA0XSwic3Bhd24iOls5MDguOTk4MjI5OTgwNDY4OCwxMDE5LjAxNTU2Mzk2NDg0MzgsMjMuMjAzNDc5NzY2ODQ1NzA0XX0seyJwYXRoIjoiSHVtYW5vaWRzLldlYXBvbnMgU3RhdHVlIiwibmFtZSI6IldlYXBvbnMgU3RhdHVlIiwibWF4aW11bSI6MTAwMDAwMCwicG9zaXRpb24iOlstMTM4MS43MjEwNjkzMzU5Mzc2LDEwMTAuMjU4MTE3Njc1NzgxMywxMTA5LjM4ODQyNzczNDM3NV0sInNwYXduIjpbLTEzODEuNzIxMDY5MzM1OTM3NiwxMDEwLjI1ODExNzY3NTc4MTMsMTEwOS4zODg0Mjc3MzQzNzVdfV0sImZvcm1hdCI6IkF1dG9Ta2lsbHNMb2NhdGlvbnMiLCJzY2hlbWEiOjEsInBsYWNlSWQiOiIxMzY0MDY4ODE1NzY1MTcifQ=="
 local Farm = {catalog = {}, remembered = {}, pinned = nil, records = {}, selected = nil, nextScan = 0, status = "OFF",
     detail = "Select a target, then enable Auto farm.", count = 0, aliveCount = 0,
-    autoVisited = {}, autoUnsafe = {}, autoCurrent = nil, autoLastPath = nil, autoArrivedAt = 0,
+    autoVisited = {}, autoCurrent = nil, autoLastPath = nil, autoArrivedAt = 0,
     autoCombatAt = 0, autoLastProgressAt = 0, autoLastHP = nil, autoDefeated = false,
     autoRespawnResume = false, autoResumePath = nil,
-    autoCycles = 0, autoSkipped = 0, travelHealth = nil,
+    autoCycles = 0, autoSkipped = 0, travelHealth = nil, autoHazardPaths = {},
     guardian = {lastHealth = nil, damageSince = 0, damageBase = nil, lastPosition = nil,
         lastPositionAt = 0, stuckSince = 0, lostSince = 0, verifyAt = 0, recoveries = 0,
+        healthHumanoid = nil, healthConnection = nil, damageEvent = false, damageEventHealth = nil,
         lastAction = "STANDBY", lastActionAt = 0}
 }
 local function attackHealthAllowed(maximum)
@@ -1687,7 +1685,7 @@ do
     end
     local function resetAutoBossRoute(clearLast)
         Farm.autoVisited = {}
-        Farm.autoUnsafe = {}
+        Farm.autoHazardPaths = {}
         Farm.autoCurrent = nil
         Farm.autoArrivedAt = 0
         Farm.autoCombatAt = 0
@@ -1701,6 +1699,9 @@ do
         g.lastHealth, g.damageSince, g.damageBase = nil, 0, nil
         g.lastPosition, g.lastPositionAt, g.stuckSince, g.lostSince = nil, 0, 0, 0
         g.verifyAt, g.recoveries, g.lastAction, g.lastActionAt = 0, 0, "STANDBY", 0
+        g.damageEvent, g.damageEventHealth = false, nil
+        if g.healthConnection then pcall(function() g.healthConnection:Disconnect() end) end
+        g.healthConnection, g.healthHumanoid = nil, nil
         if clearLast then Farm.autoLastPath = nil end
     end
     local function autoBossLocation(entry)
@@ -1751,7 +1752,7 @@ do
             for _, entry in ipairs(Farm.remembered) do
                 local location = autoBossLocation(entry)
                 if autoBossEligible(entry) and not Farm.autoVisited[entry.path]
-                    and not Farm.autoUnsafe[entry.path]
+                    and not Farm.autoHazardPaths[entry.path]
                     and (not excludeLast or entry.path ~= Farm.autoLastPath) then
                     local distance = (location - position).Magnitude
                     if distance <= Settings.BossAutoRange and (not bestDistance or distance < bestDistance) then
@@ -1786,21 +1787,13 @@ do
         g.lastHealth, g.damageSince, g.damageBase = nil, 0, nil
         g.lastPosition, g.lastPositionAt, g.stuckSince = rootPart.Position, os.clock(), 0
         g.verifyAt, g.recoveries, g.lastAction, g.lastActionAt = 0, 0, "TARGET SELECTED", os.clock()
+        g.damageEvent, g.damageEventHealth = false, nil
         Farm.status = "AUTO BOSS"
         Farm.detail = string.format("Next: %s | %.0f studs away", entry.name, distance or 0)
         return entry
     end
     local function advanceAutoBoss(reason, rootPart, skipped)
         local previous = Farm.autoCurrent and Farm.catalog[Farm.autoCurrent]
-        local reasonText = tostring(reason or "")
-        -- Environmental damage with no confirmed boss (snow/acid/lava/zone hazards)
-        -- makes that saved location unsafe for the current Auto Boss route. Do not
-        -- immediately pick the same location again and trap the character there.
-        if previous and (reasonText:find("environmental damage", 1, true)
-            or reasonText:find("DAMAGE WITHOUT COMBAT", 1, true)
-            or reasonText:find("player taking damage", 1, true)) then
-            Farm.autoUnsafe[previous.path] = true
-        end
         if skipped then Farm.autoSkipped = Farm.autoSkipped + 1 end
         Farm.stopM1()
         Farm.restoreHitbox()
@@ -1824,6 +1817,24 @@ do
         Farm.status = "AUTO BOSS"
         Farm.detail = (reason or "Moving to next boss") .. (previous and (" | " .. previous.name) or "")
         return pickAutoBoss(rootPart)
+    end
+
+    local function guardianBindHealth(humanoid)
+        local g = Farm.guardian
+        if g.healthHumanoid == humanoid and g.healthConnection then return end
+        if g.healthConnection then pcall(function() g.healthConnection:Disconnect() end) end
+        g.healthConnection, g.healthHumanoid = nil, humanoid
+        g.damageEvent, g.damageEventHealth = false, nil
+        if humanoid then
+            g.healthConnection = humanoid.HealthChanged:Connect(function(hp)
+                if Settings.AutoBoss and Farm.travelHealth and not Farm.autoEngaged
+                    and hp < Farm.travelHealth - 0.01 then
+                    g.damageEvent = true
+                    g.damageEventHealth = hp
+                    g.lastAction, g.lastActionAt = "ENVIRONMENTAL DAMAGE", os.clock()
+                end
+            end)
+        end
     end
 
     local function guardianResetObservation(rootPart, humanoid)
@@ -2046,7 +2057,17 @@ do
             or not rootPart or not rootPart:IsA("BasePart") or rootPart.Anchored or humanoid.Sit or humanoid.SeatPart then
             pause("WAITING", "Waiting for your living, unseated character."); return
         end
+        guardianBindHealth(humanoid)
         if Settings.AutoBoss then
+            if Farm.guardian.damageEvent then
+                local hazardPath = Farm.autoCurrent or Farm.pinned
+                if hazardPath then Farm.autoHazardPaths[hazardPath] = true end
+                local damageHP = Farm.guardian.damageEventHealth or humanoid.Health
+                Farm.guardian.damageEvent, Farm.guardian.damageEventHealth = false, nil
+                advanceAutoBoss("Guardian: environmental damage at saved boss location", rootPart, true)
+                Farm.detail = string.format("Unsafe location skipped at %.0f HP remaining.", damageHP)
+                return
+            end
             local entry
 
             if Farm.autoRespawnResume and Farm.autoResumePath then
@@ -2067,7 +2088,11 @@ do
             if not entry then
                 Farm.stopM1(); Farm.restoreHitbox()
                 Farm.status = "AUTO BOSS WAITING"
-                Farm.detail = string.format("No saved boss location within %.0f studs. Discover or import locations first.", Settings.BossAutoRange)
+                local blocked = 0
+                for _ in pairs(Farm.autoHazardPaths) do blocked = blocked + 1 end
+                Farm.detail = blocked > 0
+                    and string.format("No safe saved boss location within %.0f studs. %d hazardous location%s blocked this run.", Settings.BossAutoRange, blocked, blocked == 1 and " is" or "s are")
+                    or string.format("No saved boss location within %.0f studs. Discover or import locations first.", Settings.BossAutoRange)
                 return
             end
             Farm.pinned = entry.path
@@ -2094,20 +2119,6 @@ do
             return
         end
         local hp, maximum, _, targetRoot = Farm.read(Farm.selected)
-
-        -- Check for environmental damage BEFORE the travel/teleport branch. This is
-        -- important for hazard biomes: if no qualifying boss is actually loaded at
-        -- the saved point, a snow/zone damage tick must make Auto Boss abandon that
-        -- point instead of repeatedly holding the character there.
-        if Settings.AutoBoss and not Farm.autoEngaged then
-            local hasValidBoss = hp and hp > 0 and targetRoot and attackHealthAllowed(maximum)
-            if not hasValidBoss and guardianObservePlayer(humanoid, rootPart, false) then
-                Farm.guardian.lastAction, Farm.guardian.lastActionAt = "ENVIRONMENTAL DAMAGE", os.clock()
-                advanceAutoBoss("Guardian: environmental damage at empty boss location", rootPart, true)
-                return
-            end
-        end
-
         if hp and hp <= 0 and lastTargetPosition then
             beginLoot(lastTargetPosition)
             if stepLoot(character, rootPart) then return end
@@ -2148,7 +2159,10 @@ do
                     local damagedHealth = humanoid.Health
                     Farm.travelHealth = nil
                     if Settings.AutoBoss then
-                        advanceAutoBoss("No boss loaded; environmental damage detected, moving on", rootPart, false)
+                        local hazardPath = Farm.autoCurrent or Farm.pinned
+                        if hazardPath then Farm.autoHazardPaths[hazardPath] = true end
+                        Farm.guardian.damageEvent, Farm.guardian.damageEventHealth = false, nil
+                        advanceAutoBoss("No boss loaded; environmental damage detected, moving on", rootPart, true)
                     else
                         pause("DANGER", string.format("No boss loaded; damage detected (%.0f HP). Returning to safety.", damagedHealth))
                     end
@@ -2208,6 +2222,12 @@ do
 
         if Settings.AutoBoss then
             local engaged = Farm.autoEngaged == true
+            if guardianObservePlayer(humanoid, rootPart, engaged) then
+                Farm.guardian.lastAction, Farm.guardian.lastActionAt = "DAMAGE WITHOUT COMBAT", os.clock()
+                advanceAutoBoss("Guardian: player taking damage with no boss being damaged", rootPart, true)
+                return
+            end
+
             local entry = Farm.autoCurrent and Farm.catalog[Farm.autoCurrent] or nil
             if entry and guardianObserveTravel(rootPart, entry, targetRoot, engaged) then
                 Farm.guardian.lastAction, Farm.guardian.lastActionAt = "TRAVEL STUCK", os.clock()
@@ -2803,8 +2823,8 @@ local Movement = {
     speedHumanoid = nil, speedOriginal = nil,
     flyHumanoid = nil, flyAutoRotate = nil,
     tBlocked = false,
-    status = "NOCLIP ON",
-    detail = "No-clip is active automatically. T is blocked while No Clip is on.",
+    status = "MOVEMENT",
+    detail = "All movement overrides are off.",
 }
 
 local function movementCharacter()
@@ -3037,15 +3057,15 @@ end
 
 System = {
     configPath = "AutoSkills_System_v1.json",
-    bodyPath = "AutoSkills_Void_AutoRun.lua",
+    bodyPath = "AutoSkills_Blackhole_AutoRun.lua",
     autoexecPath = "autoexec/AutoSkills_Void.lua",
     targetGameId = tostring(game.GameId or 0),
     status = "READY",
     detail = "Static map scan and recovery services ready.",
     persistStatus = "Checking executor persistence...",
     rejoinStatus = "Watching private-server state.",
-    friendReadyPath = "AutoSkills_FriendReady.lua",
-    friendReadyStatus = "Friend seed bundle not built yet.",
+    friendReadyPath = "AutoSkills_Blackhole_FriendReady.lua",
+    friendReadyStatus = "Portable Blackhole boss seed embedded.",
     lastPrivatePlace = nil,
     lastPrivateJob = nil,
     rejoinRequested = false,
@@ -3216,33 +3236,33 @@ end)
 
     function System.writeFriendReady()
         if type(writer) ~= "function" then
-            System.friendReadyStatus = "Friend-ready file unavailable: writefile missing."
+            System.friendReadyStatus = "Portable seed unavailable: writefile missing."
             return false
         end
 
         local source = environment.__AUTOSKILLS_SOURCE
         if type(source) ~= "string" or #source < 1000 then
-            System.friendReadyStatus = "Friend-ready source unavailable in this launch."
+            System.friendReadyStatus = "Portable seed source unavailable in this launch."
             return false
         end
 
         local code, message = Farm.exportCode()
         if not code then
-            System.friendReadyStatus = "Friend-ready file waiting for boss locations."
+            System.friendReadyStatus = "Portable seed waiting for saved boss locations."
             return false
         end
 
         local marker = 'local BUILT_IN_BOSS_SEED_CODE = "'
         local startAt = source:find(marker, 1, true)
         if not startAt then
-            System.friendReadyStatus = "Friend-ready template marker missing."
+            System.friendReadyStatus = "Portable seed template marker missing."
             return false
         end
 
         local valueStart = startAt + #marker
         local valueEnd = source:find('"', valueStart, true)
         if not valueEnd then
-            System.friendReadyStatus = "Friend-ready template malformed."
+            System.friendReadyStatus = "Portable seed template malformed."
             return false
         end
 
@@ -3250,11 +3270,11 @@ end)
 
         local ok, err = pcall(writer, System.friendReadyPath, baked)
         if ok then
-            System.friendReadyStatus = message .. " -> " .. System.friendReadyPath
+            System.friendReadyStatus = "Portable boss seed ready: " .. message .. " -> " .. System.friendReadyPath
             return true
         end
 
-        System.friendReadyStatus = "Friend-ready write failed: " .. tostring(err)
+        System.friendReadyStatus = "Portable seed write failed: " .. tostring(err)
         return false
     end
 
@@ -4264,12 +4284,14 @@ BH.coreGlow.BackgroundTransparency = 0.90
 BH.coreGlow.ZIndex = 4
 
 BH.core = frame(BH.hero, "EventHorizon", 0, 0, 56, 56, Color3.new(0,0,0), 28)
+BH.core:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0.5, 0)
 BH.core.AnchorPoint = Vector2.new(0.5, 0.5)
 BH.core.Position = UDim2.fromOffset(W * 0.5, 76)
 BH.core.BackgroundTransparency = 0
 BH.core.ZIndex = 6
 
 BH.horizonSilver = frame(BH.hero, "HorizonSilver", 0, 0, 58, 58, Color3.new(1,1,1), 29)
+BH.horizonSilver:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0.5, 0)
 BH.horizonSilver.AnchorPoint = Vector2.new(0.5, 0.5)
 BH.horizonSilver.Position = UDim2.fromOffset(W * 0.5, 76)
 BH.horizonSilver.BackgroundTransparency = 1
@@ -4277,6 +4299,7 @@ BH.horizonSilver.ZIndex = 5
 BH.silverStroke = stroke(BH.horizonSilver, Color3.fromRGB(238,241,251), 0.18, 1.4)
 
 BH.horizonPurple = frame(BH.hero, "HorizonPurple", 0, 0, 58, 58, Color3.new(1,1,1), 29)
+BH.horizonPurple:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0.5, 0)
 BH.horizonPurple.AnchorPoint = Vector2.new(0.5, 0.5)
 BH.horizonPurple.Position = UDim2.fromOffset(W * 0.5, 76)
 BH.horizonPurple.BackgroundTransparency = 1
@@ -4342,14 +4365,16 @@ connect(RunService.RenderStepped, function()
     local dt = math.min(now - BH.last, 0.05)
     BH.last = now
     local t = now - BH.clock
-    local heroWidth = math.max(W, math.floor((BH.hero.AbsoluteSize.X > 0 and BH.hero.AbsoluteSize.X or windowWidth) + 0.5), math.floor(windowWidth + 0.5))
-    -- Keep every Blackhole layer centered inside the resized hero. Orbit segments are
-    -- positioned relative to their orbit container's center (not the hero's absolute
-    -- coordinates), preventing them from drifting off-screen when the panel widens.
-    local scale = heroWidth / W
+    local heroWidth = math.max(420, BH.hero.AbsoluteSize.X)
+    -- Keep the black-hole circular and the orbit field wide without stretching
+    -- every beam into huge bars when the window is resized.
+    local widthRatio = heroWidth / 420
+    local orbitScale = widthRatio
+    local segmentScale = math.clamp(0.95 + (widthRatio - 1) * 0.18, 0.95, 1.45)
     local cx = heroWidth * 0.5
     local cy = 76
-    local coreScale = math.clamp(0.92 + (heroWidth / 420) * 0.28, 0.92, 1.65)
+    local coreScale = math.clamp(0.92 + (widthRatio - 1) * 0.16, 0.92, 1.30)
+    BH.atmosphere.Size = UDim2.fromOffset(heroWidth, 152)
     BH.core.Position = UDim2.fromOffset(cx, cy)
     BH.coreGlow.Position = UDim2.fromOffset(cx, cy)
     BH.horizonSilver.Position = UDim2.fromOffset(cx, cy)
@@ -4384,22 +4409,17 @@ connect(RunService.RenderStepped, function()
     end
 
     for _, ring in ipairs({BH.backRing1, BH.backRing2, BH.frontRing}) do
-        -- Keep the ellipse inside the hero at every width. The segment positions are
-        -- LOCAL to the orbit container, whose AnchorPoint/Position already define the
-        -- center. This fixes the double-center offset that caused the rings to fly
-        -- toward the top/right when the UI was resized.
-        local rx = math.min(ring.rx * scale, heroWidth * 0.46)
-        local ringScale = rx / ring.rx
-        local ry = ring.ry * math.max(1, math.min(scale, 2.2))
         for _, seg in ipairs(ring.segments) do
             local angle = seg.angle
-            local x = math.cos(angle) * rx
-            local y = math.sin(angle) * ry
+            local rx = math.min(ring.rx * orbitScale, heroWidth * 0.46)
+            local ry = ring.ry + math.min(18, (heroWidth - 420) * 0.015)
+            local x = cx + math.cos(angle) * rx
+            local y = cy + math.sin(angle) * ry
             local tx, ty = -rx * math.sin(angle), ry * math.cos(angle)
             local rotation = math.deg(math.atan2(ty, tx))
-            local length = math.max(14, math.floor(seg.length * ringScale))
-            seg.seg.Size = UDim2.fromOffset(length, seg.width)
-            seg.glow.Size = UDim2.fromOffset(length + 8, seg.width + 6)
+            local beamLength = math.floor(seg.length * segmentScale)
+            seg.seg.Size = UDim2.fromOffset(beamLength, seg.width)
+            seg.glow.Size = UDim2.fromOffset(beamLength + 8, seg.width + 6)
             seg.seg.Position = UDim2.fromOffset(x, y)
             seg.seg.Rotation = rotation
             seg.glow.Position = UDim2.fromOffset(x, y)
@@ -4631,17 +4651,6 @@ connect(scanButton.Activated, function()
     if Farm.staticMapScan then Farm.staticMapScan(true) end
     render()
 end)
-local friendButton = button(systemPage, "FriendReady", "BUILD FRIEND SCRIPT", 16, 396, 164, 30, C.panel2, 9)
-friendButton.TextColor3 = C.violet2
-stroke(friendButton, C.violet2, 0.55, 1)
-UI.friendReadyButton = friendButton
-connect(friendButton.Activated, function()
-    if System and System.writeFriendReady then
-        local ok = System.writeFriendReady()
-        notify(ok and "Friend-ready script built with current boss locations." or "Friend-ready script could not be built yet.")
-    end
-    render()
-end)
 local systemHint = safeText(systemPage, "Hint", "VOID NEXUS  /  LINK STABLE", 16, 336, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
 systemHint.TextXAlignment = Enum.TextXAlignment.Center
 UI.systemStatus = safeText(systemPage, "CompatStatus", "", -100, -100, 1, 1, 1, C.dim)
@@ -4849,6 +4858,7 @@ local function applyWindowWidth(width)
     setObjectWidth(voidFX, windowWidth)
     if System.theme == "Blackhole" then
         BH.hero.Size = UDim2.fromOffset(windowWidth, 152)
+        BH.atmosphere.Size = UDim2.fromOffset(windowWidth, 152)
         BH.backA.Size = UDim2.fromOffset(windowWidth, 152)
         BH.backB.Size = UDim2.fromOffset(windowWidth, 152)
         BH.front.Size = UDim2.fromOffset(windowWidth, 152)
@@ -5203,13 +5213,10 @@ local function renderPageState()
     UI.moveDetail.Text = Movement.detail
     UI.moveStatusDot.BackgroundColor3 = (Settings.FlyEnabled or Settings.SpeedEnabled or Settings.NoClip) and C.green or C.faint
     UI.systemStatus.Text = System.status
-    UI.systemDetail.Text = System.persistStatus .. "\n" .. System.friendReadyStatus
+    UI.systemDetail.Text = System.persistStatus .. "\n" .. System.friendReadyStatus .. "\nRun this owner copy once, then share the generated Blackhole_FriendReady.lua."
     UI.systemStatusDot.BackgroundColor3 = (Settings.StaticMapScan or Settings.AutoRejoin or Settings.AutoExecute) and C.green or C.faint
     UI.staticScanButton.Text = Farm.staticScanBusy and "SCANNING..." or "SCAN MAP NOW"
     UI.staticScanStatus.Text = Farm.staticScanStatus
-    if UI.friendReadyButton then
-        UI.friendReadyButton.Text = System.friendReadyStatus:find("AutoSkills_FriendReady.lua", 1, true) and "FRIEND SCRIPT READY" or "BUILD FRIEND SCRIPT"
-    end
     UI.rejoinStatus.Text = System.rejoinStatus
     if Input:GetFocusedTextBox() ~= UI.privateMapBox then UI.privateMapBox.Text = Settings.PrivateServerMap end
 
@@ -5796,6 +5803,8 @@ task.spawn(function()
     end
 end)
 
+-- A portable Blackhole owner copy replaces the placeholder with the saved ASLOC1 boss bundle.
+-- A friend can execute the generated Blackhole_FriendReady.lua without the owner's local BossLocations JSON; the locations are already baked into that file.
 if type(BUILT_IN_BOSS_SEED_CODE) == "string"
     and BUILT_IN_BOSS_SEED_CODE:sub(1, 7) == "ASLOC1:" then
     local okSeed, seedMessage = Farm.importCode(BUILT_IN_BOSS_SEED_CODE)
@@ -5827,22 +5836,5 @@ task.delay(1.5, function()
     end
 end)
 
-notify("Void UI ready | boss seeds + static scan + original stable loot active")
+notify("Void UI ready | embedded boss locations + static scan + original stable loot active")
 
-]====]
-
-local __env = (type(getgenv) == "function" and getgenv()) or _G
-__env.__AUTOSKILLS_SOURCE = __AUTOSKILLS_SOURCE
-pcall(function()
-    local wf = type(writefile) == "function" and writefile or __env.writefile
-    if wf then
-        wf("AutoSkills_Void_AutoRun.lua", __AUTOSKILLS_SOURCE)
-    end
-end)
-local __fn, __err = loadstring(__AUTOSKILLS_SOURCE)
-if not __fn then
-    warn("AutoSkills compile error: " .. tostring(__err))
-    return
-end
-__fn()
-]=====])()

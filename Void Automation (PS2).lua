@@ -3041,7 +3041,7 @@ System = {
     directTriedAt = 0,
     menuNextAt = 0,
     menuStage = "idle",
-    theme = "Default",
+    theme = "Oblivion",
 }
 
 do
@@ -5646,217 +5646,165 @@ pcall(function() Theme.apply(System.theme) end)
 do
     local __loaderLayer
     local __loaderOK, __loaderERR = pcall(function()
+        -- Exact visual direction from Oblivion_Loading(2).html.
+        -- Roblox cannot directly render the HTML/SVG, so the SVG arcs are reconstructed
+        -- from thin UI segments while preserving the original geometry, dash patterns,
+        -- colors and animation timings.
         __loaderLayer = make("Frame", loaderCanvas, {
-            Name = "VoidLoading", Position = UDim2.fromScale(0, 0), Size = UDim2.fromScale(1, 1),
-            BackgroundColor3 = Color3.fromRGB(1, 1, 4), BackgroundTransparency = 0.06,
+            Name = "OblivionLoading", Position = UDim2.fromScale(0, 0), Size = UDim2.fromScale(1, 1),
+            BackgroundColor3 = Color3.fromRGB(2, 4, 8), BackgroundTransparency = 0,
             BorderSizePixel = 0, Active = true, ZIndex = 100,
         })
         local loadingLayer = __loaderLayer
 
-        -- BLACKHOLE / VOID NEXUS loader rebuilt from the supplied animated SVG:
-        -- 220x220 singularity, deep-space bloom, accretion disk, lens arc,
-        -- split photon ring, distant stars and slow breathing/flicker motion.
-        local loadCard = frame(loadingLayer, "LoadingCard", 0, 0, 326, 402, Color3.fromRGB(5, 3, 11), 18)
-        loadCard.AnchorPoint = Vector2.new(0.5, 0.5)
-        loadCard.Position = UDim2.fromScale(0.5, 0.5)
-        loadCard.BackgroundTransparency = 0.08
-        loadCard.ZIndex = 101
-        stroke(loadCard, Color3.fromRGB(104, 63, 160), 0.34, 1)
+        -- HTML body radial background recreated with layered transparent circles.
+        local bgGlow = frame(loadingLayer, "CenterGlow", 0, 0, 620, 620, Color3.fromRGB(41, 79, 135), 310)
+        bgGlow.AnchorPoint = Vector2.new(0.5, 0.5)
+        bgGlow.Position = UDim2.fromScale(0.5, 0.5)
+        bgGlow.BackgroundTransparency = 0.965
+        bgGlow.ZIndex = 100
 
-        local loadScale = make("UIScale", loadCard, {Scale = 0.88})
-        TweenService:Create(loadScale, TweenInfo.new(0.62, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
+        local bgGlow2 = frame(loadingLayer, "CenterGlow2", 0, 0, 430, 430, Color3.fromRGB(108, 168, 255), 215)
+        bgGlow2.AnchorPoint = Vector2.new(0.5, 0.5)
+        bgGlow2.Position = UDim2.fromScale(0.5, 0.5)
+        bgGlow2.BackgroundTransparency = 0.982
+        bgGlow2.ZIndex = 100
 
-        local loadTitle = safeText(loadCard, "Title", System.theme == "Blackhole" and "BLACKHOLE V1" or System.theme == "Oblivion" and "OBLIVION V1" or "VOID NEXUS", 0, 16, 326, 22, 17, C.ink, Enum.Font.GothamBold)
-        loadTitle.TextXAlignment = Enum.TextXAlignment.Center
-        loadTitle.ZIndex = 103
-
-        local loadSub = safeText(loadCard, "Sub", System.theme == "Blackhole" and "GALACTIC REACTOR" or System.theme == "Oblivion" and "GRAVITY CONTROL INTERFACE" or "VOID CORE ONLINE", 0, 40, 326, 16, 8, C.dim, Enum.Font.GothamBold)
-        loadSub.TextXAlignment = Enum.TextXAlignment.Center
-        loadSub.ZIndex = 103
-
-        local symbol = frame(loadCard, "Symbol", 0, 0, 220, 220, C.black, 110)
-        symbol.AnchorPoint = Vector2.new(0.5, 0.5)
-        symbol.Position = UDim2.new(0.5, 0, 0, 156)
-        symbol.BackgroundTransparency = 1
-        symbol.ZIndex = 102
-
-        local WHITE = Color3.fromRGB(255, 243, 214)
-        local STAR = Color3.fromRGB(231, 217, 255)
-        local PURPLE = System.theme == "Oblivion" and Color3.fromRGB(111,159,202) or Color3.fromRGB(123, 47, 247)
-        local PURPLE_DARK = System.theme == "Oblivion" and Color3.fromRGB(38,60,85) or Color3.fromRGB(76, 20, 140)
-        local MAGENTA = System.theme == "Oblivion" and Color3.fromRGB(185,199,214) or Color3.fromRGB(201, 98, 154)
-        local BLACK = Color3.fromRGB(0, 0, 0)
-
-        local function circle(parent, name, diameter, color, transparency, z)
-            local f = frame(parent, name, 0, 0, diameter, diameter, color, math.floor(diameter / 2))
-            f.AnchorPoint = Vector2.new(0.5, 0.5)
-            f.Position = UDim2.fromScale(0.5, 0.5)
-            f.BackgroundTransparency = transparency == nil and 1 or transparency
-            f.ZIndex = z or 102
-            return f
+        local function makeCenteredCircle(parent, name, diameter, color, transparency, z)
+            local obj = frame(parent, name, 0, 0, diameter, diameter, color, math.floor(diameter / 2))
+            obj.AnchorPoint = Vector2.new(0.5, 0.5)
+            obj.Position = UDim2.fromScale(0.5, 0.5)
+            obj.BackgroundTransparency = transparency
+            obj.ZIndex = z or 101
+            return obj
         end
 
-        local function line(parent, name, x, y, w, h, color, transparency, z, rotation)
-            local f = frame(parent, name, x, y, w, h, color, math.floor(math.min(w, h) / 2))
-            f.AnchorPoint = Vector2.new(0.5, 0.5)
-            f.BackgroundTransparency = transparency == nil and 0 or transparency
-            f.ZIndex = z or 105
-            f.Rotation = rotation or 0
-            return f
-        end
+        -- .space::before / .space::after from the HTML.
+        local field1 = makeCenteredCircle(loadingLayer, "Field260", 260, Color3.fromRGB(108, 168, 255), 0.955, 101)
+        local field1Stroke = stroke(field1, Color3.fromRGB(108, 168, 255), 0.955, 1)
+        field1Stroke.Transparency = 0.955
+        local field2 = makeCenteredCircle(loadingLayer, "Field430", 430, Color3.fromRGB(108, 168, 255), 0.985, 101)
+        local field2Stroke = stroke(field2, Color3.fromRGB(108, 168, 255), 0.955, 1)
+        field2Stroke.Transparency = 0.955
 
-        -- Deep-space bloom behind the system.
-        local bloomOuter = circle(symbol, "BloomOuter", 194, Color3.fromRGB(42, 16, 80), 0.94, 102)
-        local bloomMid = circle(symbol, "BloomMid", 164, Color3.fromRGB(21, 7, 48), 0.84, 103)
-        local bloomInner = circle(symbol, "BloomInner", 132, Color3.fromRGB(20, 8, 38), 0.72, 104)
+        local loader = make("Frame", loadingLayer, {
+            Name = "Loader", Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(300, 300),
+            AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1,
+            BorderSizePixel = 0, Active = false, ZIndex = 102,
+        })
 
-        -- Four distant stars from the SVG.
-        local stars = {}
+        -- Very subtle stars/dust. The original HTML has no explicit particles, only the field,
+        -- so these remain intentionally sparse and dim.
         local starData = {
-            {30, 46, 2.2, 0.2}, {190, 34, 2.6, 1.1},
-            {26, 176, 2.0, 1.8}, {196, 182, 2.4, 0.7},
+            {22, 34, 2}, {61, 94, 1}, {250, 46, 2}, {273, 116, 1},
+            {36, 245, 1}, {265, 254, 2}, {145, 24, 1}, {194, 274, 1},
         }
+        local stars = {}
         for i, d in ipairs(starData) do
-            local star = circle(symbol, "Star" .. i, d[3], STAR, 0.25, 106)
-            star.Position = UDim2.fromOffset(d[1], d[2])
-            stars[#stars + 1] = {object = star, phase = d[4]}
+            local st = frame(loadingLayer, "Star" .. i, d[1], d[2], d[3], d[3], Color3.fromRGB(245, 251, 255), 1)
+            st.BackgroundTransparency = 0.68 + (i % 3) * 0.08
+            st.ZIndex = 101
+            stars[#stars + 1] = {object = st, phase = i * 0.71}
         end
 
-        -- Everything below this point belongs to the breathing SVG "system" group.
-        local system = frame(symbol, "System", 0, 0, 220, 220, BLACK, 0)
-        system.BackgroundTransparency = 1
-        system.ZIndex = 107
-        local systemScale = make("UIScale", system, {Scale = 1})
-
-        -- Accretion disk: many small curved dashes approximate the SVG stroke-dasharray.
-        local diskGroup = frame(system, "AccretionDisk", 0, 0, 220, 220, BLACK, 0)
-        diskGroup.BackgroundTransparency = 1
-        diskGroup.ZIndex = 108
-        local diskDashes = {}
-        local diskCount = 34
-        for i = 1, diskCount do
-            local t = ((i - 1) / diskCount) * math.pi * 2
-            local rx, ry = 98, 24
-            local px = 110 + math.cos(t) * rx
-            local py = 110 + math.sin(t) * ry
-            local dx = -rx * math.sin(t)
-            local dy = ry * math.cos(t)
-            local tangent = math.deg(math.atan2(dy, dx))
-            local col
-            local normalized = (math.cos(t) + 1) * 0.5
-            if normalized > 0.70 then
-                col = PURPLE_DARK
-            elseif normalized > 0.43 then
-                col = MAGENTA
-            else
-                col = WHITE
+        local function dashVisible(distance, pattern, total)
+            local p = distance % total
+            local cursor = 0
+            for i = 1, #pattern do
+                local length = pattern[i]
+                if p >= cursor and p < cursor + length then
+                    return (i % 2) == 1
+                end
+                cursor = cursor + length
             end
-            local dash = line(diskGroup, "Dash" .. i, px, py, 10 + (i % 3) * 2, 6, col, 0.28, 108, tangent)
-            dash.BackgroundTransparency = 0.34
-            diskDashes[#diskDashes + 1] = dash
-        end
-        diskGroup.Rotation = -7
-
-        -- Lensed far-side arc above the horizon.
-        local lensGroup = frame(system, "LensArc", 0, 0, 220, 220, BLACK, 0)
-        lensGroup.BackgroundTransparency = 1
-        lensGroup.ZIndex = 110
-        local lensSegments = {}
-        local lensCount = 22
-        for i = 1, lensCount do
-            local t1 = math.pi + ((i - 1) / lensCount) * math.pi
-            local t2 = math.pi + (i / lensCount) * math.pi
-            local rx, ry = 46, 15
-            local x1, y1 = 110 + math.cos(t1) * rx, 78 + math.sin(t1) * ry
-            local x2, y2 = 110 + math.cos(t2) * rx, 78 + math.sin(t2) * ry
-            local dx, dy = x2 - x1, y2 - y1
-            local len = math.sqrt(dx * dx + dy * dy)
-            local angle = math.deg(math.atan2(dy, dx))
-            local mix = i / lensCount
-            local col = mix < 0.5 and WHITE or PURPLE
-            local seg = line(lensGroup, "Lens" .. i, (x1 + x2) * 0.5, (y1 + y2) * 0.5, len + 1, 2.6, col, 0.30 + mix * 0.25, 110, angle)
-            lensSegments[#lensSegments + 1] = seg
+            return false
         end
 
-        -- True black event horizon.
-        local eventHorizon = circle(system, "EventHorizon", 100, BLACK, 0, 112)
-
-        -- Photon ring: bright cream/white approaching side and purple receding side.
-        local photonGroup = frame(system, "PhotonRing", 0, 0, 220, 220, BLACK, 0)
-        photonGroup.BackgroundTransparency = 1
-        photonGroup.ZIndex = 113
-        local photonSegments = {}
-        local photonCount = 44
-        for i = 1, photonCount do
-            local t = ((i - 1) / photonCount) * math.pi * 2
-            local r = 51
-            local px = 110 + math.cos(t) * r
-            local py = 110 + math.sin(t) * r
-            local tangent = math.deg(t + math.pi * 0.5)
-            local col = math.sin(t) < 0 and WHITE or PURPLE
-            local seg = line(photonGroup, "Photon" .. i, px, py, 4.4, 1.8, col, math.sin(t) < 0 and 0.04 or 0.32, 113, tangent)
-            photonSegments[#photonSegments + 1] = seg
+        local function buildArc(name, radius, thickness, color, pattern, z)
+            local group = make("Frame", loader, {
+                Name = name, Position = UDim2.fromScale(0, 0), Size = UDim2.fromOffset(300, 300),
+                BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = z,
+            })
+            local segments = {}
+            local count = 120
+            local circumference = 2 * math.pi * radius
+            local totalPattern = 0
+            for _, value in ipairs(pattern) do totalPattern = totalPattern + value end
+            local step = circumference / count
+            for i = 0, count - 1 do
+                local distance = i * step
+                if dashVisible(distance, pattern, totalPattern) then
+                    local angle = (distance / radius) - math.pi * 0.5
+                    local x = 150 + math.cos(angle) * radius
+                    local y = 150 + math.sin(angle) * radius
+                    local seg = frame(group, "S" .. tostring(i), 0, 0, math.max(2, step * 0.92), thickness, color, math.max(1, thickness / 2))
+                    seg.AnchorPoint = Vector2.new(0.5, 0.5)
+                    seg.Position = UDim2.fromOffset(x, y)
+                    seg.Rotation = math.deg(angle) + 90
+                    seg.BackgroundTransparency = 0.22
+                    seg.ZIndex = z
+                    segments[#segments + 1] = {object = seg, phase = i / count}
+                end
+            end
+            return {group = group, segments = segments, radius = radius}
         end
 
-        -- Small moving glow at the singularity.
-        local coreBloom = circle(system, "CoreBloom", 78, Color3.fromRGB(42, 16, 80), 0.72, 114)
-        local coreBloom2 = circle(system, "CoreBloom2", 66, Color3.fromRGB(123, 47, 247), 0.82, 115)
-        local core = circle(system, "Core", 100, BLACK, 0, 116)
+        local WHITE = Color3.fromRGB(245, 251, 255)
+        local BLUE = Color3.fromRGB(108, 168, 255)
+        local BLUE_DARK = Color3.fromRGB(41, 79, 135)
 
-        local loadStatus = safeText(loadCard, "Status", "OPENING THE VOID...", 0, 286, 326, 18, 9, C.bright, Enum.Font.GothamBold)
-        loadStatus.TextXAlignment = Enum.TextXAlignment.Center
-        loadStatus.ZIndex = 121
+        -- Exact SVG circle geometry / dash arrays from Oblivion_Loading(2).html.
+        local arcOne = buildArc("ArcOne", 103, 2, WHITE, {86, 34, 18, 52}, 104)
+        local arcTwo = buildArc("ArcTwo", 76, 2, BLUE, {54, 46, 90, 35}, 103)
+        local arcThree = buildArc("ArcThree", 125, 1, BLUE, {110, 28, 28, 60}, 102)
 
-        local loadRail = frame(loadCard, "Rail", 39, 318, 248, 4, Color3.fromRGB(27, 16, 44), 2)
-        loadRail.ZIndex = 121
-        local loadFill = frame(loadRail, "Fill", 0, 0, 0, 4, Color3.fromRGB(123, 47, 247), 2)
-        loadFill.ZIndex = 122
-        local loadPercent = safeText(loadCard, "Percent", "0%", 0, 330, 326, 16, 8, C.dim, Enum.Font.GothamMedium)
-        loadPercent.TextXAlignment = Enum.TextXAlignment.Center
-        loadPercent.ZIndex = 121
+        -- HTML .core-field radial pulse approximation.
+        local coreField = makeCenteredCircle(loader, "CoreField", 88, BLUE, 0.965, 105)
+        local coreFieldInner = makeCenteredCircle(loader, "CoreFieldInner", 62, BLUE_DARK, 0.94, 105)
 
-        local loadHint = safeText(loadCard, "Hint", System.theme == "Oblivion" and "OBLIVION // GRAVITY-BOUND INTERFACE" or "VOID NEXUS // GALACTIC LINK", 0, 365, 326, 14, 7, C.dim, Enum.Font.GothamMedium)
-        loadHint.TextXAlignment = Enum.TextXAlignment.Center
-        loadHint.ZIndex = 121
+        -- HTML .core and its expanding ring.
+        local core = makeCenteredCircle(loader, "Core", 7, WHITE, 0, 107)
+        core.BackgroundTransparency = 0
+        local coreRing = makeCenteredCircle(loader, "CoreRing", 7, WHITE, 1, 106)
+        local coreRingStroke = stroke(coreRing, WHITE, 0.50, 1)
+
+        -- HTML label/footer.
+        local title = safeText(loadingLayer, "Title", "OBLIVION...", 0, 0, 300, 18, 10, WHITE, Enum.Font.GothamBold)
+        title.AnchorPoint = Vector2.new(0.5, 0)
+        title.Position = UDim2.new(0.5, 0, 0.5, 132)
+        title.TextXAlignment = Enum.TextXAlignment.Center
+        title.TextYAlignment = Enum.TextYAlignment.Center
+        title.ZIndex = 110
+        title.TextTransparency = 0.10
+
+        local sub = safeText(loadingLayer, "Sub", "GRAVITY FIELD SYNCHRONIZING", 0, 0, 300, 16, 8, Color3.fromRGB(108, 168, 255), Enum.Font.GothamMedium)
+        sub.AnchorPoint = Vector2.new(0.5, 0)
+        sub.Position = UDim2.new(0.5, 0, 0.5, 158)
+        sub.TextXAlignment = Enum.TextXAlignment.Center
+        sub.ZIndex = 110
+        sub.TextTransparency = 0.42
+
+        local footer = safeText(loadingLayer, "Footer", "SYSTEM INITIALIZATION // 0x0000", 0, 0, 420, 14, 7, Color3.fromRGB(113, 128, 150), Enum.Font.GothamMedium)
+        footer.AnchorPoint = Vector2.new(0.5, 1)
+        footer.Position = UDim2.new(0.5, 0, 1, -22)
+        footer.TextXAlignment = Enum.TextXAlignment.Center
+        footer.ZIndex = 110
+        footer.TextTransparency = 0.66
 
         local loadStart = os.clock()
-        local loadDuration = 2.65
-        local loadStages = System.theme == "Oblivion" and {
-            {0.00, "INITIALIZING FIELD..."},
-            {0.18, "CALIBRATING GRAVITY..."},
-            {0.37, "WARPING THE PERIMETER..."},
-            {0.56, "SYNCHRONIZING CORE..."},
-            {0.75, "STABILIZING OBLIVION FIELD..."},
-            {0.90, "OBLIVION V1 ONLINE"},
-        } or {
-            {0.00, "OPENING THE VOID..."},
-            {0.18, "LOCATING SINGULARITY..."},
-            {0.37, "IGNITING ACCRETION DISK..."},
-            {0.56, "BENDING SPACETIME..."},
-            {0.75, "SYNCHRONIZING ORBITAL RINGS..."},
-            {0.90, System.theme == "Blackhole" and "BLACKHOLE V1 ONLINE" or "VOID NEXUS ONLINE"},
-        }
-
+        local loadDuration = 3.0
         local loadAnimConn
         local loaderFinished = false
+
         local function finishLoader(force)
             if loaderFinished then return end
             loaderFinished = true
             if loadAnimConn then pcall(function() loadAnimConn:Disconnect() end); loadAnimConn = nil end
             if not State.alive then return end
 
-            loadStatus.Text = System.theme == "Blackhole" and "BLACKHOLE V1 ONLINE"
-                or System.theme == "Oblivion" and "OBLIVION V1 ONLINE"
-                or "VOID NEXUS ONLINE"
-            loadPercent.Text = force and "100%" or loadPercent.Text
-            loadFill.Size = UDim2.new(1, 0, 1, 0)
-
-            local okTween = pcall(function()
-                TweenService:Create(loadScale, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.78}):Play()
-                TweenService:Create(loadingLayer, TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
-            end)
-
-            task.delay(okTween and 0.28 or 0.05, function()
+            -- The requested loading window is exactly 3 seconds. Reveal the UI immediately
+            -- after that duration rather than adding another hidden loading delay.
+            task.delay(0.02, function()
                 if not State.alive then return end
                 if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled = false end
                 if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end
@@ -5882,79 +5830,111 @@ do
 
             local okFrame, frameErr = pcall(function()
                 local elapsed = os.clock() - loadStart
-            local progress = math.clamp(elapsed / loadDuration, 0, 1)
+                local progress = math.clamp(elapsed / loadDuration, 0, 1)
 
-            -- SVG .system breathe animation.
-            local breathe = (math.sin(elapsed * math.pi * 2 / 6.5) + 1) * 0.5
-            systemScale.Scale = 1 + breathe * 0.025
+                -- .space field animation: 5s ease-in-out, opposite phase.
+                local fieldPulse = (math.sin((elapsed / 5) * math.pi * 2 - math.pi / 2) + 1) * 0.5
+                local fieldScale = 0.82 + fieldPulse * 0.26
+                field1.Size = UDim2.fromOffset(260 * fieldScale, 260 * fieldScale)
+                field2.Size = UDim2.fromOffset(430 * fieldScale, 430 * fieldScale)
+                field1Stroke.Transparency = 0.97 - fieldPulse * 0.035
+                field2Stroke.Transparency = 0.97 - ((1 - fieldPulse) * 0.035)
 
-            -- SVG bloomPulse animation.
-            local bloomPulse = (math.sin(elapsed * math.pi * 2 / 7) + 1) * 0.5
-            bloomOuter.BackgroundTransparency = 0.95 - bloomPulse * 0.08
-            bloomMid.BackgroundTransparency = 0.88 - bloomPulse * 0.08
-            bloomInner.BackgroundTransparency = 0.76 - bloomPulse * 0.08
-
-            -- SVG twinkle animation, with the original delays preserved.
-            for _, info in ipairs(stars) do
-                local pulse = (math.sin((elapsed + info.phase) * math.pi * 2 / 3) + 1) * 0.5
-                info.object.BackgroundTransparency = 0.88 - pulse * 0.68
-            end
-
-            -- SVG flow approximation: the dashed accretion disk slowly advances around the horizon.
-            diskGroup.Rotation = -7 + elapsed * (360 / 5.5)
-            for i, dash in ipairs(diskDashes) do
-                local phase = ((i - 1) / diskCount) * math.pi * 2
-                local pulse = (math.sin(elapsed * 2.0 + phase) + 1) * 0.5
-                dash.BackgroundTransparency = math.clamp(0.62 - pulse * 0.30, 0.22, 0.68)
-            end
-
-            -- Lens arc shimmer.
-            local arcPulse = (math.sin(elapsed * math.pi * 2 / 4.2) + 1) * 0.5
-            for i, seg in ipairs(lensSegments) do
-                local p = (i - 1) / math.max(1, #lensSegments - 1)
-                seg.BackgroundTransparency = math.clamp(0.52 - arcPulse * 0.30 + p * 0.12, 0.14, 0.68)
-            end
-
-            -- Photon-ring flicker/shimmer.
-            local ringPulse = (math.sin(elapsed * math.pi * 2 / 3.4) + 1) * 0.5
-            for i, seg in ipairs(photonSegments) do
-                local p = (i - 1) / photonCount
-                local wave = (math.sin(elapsed * 3.0 + p * math.pi * 4) + 1) * 0.5
-                seg.BackgroundTransparency = math.clamp(0.38 - ringPulse * 0.28 - wave * 0.12, 0.03, 0.58)
-            end
-
-            -- Soft singularity breathing.
-            local corePulse = (math.sin(elapsed * math.pi * 2 / 3.8) + 1) * 0.5
-            coreBloom.BackgroundTransparency = 0.82 - corePulse * 0.16
-            coreBloom2.BackgroundTransparency = 0.88 - corePulse * 0.16
-
-            -- Loading text / progress.
-            loadStatus.Text = loadStages[1][2]
-            for i = #loadStages, 1, -1 do
-                if progress >= loadStages[i][1] then
-                    loadStatus.Text = loadStages[i][2]
-                    break
+                -- Three SVG arcs: preserve the original collapse keyframe rhythm.
+                local function arcState(elapsedTime, duration, phase, scaleA, scaleB, scaleC, opacityA, opacityB, opacityC)
+                    local q = (elapsedTime / duration + phase) % 1
+                    local rot, scale, opacity
+                    if q < 0.18 then
+                        local u = q / 0.18
+                        rot = 0 + 72 * u; scale = 1 + (scaleB - 1) * u; opacity = opacityA + (opacityB - opacityA) * u
+                    elseif q < 0.42 then
+                        local u = (q - 0.18) / 0.24
+                        rot = 72 + 96 * u; scale = scaleB + (scaleC - scaleB) * u; opacity = opacityB + (1 - opacityB) * u
+                    elseif q < 0.60 then
+                        local u = (q - 0.42) / 0.18
+                        rot = 168 + 77 * u; scale = scaleC + (0.78 - scaleC) * u; opacity = 1 + (0.65 - 1) * u
+                    elseif q < 0.82 then
+                        local u = (q - 0.60) / 0.22
+                        rot = 245 + 75 * u; scale = 0.78 + (1.08 - 0.78) * u; opacity = 0.65 + (0.35 - 0.65) * u
+                    else
+                        local u = (q - 0.82) / 0.18
+                        rot = 320 + 40 * u; scale = 1.08 + (1 - 1.08) * u; opacity = 0.35
+                    end
+                    return rot, scale, opacity
                 end
-            end
-            loadFill.Size = UDim2.new(progress, 0, 1, 0)
-            loadPercent.Text = string.format("%d%%", math.floor(progress * 100 + 0.5))
 
+                local r1, s1, o1 = arcState(elapsed, 2.8, 0, 0.86, 0.53, 0.78, 0.35, 0.80, 1.0)
+                arcOne.group.Rotation = r1
+                arcOne.group.Size = UDim2.fromOffset(300 * s1, 300 * s1)
+                arcOne.group.Position = UDim2.new(0.5, 0, 0.5, 0)
+                arcOne.group.AnchorPoint = Vector2.new(0.5, 0.5)
+                for _, info in ipairs(arcOne.segments) do info.object.BackgroundTransparency = math.clamp(1 - o1 * (0.78 + 0.22 * math.sin(elapsed * 2 + info.phase * 7)), 0.05, 0.82) end
+
+                local q2 = (elapsed / 3.5) % 1
+                local r2, s2, o2
+                if q2 < 0.28 then
+                    local u = q2 / 0.28; r2 = 90 - 78*u; s2 = 1.05 - 0.33*u; o2 = 0.18 + 0.37*u
+                elseif q2 < 0.52 then
+                    local u = (q2-0.28)/0.24; r2 = 12 - 87*u; s2 = 0.72 - 0.27*u; o2 = 0.55 + 0.30*u
+                elseif q2 < 0.76 then
+                    local u = (q2-0.52)/0.24; r2 = -75 - 85*u; s2 = 0.45 + 0.37*u; o2 = 0.85 - 0.40*u
+                else
+                    local u = (q2-0.76)/0.24; r2 = -160 - 110*u; s2 = 0.82 + 0.23*u; o2 = 0.45 - 0.27*u
+                end
+                arcTwo.group.Rotation = r2
+                arcTwo.group.Size = UDim2.fromOffset(300 * s2, 300 * s2)
+                arcTwo.group.Position = UDim2.new(0.5, 0, 0.5, 0)
+                arcTwo.group.AnchorPoint = Vector2.new(0.5, 0.5)
+                for _, info in ipairs(arcTwo.segments) do info.object.BackgroundTransparency = math.clamp(1 - o2 * (0.76 + 0.24 * math.sin(elapsed * 1.7 + info.phase * 9)), 0.08, 0.92) end
+
+                local q3 = (elapsed / 4.2) % 1
+                local r3, s3, o3
+                if q3 < 0.32 then
+                    local u = q3 / 0.32; r3 = 180 - 88*u; s3 = 1 - 0.18*u; o3 = 0.10 + 0.18*u
+                elseif q3 < 0.55 then
+                    local u = (q3-0.32)/0.23; r3 = 92 - 77*u; s3 = 0.82 - 0.26*u; o3 = 0.28 + 0.20*u
+                elseif q3 < 0.78 then
+                    local u = (q3-0.55)/0.23; r3 = 15 - 87*u; s3 = 0.56 + 0.34*u; o3 = 0.48 - 0.24*u
+                else
+                    local u = (q3-0.78)/0.22; r3 = -72 - 108*u; s3 = 0.90 + 0.10*u; o3 = 0.24 - 0.14*u
+                end
+                arcThree.group.Rotation = r3
+                arcThree.group.Size = UDim2.fromOffset(300 * s3, 300 * s3)
+                arcThree.group.Position = UDim2.new(0.5, 0, 0.5, 0)
+                arcThree.group.AnchorPoint = Vector2.new(0.5, 0.5)
+                for _, info in ipairs(arcThree.segments) do info.object.BackgroundTransparency = math.clamp(1 - o3 * (0.80 + 0.20 * math.sin(elapsed * 1.3 + info.phase * 5)), 0.10, 0.97) end
+
+                -- coreField / core / coreRing timings copied from the HTML.
+                local corePulse = (math.sin((elapsed / 1.45) * math.pi * 2 - math.pi * 0.45) + 1) * 0.5
+                local coreScale = 0.72 + corePulse * 0.63
+                core.Size = UDim2.fromOffset(7 * coreScale, 7 * coreScale)
+                coreField.Size = UDim2.fromOffset(88 * (0.72 + ((math.sin((elapsed / 2.2) * math.pi * 2 - math.pi/2) + 1) * 0.5) * 0.43), 88 * (0.72 + ((math.sin((elapsed / 2.2) * math.pi * 2 - math.pi/2) + 1) * 0.5) * 0.43))
+                coreFieldInner.Size = UDim2.fromOffset(62 + corePulse * 20, 62 + corePulse * 20)
+                core.BackgroundTransparency = 0.28 - corePulse * 0.28
+                coreRing.Size = UDim2.fromOffset(7 * (0.25 + corePulse * 1.55), 7 * (0.25 + corePulse * 1.55))
+                coreRingStroke.Transparency = 0.45 + corePulse * 0.50
+
+                -- HTML dots interval: 420ms, 0-3 dots.
+                local dotCount = math.floor((elapsed / 0.42) % 4)
+                title.Text = "OBLIVION" .. string.rep(".", dotCount)
+
+                -- Progress is not part of the HTML; this remains a tiny hidden timing aid only.
+                -- The visible loader is intentionally just the original Oblivion composition.
                 if progress >= 1 then
                     finishLoader(false)
                 end
             end)
 
             if not okFrame then
-                warn("AutoSkills loader frame error: " .. tostring(frameErr))
+                warn("AutoSkills Oblivion loader frame error: " .. tostring(frameErr))
                 finishLoader(true)
             end
         end)
 
-        -- Hard watchdog: if RenderStepped ever errors/stalls, the UI cannot remain
-        -- trapped behind the loader forever. Normal loading still finishes at 2.65s.
-        task.delay(loadDuration + 1.75, function()
+        -- Exact requested duration: 3 seconds, with a small safety watchdog.
+        task.delay(loadDuration + 1.5, function()
             if State.alive and not loaderFinished and loadingLayer and loadingLayer.Parent then
-                warn("AutoSkills loader watchdog: forcing UI reveal after timeout.")
+                warn("AutoSkills Oblivion loader watchdog: forcing UI reveal after timeout.")
                 finishLoader(true)
             end
         end)

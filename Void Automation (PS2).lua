@@ -1951,7 +1951,7 @@ do
         else
             Settings.FarmEnabled = false
             resetAutoBossRoute(true)
-            Farm.release(true)
+            Farm.release(false)
         end
         Farm.step()
         render()
@@ -1988,7 +1988,7 @@ do
         if not value then
             Settings.AutoBoss = false
             resetAutoBossRoute(true)
-            Farm.release(true)
+            Farm.release(false)
         end
         Farm.nextScan = 0
         Farm.step()
@@ -2317,7 +2317,7 @@ do
             Settings.AutoBoss = false
             resetAutoBossRoute(true)
             Farm.fault = "Farming stopped. Toggle on to retry."
-            Farm.release(true)
+            Farm.release(false)
             Farm.status, Farm.detail = "ERROR", Farm.fault
             warn("AutoSkills Farm: " .. tostring(err))
         end
@@ -2328,7 +2328,7 @@ do
         Settings.FarmEnabled = false
         Settings.AutoBoss = false
         resetAutoBossRoute(true)
-        Farm.release(true)
+        Farm.release(false)
     end
     local runOK, Run = pcall(function() return game:GetService("RunService") end)
     if runOK then

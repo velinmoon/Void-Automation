@@ -11,7 +11,7 @@ local Settings = {
     StaticMapScan = true, StaticScanRange = 500000,
     AutoRejoin = true, AutoExecute = true,
     PrivateServerMap = "Ouwigahara", PrivateJoinHold = 1.35,
-    NoClip = false, FlyEnabled = false, FlySpeed = 85,
+    NoClip = true, FlyEnabled = false, FlySpeed = 85,
     SpeedEnabled = false, WalkSpeed = 32,
     ToggleKey = Enum.KeyCode.F6,
     StopKey = Enum.KeyCode.F7,
@@ -496,10 +496,9 @@ local Farm = {catalog = {}, remembered = {}, pinned = nil, records = {}, selecte
     autoVisited = {}, autoCurrent = nil, autoLastPath = nil, autoArrivedAt = 0,
     autoCombatAt = 0, autoLastProgressAt = 0, autoLastHP = nil, autoDefeated = false,
     autoRespawnResume = false, autoResumePath = nil,
-    autoCycles = 0, autoSkipped = 0, travelHealth = nil, autoHazardPaths = {},
+    autoCycles = 0, autoSkipped = 0, travelHealth = nil,
     guardian = {lastHealth = nil, damageSince = 0, damageBase = nil, lastPosition = nil,
         lastPositionAt = 0, stuckSince = 0, lostSince = 0, verifyAt = 0, recoveries = 0,
-        healthHumanoid = nil, healthConnection = nil, damageEvent = false, damageEventHealth = nil,
         lastAction = "STANDBY", lastActionAt = 0}
 }
 local function attackHealthAllowed(maximum)
@@ -565,7 +564,6 @@ do
             end
             if finite(data.options.BossDwell) then Settings.BossDwell=math.clamp(data.options.BossDwell,1,5) end
             if finite(data.options.BossGridRadius) then Settings.BossGridRadius=math.clamp(data.options.BossGridRadius,512,8192) end
-            if finite(data.options.FarmDepth) then Settings.FarmDepth=math.clamp(data.options.FarmDepth,6,10) end
             for i, entry in ipairs(data.bosses) do
                 if i>512 then break end
                 if type(entry)=="table" and short(entry.path,512) and short(entry.name)
@@ -616,8 +614,7 @@ do
         local ok,err=pcall(function()
             local bytes=HTTP:JSONEncode({schema=1,placeId=place,bosses=bosses,markers=markers,
                 options={BossAutoSave=Settings.BossAutoSave,BossFirstDiscovery=Settings.BossFirstDiscovery,
-                    BossGridSearch=Settings.BossGridSearch,BossDwell=Settings.BossDwell,BossGridRadius=Settings.BossGridRadius,
-                    FarmDepth=Settings.FarmDepth}})
+                    BossGridSearch=Settings.BossGridSearch,BossDwell=Settings.BossDwell,BossGridRadius=Settings.BossGridRadius}})
             if validBytes then writer(Farm.configPath..".bak",validBytes) end
             writer(Farm.configPath,bytes)
             validBytes=bytes
@@ -819,7 +816,7 @@ do
         if not character or not humanoid or not rootPart or not targetRoot then return end
         if not character.Parent or not targetRoot.Parent then return end
         humanoid.AutoRotate = false
-        local depth = math.clamp(Settings.FarmDepth, 6, 10)
+        local depth = math.clamp(Settings.FarmDepth, 6, 7)
         local destination = targetRoot.Position - Vector3.new(0, depth, 0)
         local flat = Vector3.new(targetRoot.Position.X - destination.X, 0, targetRoot.Position.Z - destination.Z)
         local yaw = 0
@@ -1690,7 +1687,6 @@ do
     end
     local function resetAutoBossRoute(clearLast)
         Farm.autoVisited = {}
-        Farm.autoHazardPaths = {}
         Farm.autoCurrent = nil
         Farm.autoArrivedAt = 0
         Farm.autoCombatAt = 0
@@ -1704,9 +1700,6 @@ do
         g.lastHealth, g.damageSince, g.damageBase = nil, 0, nil
         g.lastPosition, g.lastPositionAt, g.stuckSince, g.lostSince = nil, 0, 0, 0
         g.verifyAt, g.recoveries, g.lastAction, g.lastActionAt = 0, 0, "STANDBY", 0
-        g.damageEvent, g.damageEventHealth = false, nil
-        if g.healthConnection then pcall(function() g.healthConnection:Disconnect() end) end
-        g.healthConnection, g.healthHumanoid = nil, nil
         if clearLast then Farm.autoLastPath = nil end
     end
     local function autoBossLocation(entry)
@@ -1757,7 +1750,6 @@ do
             for _, entry in ipairs(Farm.remembered) do
                 local location = autoBossLocation(entry)
                 if autoBossEligible(entry) and not Farm.autoVisited[entry.path]
-                    and not Farm.autoHazardPaths[entry.path]
                     and (not excludeLast or entry.path ~= Farm.autoLastPath) then
                     local distance = (location - position).Magnitude
                     if distance <= Settings.BossAutoRange and (not bestDistance or distance < bestDistance) then
@@ -1792,7 +1784,6 @@ do
         g.lastHealth, g.damageSince, g.damageBase = nil, 0, nil
         g.lastPosition, g.lastPositionAt, g.stuckSince = rootPart.Position, os.clock(), 0
         g.verifyAt, g.recoveries, g.lastAction, g.lastActionAt = 0, 0, "TARGET SELECTED", os.clock()
-        g.damageEvent, g.damageEventHealth = false, nil
         Farm.status = "AUTO BOSS"
         Farm.detail = string.format("Next: %s | %.0f studs away", entry.name, distance or 0)
         return entry
@@ -1822,24 +1813,6 @@ do
         Farm.status = "AUTO BOSS"
         Farm.detail = (reason or "Moving to next boss") .. (previous and (" | " .. previous.name) or "")
         return pickAutoBoss(rootPart)
-    end
-
-    local function guardianBindHealth(humanoid)
-        local g = Farm.guardian
-        if g.healthHumanoid == humanoid and g.healthConnection then return end
-        if g.healthConnection then pcall(function() g.healthConnection:Disconnect() end) end
-        g.healthConnection, g.healthHumanoid = nil, humanoid
-        g.damageEvent, g.damageEventHealth = false, nil
-        if humanoid then
-            g.healthConnection = humanoid.HealthChanged:Connect(function(hp)
-                if Settings.AutoBoss and Farm.travelHealth and not Farm.autoEngaged
-                    and hp < Farm.travelHealth - 0.01 then
-                    g.damageEvent = true
-                    g.damageEventHealth = hp
-                    g.lastAction, g.lastActionAt = "ENVIRONMENTAL DAMAGE", os.clock()
-                end
-            end)
-        end
     end
 
     local function guardianResetObservation(rootPart, humanoid)
@@ -2062,17 +2035,7 @@ do
             or not rootPart or not rootPart:IsA("BasePart") or rootPart.Anchored or humanoid.Sit or humanoid.SeatPart then
             pause("WAITING", "Waiting for your living, unseated character."); return
         end
-        guardianBindHealth(humanoid)
         if Settings.AutoBoss then
-            if Farm.guardian.damageEvent then
-                local hazardPath = Farm.autoCurrent or Farm.pinned
-                if hazardPath then Farm.autoHazardPaths[hazardPath] = true end
-                local damageHP = Farm.guardian.damageEventHealth or humanoid.Health
-                Farm.guardian.damageEvent, Farm.guardian.damageEventHealth = false, nil
-                advanceAutoBoss("Guardian: environmental damage at saved boss location", rootPart, true)
-                Farm.detail = string.format("Unsafe location skipped at %.0f HP remaining.", damageHP)
-                return
-            end
             local entry
 
             if Farm.autoRespawnResume and Farm.autoResumePath then
@@ -2093,11 +2056,7 @@ do
             if not entry then
                 Farm.stopM1(); Farm.restoreHitbox()
                 Farm.status = "AUTO BOSS WAITING"
-                local blocked = 0
-                for _ in pairs(Farm.autoHazardPaths) do blocked = blocked + 1 end
-                Farm.detail = blocked > 0
-                    and string.format("No safe saved boss location within %.0f studs. %d hazardous location%s blocked this run.", Settings.BossAutoRange, blocked, blocked == 1 and " is" or "s are")
-                    or string.format("No saved boss location within %.0f studs. Discover or import locations first.", Settings.BossAutoRange)
+                Farm.detail = string.format("No saved boss location within %.0f studs. Discover or import locations first.", Settings.BossAutoRange)
                 return
             end
             Farm.pinned = entry.path
@@ -2164,10 +2123,7 @@ do
                     local damagedHealth = humanoid.Health
                     Farm.travelHealth = nil
                     if Settings.AutoBoss then
-                        local hazardPath = Farm.autoCurrent or Farm.pinned
-                        if hazardPath then Farm.autoHazardPaths[hazardPath] = true end
-                        Farm.guardian.damageEvent, Farm.guardian.damageEventHealth = false, nil
-                        advanceAutoBoss("No boss loaded; environmental damage detected, moving on", rootPart, true)
+                        advanceAutoBoss("No boss loaded; environmental damage detected, moving on", rootPart, false)
                     else
                         pause("DANGER", string.format("No boss loaded; damage detected (%.0f HP). Returning to safety.", damagedHealth))
                     end
@@ -2177,7 +2133,7 @@ do
                 if Farm.travelKey ~= entry.path then
                     Farm.travelKey, Farm.travelAt = entry.path, os.clock()
                     Farm.travelHealth = humanoid.Health
-                    Farm.travelDestination = location - Vector3.new(0, math.clamp(Settings.FarmDepth,6,10),0)
+                    Farm.travelDestination = location - Vector3.new(0, math.clamp(Settings.FarmDepth,6,7),0)
                     Farm.nextScan = 0
                     if Settings.AutoBoss then
                         Farm.autoArrivedAt = os.clock()
@@ -2383,7 +2339,7 @@ do
             if pose.character and pose.character.Parent and pose.rootPart and pose.rootPart.Parent
                 and pose.targetRoot and pose.targetRoot.Parent then
 
-                local depth = math.clamp(Settings.FarmDepth, 6, 10)
+                local depth = math.clamp(Settings.FarmDepth, 6, 7)
                 local desiredPosition = pose.targetRoot.Position - Vector3.new(0, depth, 0)
                 local upright = math.abs(pose.rootPart.CFrame.UpVector.Y) > 0.55
                 local displaced = (pose.rootPart.Position - desiredPosition).Magnitude > 0.45
@@ -2828,8 +2784,8 @@ local Movement = {
     speedHumanoid = nil, speedOriginal = nil,
     flyHumanoid = nil, flyAutoRotate = nil,
     tBlocked = false,
-    status = "MOVEMENT",
-    detail = "All movement overrides are off.",
+    status = "NOCLIP ON",
+    detail = "No-clip is active automatically. T is blocked while No Clip is on.",
 }
 
 local function movementCharacter()
@@ -4289,14 +4245,12 @@ BH.coreGlow.BackgroundTransparency = 0.90
 BH.coreGlow.ZIndex = 4
 
 BH.core = frame(BH.hero, "EventHorizon", 0, 0, 56, 56, Color3.new(0,0,0), 28)
-BH.core:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0.5, 0)
 BH.core.AnchorPoint = Vector2.new(0.5, 0.5)
 BH.core.Position = UDim2.fromOffset(W * 0.5, 76)
 BH.core.BackgroundTransparency = 0
 BH.core.ZIndex = 6
 
 BH.horizonSilver = frame(BH.hero, "HorizonSilver", 0, 0, 58, 58, Color3.new(1,1,1), 29)
-BH.horizonSilver:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0.5, 0)
 BH.horizonSilver.AnchorPoint = Vector2.new(0.5, 0.5)
 BH.horizonSilver.Position = UDim2.fromOffset(W * 0.5, 76)
 BH.horizonSilver.BackgroundTransparency = 1
@@ -4304,7 +4258,6 @@ BH.horizonSilver.ZIndex = 5
 BH.silverStroke = stroke(BH.horizonSilver, Color3.fromRGB(238,241,251), 0.18, 1.4)
 
 BH.horizonPurple = frame(BH.hero, "HorizonPurple", 0, 0, 58, 58, Color3.new(1,1,1), 29)
-BH.horizonPurple:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0.5, 0)
 BH.horizonPurple.AnchorPoint = Vector2.new(0.5, 0.5)
 BH.horizonPurple.Position = UDim2.fromOffset(W * 0.5, 76)
 BH.horizonPurple.BackgroundTransparency = 1
@@ -4371,15 +4324,12 @@ connect(RunService.RenderStepped, function()
     BH.last = now
     local t = now - BH.clock
     local heroWidth = math.max(420, BH.hero.AbsoluteSize.X)
-    -- Keep the black-hole circular and the orbit field wide without stretching
-    -- every beam into huge bars when the window is resized.
-    local widthRatio = heroWidth / 420
-    local orbitScale = widthRatio
-    local segmentScale = math.clamp(0.95 + (widthRatio - 1) * 0.18, 0.95, 1.45)
+    -- The HTML reference uses a 300px-wide hero. Keep the orbit field proportional
+    -- to the resized Roblox hero while keeping the fixed-height panel usable.
+    local scale = heroWidth / 420
     local cx = heroWidth * 0.5
     local cy = 76
-    local coreScale = math.clamp(0.92 + (widthRatio - 1) * 0.16, 0.92, 1.30)
-    BH.atmosphere.Size = UDim2.fromOffset(heroWidth, 152)
+    local coreScale = math.clamp(0.92 + (heroWidth / 420) * 0.28, 0.92, 1.65)
     BH.core.Position = UDim2.fromOffset(cx, cy)
     BH.coreGlow.Position = UDim2.fromOffset(cx, cy)
     BH.horizonSilver.Position = UDim2.fromOffset(cx, cy)
@@ -4416,15 +4366,13 @@ connect(RunService.RenderStepped, function()
     for _, ring in ipairs({BH.backRing1, BH.backRing2, BH.frontRing}) do
         for _, seg in ipairs(ring.segments) do
             local angle = seg.angle
-            local rx = math.min(ring.rx * orbitScale, heroWidth * 0.46)
-            local ry = ring.ry + math.min(18, (heroWidth - 420) * 0.015)
+            local rx, ry = ring.rx * scale, ring.ry
             local x = cx + math.cos(angle) * rx
             local y = cy + math.sin(angle) * ry
             local tx, ty = -rx * math.sin(angle), ry * math.cos(angle)
             local rotation = math.deg(math.atan2(ty, tx))
-            local beamLength = math.floor(seg.length * segmentScale)
-            seg.seg.Size = UDim2.fromOffset(beamLength, seg.width)
-            seg.glow.Size = UDim2.fromOffset(beamLength + 8, seg.width + 6)
+            seg.seg.Size = UDim2.fromOffset(math.floor(seg.length * scale), seg.width)
+            seg.glow.Size = UDim2.fromOffset(math.floor(seg.length * scale) + 8, seg.width + 6)
             seg.seg.Position = UDim2.fromOffset(x, y)
             seg.seg.Rotation = rotation
             seg.glow.Position = UDim2.fromOffset(x, y)
@@ -4601,19 +4549,13 @@ UI.healthDetail.Visible = false
 
 local farmPage = newPage("Farm")
 farmBody = farmPage
-pageHead(farmPage, "farm", "FARM ROUTE", "6 NODES")
+pageHead(farmPage, "farm", "FARM ROUTE", "5 NODES")
 makeRow(farmPage, 48, "Auto Farm", "Selects eligible 3000-3200 HP targets", function() return Settings.FarmEnabled end, Farm.setEnabled)
 makeRow(farmPage, 108, "Auto Boss", "Routes through saved boss locations", function() return Settings.AutoBoss end, Farm.setAutoBoss)
 makeRow(farmPage, 168, "Auto Collect", "Loots boss drops and world rewards", function() return Settings.FarmAutoLoot end, Farm.setLoot)
 makeRow(farmPage, 228, "Auto M1", "Uses the inventory-safe M1 path", function() return Settings.FarmM1 end, function(v) Settings.FarmM1 = v; Farm.step() end)
 makeSlider(farmPage, 288, "Boss Delay", function() return Settings.BossNoAttackTimeout end, function(v) Settings.BossNoAttackTimeout = math.max(1, v) end, 1, 10, "%.1fs")
-makeSlider(farmPage, 372, "Boss Distance", function() return Settings.FarmDepth end, function(v)
-    Settings.FarmDepth = math.clamp(math.floor(v + 0.5), 6, 10)
-    Farm.markDirty()
-    Farm.saveConfig(true, true)
-    Farm.step()
-end, 6, 10, "%.0f studs")
-local farmHint = safeText(farmPage, "Hint", "Boss Distance controls how many studs below the boss you stay while farming.", 16, 456, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+local farmHint = safeText(farmPage, "Hint", "Auto Boss keeps the same-boss respawn route when possible.", 16, 372, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
 farmHint.TextXAlignment = Enum.TextXAlignment.Center
 UI.farmHint = farmHint
 UI.farmCount = safeText(farmPage, "Count", "0", 0, 0, 1, 1, 1, C.dim)
@@ -4626,7 +4568,6 @@ UI.farmStatus = safeText(farmPage, "Status", "", 0, 0, 1, 1, 1, C.dim)
 UI.farmDetail = safeText(farmPage, "Detail", "", 0, 0, 1, 1, 1, C.dim)
 UI.refTargetName = safeText(farmPage, "RefTarget", "", 0, 0, 1, 1, 1, C.dim)
 UI.refBossDelay = safeText(farmPage, "RefDelay", "", 0, 0, 1, 1, 1, C.dim)
-UI.refBossDistance = safeText(farmPage, "RefDistance", "", 0, 0, 1, 1, 1, C.dim)
 UI.refRunDot = frame(farmPage, "RunDot", 0, 0, 1, 1, C.dim, 1)
 UI.refElapsed = safeText(farmPage, "Elapsed", "", 0, 0, 1, 1, 1, C.dim)
 
@@ -4870,7 +4811,6 @@ local function applyWindowWidth(width)
     setObjectWidth(voidFX, windowWidth)
     if System.theme == "Blackhole" then
         BH.hero.Size = UDim2.fromOffset(windowWidth, 152)
-        BH.atmosphere.Size = UDim2.fromOffset(windowWidth, 152)
         BH.backA.Size = UDim2.fromOffset(windowWidth, 152)
         BH.backB.Size = UDim2.fromOffset(windowWidth, 152)
         BH.front.Size = UDim2.fromOffset(windowWidth, 152)

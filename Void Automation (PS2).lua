@@ -3548,58 +3548,204 @@ make("UIGradient", panel, {
         ColorSequenceKeypoint.new(0.45, Color3.fromRGB(14, 7, 26)),
         ColorSequenceKeypoint.new(1, Color3.fromRGB(5, 2, 12)),
     }),
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.18),
+        NumberSequenceKeypoint.new(0.48, 0.28),
+        NumberSequenceKeypoint.new(1, 0.12),
+    }),
 })
 
--- Subtle animated VOID/star field.  It sits behind the real controls, so it
--- never blocks clicks and remains visible through the transparent page gaps.
+-- Animated VOID background ------------------------------------------------
+-- The HTML reference has a dark glass surface.  Keep the Roblox recreation
+-- almost black, but let a dedicated effect layer show through the empty areas
+-- of the panel.  The effect layer never receives input and stays below every
+-- real control.
+panel.BackgroundTransparency = 0.12
+local panelBackdrop = make("Frame", panel, {
+    Name = "VoidBackdrop", Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(W, H),
+    BackgroundColor3 = C.black, BackgroundTransparency = 0.18, BorderSizePixel = 0,
+    Active = false, ZIndex = 1,
+})
+
 local voidFX = make("Frame", panel, {
     Name = "VoidFX", Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(W, H),
     BackgroundTransparency = 1, BorderSizePixel = 0, Active = false, ZIndex = 2,
 })
-local voidRings = {}
-local voidStars = {}
+local voidRings, voidStars, voidDust, voidShots = {}, {}, {}, {}
+
+-- Soft central singularity.
 local voidCore = frame(voidFX, "Core", 166, 214, 88, 88, C.black, 44)
-voidCore.BackgroundTransparency = 0.22
+voidCore.BackgroundTransparency = 0.08
 voidCore.ZIndex = 2
-stroke(voidCore, C.violet2, 0.72, 1)
-local coreGlow = frame(voidFX, "CoreGlow", 151, 199, 118, 118, C.violet, 59)
-coreGlow.BackgroundTransparency = 0.97
+stroke(voidCore, C.violet2, 0.68, 1)
+local coreGlow = frame(voidFX, "CoreGlow", 145, 193, 130, 130, C.violet, 65)
+coreGlow.BackgroundTransparency = 0.985
 coreGlow.ZIndex = 2
-stroke(coreGlow, C.violet2, 0.88, 1)
-for i, size in ipairs({180, 290}) do
-    local ring = frame(voidFX, "Ring" .. i, 210 - size / 2, 258 - size / 2, size, size, C.black, size / 2)
+stroke(coreGlow, C.violet2, 0.90, 1)
+local coreGlow2 = frame(voidFX, "CoreGlow2", 125, 173, 170, 170, C.magenta, 85)
+coreGlow2.BackgroundTransparency = 0.995
+coreGlow2.ZIndex = 2
+stroke(coreGlow2, C.magenta, 0.96, 1)
+
+-- Rotating void rings.
+for i, size in ipairs({180, 290, 390}) do
+    local ring = frame(voidFX, "Ring" .. i,
+        math.floor(W * 0.5 - size / 2), math.floor(H * 0.49 - size / 2),
+        size, size, C.black, size / 2)
     ring.BackgroundTransparency = 1
     ring.ZIndex = 2
-    stroke(ring, i == 1 and C.violet2 or C.magenta, i == 1 and 0.82 or 0.91, 1)
-    voidRings[#voidRings + 1] = {object = ring, speed = i == 1 and 7 or -4, phase = i * 0.9}
-end
-for i = 1, 34 do
-    local size = math.random(1, 3)
-    local star = frame(voidFX, "Star" .. i, math.random(8, math.max(9, W - 12)), math.random(70, math.max(72, H - 12)), C.cyan, size)
-    star.BackgroundTransparency = math.random(45, 82) / 100
-    star.ZIndex = 2
-    voidStars[#voidStars + 1] = {
-        object = star, base = star.BackgroundTransparency, phase = math.random() * math.pi * 2,
-        speed = 0.8 + math.random() * 1.7,
+    stroke(ring, i == 1 and C.violet2 or (i == 2 and C.magenta or C.cyan),
+        i == 1 and 0.80 or (i == 2 and 0.91 or 0.96), 1)
+    voidRings[#voidRings + 1] = {
+        object = ring,
+        speed = i == 1 and 7 or (i == 2 and -4 or 2.2),
+        phase = i * 0.9,
+        size = size,
     }
 end
-local voidFXStart = os.clock()
+
+-- Tiny floating void dust, separate from the brighter falling stars.
+for i = 1, 24 do
+    local size = math.random(1, 2)
+    local dust = frame(voidFX, "Dust" .. i,
+        math.random(5, math.max(6, W - 8)), math.random(70, math.max(71, H - 8)),
+        size, size, (i % 3 == 0) and C.magenta or C.violet2, size / 2)
+    dust.BackgroundTransparency = math.random(82, 95) / 100
+    dust.ZIndex = 2
+    voidDust[#voidDust + 1] = {
+        object = dust,
+        x = dust.Position.X.Offset,
+        y = dust.Position.Y.Offset,
+        speed = 3 + math.random() * 8,
+        phase = math.random() * math.pi * 2,
+    }
+end
+
+-- Falling stars: each has a bright core + soft halo and drifts diagonally
+-- downward.  When one leaves the bottom it wraps back to the top, creating a
+-- continuous void-rain effect instead of a static star field.
+for i = 1, 42 do
+    local size = math.random(1, 2)
+    local x = math.random(8, math.max(9, W - 12))
+    local y = math.random(68, math.max(69, H - 10))
+    local glowSize = size == 1 and 7 or 9
+    local glow = frame(voidFX, "StarGlow" .. i,
+        x - math.floor(glowSize / 2), y - math.floor(glowSize / 2),
+        glowSize, glowSize, (i % 5 == 0) and C.magenta or C.cyan, math.floor(glowSize / 2))
+    glow.BackgroundTransparency = math.random(86, 94) / 100
+    glow.ZIndex = 2
+    local star = frame(voidFX, "Star" .. i, x, y, size, size,
+        (i % 5 == 0) and C.magenta or C.cyan, size / 2)
+    star.BackgroundTransparency = math.random(18, 62) / 100
+    star.ZIndex = 3
+    voidStars[#voidStars + 1] = {
+        object = star, glow = glow,
+        x = x, y = y,
+        speed = 13 + math.random() * 30,
+        drift = -5 + math.random() * 10,
+        phase = math.random() * math.pi * 2,
+        twinkle = 1.2 + math.random() * 3.2,
+    }
+end
+
+-- A few occasional long streaks make the field feel like falling energy,
+-- rather than ordinary UI particles.
+for i = 1, 4 do
+    local streak = frame(voidFX, "VoidStreak" .. i, 0, 0, 2, 34,
+        i % 2 == 0 and C.cyan or C.magenta, 1)
+    streak.BackgroundTransparency = 1
+    streak.ZIndex = 2
+    local streakGlow = frame(voidFX, "VoidStreakGlow" .. i, 0, 0, 5, 44,
+        i % 2 == 0 and C.cyan or C.magenta, 2)
+    streakGlow.BackgroundTransparency = 0.93
+    streakGlow.ZIndex = 2
+    voidShots[#voidShots + 1] = {
+        object = streak, glow = streakGlow,
+        x = math.random(20, W - 20), y = math.random(70, H),
+        speed = 115 + math.random() * 75,
+        wait = math.random() * 4,
+        phase = math.random() * math.pi * 2,
+    }
+end
+
+local voidFXClock = os.clock()
+local voidLast = voidFXClock
 connect(RunService.RenderStepped, function()
     if not State.alive or not voidFX.Parent then return end
-    local t = os.clock() - voidFXStart
+    local now = os.clock()
+    local dt = math.min(now - voidLast, 0.05)
+    voidLast = now
+    local t = now - voidFXClock
+
+    -- Falling stars + glow pulse.
     for _, star in ipairs(voidStars) do
         if star.object.Parent then
-            local pulse = (math.sin(t * star.speed + star.phase) + 1) * 0.5
-            star.object.BackgroundTransparency = math.clamp(star.base - pulse * 0.32, 0.18, 0.94)
+            star.y = star.y + star.speed * dt
+            star.x = star.x + star.drift * dt + math.sin(t * 0.7 + star.phase) * 0.10
+            if star.y > H + 12 then
+                star.y = math.random(62, 78)
+                star.x = math.random(8, math.max(9, W - 12))
+            end
+            if star.x < 4 then star.x = W - 5 elseif star.x > W - 4 then star.x = 5 end
+            local pulse = (math.sin(t * star.twinkle + star.phase) + 1) * 0.5
+            local alpha = math.clamp(0.58 - pulse * 0.42, 0.10, 0.82)
+            star.object.Position = UDim2.fromOffset(math.floor(star.x), math.floor(star.y))
+            star.object.BackgroundTransparency = alpha
+            if star.glow.Parent then
+                star.glow.Position = UDim2.fromOffset(math.floor(star.x - star.glow.AbsoluteSize.X / 2), math.floor(star.y - star.glow.AbsoluteSize.Y / 2))
+                star.glow.BackgroundTransparency = math.clamp(0.96 - pulse * 0.24, 0.64, 0.96)
+            end
         end
     end
-    for _, ring in ipairs(voidRings) do
-        if ring.object.Parent then ring.object.Rotation = (t * ring.speed + ring.phase * 57) % 360 end
+
+    -- Slow drifting dust.
+    for _, dust in ipairs(voidDust) do
+        if dust.object.Parent then
+            dust.y = dust.y + dust.speed * dt
+            dust.x = dust.x + math.sin(t * 0.35 + dust.phase) * dt * 2
+            if dust.y > H + 5 then dust.y = 68 end
+            if dust.x < 3 then dust.x = W - 3 elseif dust.x > W - 3 then dust.x = 3 end
+            local pulse = (math.sin(t * 0.9 + dust.phase) + 1) * 0.5
+            dust.object.Position = UDim2.fromOffset(math.floor(dust.x), math.floor(dust.y))
+            dust.object.BackgroundTransparency = 0.90 + pulse * 0.08
+        end
     end
-    if voidCore.Parent then
-        local pulse = 0.5 + math.sin(t * 1.2) * 0.5
-        voidCore.BackgroundTransparency = 0.16 + pulse * 0.13
-        coreGlow.BackgroundTransparency = 0.975 - pulse * 0.035
+
+    -- Repeating shooting streaks with a short fade-in/fade-out cycle.
+    for _, shot in ipairs(voidShots) do
+        if shot.object.Parent then
+            local cycle = (t + shot.wait) % 5.5
+            local active = cycle < 0.75
+            if active then
+                shot.y = shot.y + shot.speed * dt
+                if shot.y > H + 60 then
+                    shot.y = math.random(72, 150)
+                    shot.x = math.random(20, W - 20)
+                end
+                local fade = cycle < 0.12 and cycle / 0.12 or (cycle > 0.58 and (0.75 - cycle) / 0.17 or 1)
+                shot.object.Position = UDim2.fromOffset(math.floor(shot.x), math.floor(shot.y))
+                shot.glow.Position = UDim2.fromOffset(math.floor(shot.x - 1), math.floor(shot.y - 4))
+                shot.object.BackgroundTransparency = 1 - math.clamp(fade, 0, 1) * 0.82
+                shot.glow.BackgroundTransparency = 0.96 - math.clamp(fade, 0, 1) * 0.20
+            else
+                shot.object.BackgroundTransparency = 1
+                shot.glow.BackgroundTransparency = 1
+            end
+        end
+    end
+
+    -- Breathing singularity and slow ring rotation.
+    local pulse = 0.5 + math.sin(t * 1.2) * 0.5
+    voidCore.BackgroundTransparency = 0.06 + pulse * 0.16
+    coreGlow.BackgroundTransparency = 0.985 - pulse * 0.045
+    coreGlow2.BackgroundTransparency = 0.995 - pulse * 0.025
+    for _, ring in ipairs(voidRings) do
+        if ring.object.Parent then
+            ring.object.Rotation = (t * ring.speed + ring.phase * 57) % 360
+            local ringPulse = (math.sin(t * 0.6 + ring.phase) + 1) * 0.5
+            ring.object:FindFirstChildOfClass("UIStroke").Transparency = math.clamp(
+                (ring.size == 180 and 0.76 or ring.size == 290 and 0.88 or 0.94) - ringPulse * 0.08, 0.45, 0.98)
+        end
     end
 end)
 
@@ -4068,6 +4214,7 @@ local function applyWindowWidth(width)
     setObjectWidth(tickerText, windowWidth * 2)
     setObjectWidth(tabs, windowWidth)
     setObjectWidth(content, windowWidth)
+    setObjectWidth(panelBackdrop, windowWidth)
     setObjectWidth(voidFX, windowWidth)
 
     local availableNav = math.max(240, windowWidth - 24 - navGap * 5)

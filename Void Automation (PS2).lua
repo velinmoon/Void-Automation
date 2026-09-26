@@ -3060,15 +3060,15 @@ end
 
 System = {
     configPath = "AutoSkills_System_v1.json",
-    bodyPath = "AutoSkills_Void_AutoRun.lua",
+    bodyPath = "AutoSkills_Blackhole_AutoRun.lua",
     autoexecPath = "autoexec/AutoSkills_Void.lua",
     targetGameId = tostring(game.GameId or 0),
     status = "READY",
     detail = "Static map scan and recovery services ready.",
     persistStatus = "Checking executor persistence...",
     rejoinStatus = "Watching private-server state.",
-    friendReadyPath = "AutoSkills_FriendReady.lua",
-    friendReadyStatus = "Friend seed bundle not built yet.",
+    friendReadyPath = "AutoSkills_Blackhole_FriendReady.lua",
+    friendReadyStatus = "Portable Blackhole boss seed not built yet.",
     lastPrivatePlace = nil,
     lastPrivateJob = nil,
     rejoinRequested = false,
@@ -3239,33 +3239,33 @@ end)
 
     function System.writeFriendReady()
         if type(writer) ~= "function" then
-            System.friendReadyStatus = "Friend-ready file unavailable: writefile missing."
+            System.friendReadyStatus = "Portable seed unavailable: writefile missing."
             return false
         end
 
         local source = environment.__AUTOSKILLS_SOURCE
         if type(source) ~= "string" or #source < 1000 then
-            System.friendReadyStatus = "Friend-ready source unavailable in this launch."
+            System.friendReadyStatus = "Portable seed source unavailable in this launch."
             return false
         end
 
         local code, message = Farm.exportCode()
         if not code then
-            System.friendReadyStatus = "Friend-ready file waiting for boss locations."
+            System.friendReadyStatus = "Portable seed waiting for saved boss locations."
             return false
         end
 
         local marker = 'local BUILT_IN_BOSS_SEED_CODE = "'
         local startAt = source:find(marker, 1, true)
         if not startAt then
-            System.friendReadyStatus = "Friend-ready template marker missing."
+            System.friendReadyStatus = "Portable seed template marker missing."
             return false
         end
 
         local valueStart = startAt + #marker
         local valueEnd = source:find('"', valueStart, true)
         if not valueEnd then
-            System.friendReadyStatus = "Friend-ready template malformed."
+            System.friendReadyStatus = "Portable seed template malformed."
             return false
         end
 
@@ -3273,11 +3273,11 @@ end)
 
         local ok, err = pcall(writer, System.friendReadyPath, baked)
         if ok then
-            System.friendReadyStatus = message .. " -> " .. System.friendReadyPath
+            System.friendReadyStatus = "Portable boss seed ready: " .. message .. " -> " .. System.friendReadyPath
             return true
         end
 
-        System.friendReadyStatus = "Friend-ready write failed: " .. tostring(err)
+        System.friendReadyStatus = "Portable seed write failed: " .. tostring(err)
         return false
     end
 
@@ -5216,7 +5216,7 @@ local function renderPageState()
     UI.moveDetail.Text = Movement.detail
     UI.moveStatusDot.BackgroundColor3 = (Settings.FlyEnabled or Settings.SpeedEnabled or Settings.NoClip) and C.green or C.faint
     UI.systemStatus.Text = System.status
-    UI.systemDetail.Text = System.persistStatus .. "\n" .. System.friendReadyStatus
+    UI.systemDetail.Text = System.persistStatus .. "\n" .. System.friendReadyStatus .. "\nRun this owner copy once, then share the generated Blackhole_FriendReady.lua."
     UI.systemStatusDot.BackgroundColor3 = (Settings.StaticMapScan or Settings.AutoRejoin or Settings.AutoExecute) and C.green or C.faint
     UI.staticScanButton.Text = Farm.staticScanBusy and "SCANNING..." or "SCAN MAP NOW"
     UI.staticScanStatus.Text = Farm.staticScanStatus
@@ -5806,6 +5806,8 @@ task.spawn(function()
     end
 end)
 
+-- A portable Blackhole owner copy replaces the placeholder with the saved ASLOC1 boss bundle.
+-- A friend can execute the generated Blackhole_FriendReady.lua without the owner's local BossLocations JSON; the locations are already baked into that file.
 if type(BUILT_IN_BOSS_SEED_CODE) == "string"
     and BUILT_IN_BOSS_SEED_CODE:sub(1, 7) == "ASLOC1:" then
     local okSeed, seedMessage = Farm.importCode(BUILT_IN_BOSS_SEED_CODE)
@@ -5837,7 +5839,7 @@ task.delay(1.5, function()
     end
 end)
 
-notify("Void UI ready | boss seeds + static scan + original stable loot active")
+notify("Void UI ready | portable boss seed builder + static scan + original stable loot active")
 
 ]====]
 
@@ -5846,7 +5848,7 @@ __env.__AUTOSKILLS_SOURCE = __AUTOSKILLS_SOURCE
 pcall(function()
     local wf = type(writefile) == "function" and writefile or __env.writefile
     if wf then
-        wf("AutoSkills_Void_AutoRun.lua", __AUTOSKILLS_SOURCE)
+        wf("AutoSkills_Blackhole_AutoRun.lua", __AUTOSKILLS_SOURCE)
     end
 end)
 local __fn, __err = loadstring(__AUTOSKILLS_SOURCE)

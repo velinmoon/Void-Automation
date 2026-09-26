@@ -82,6 +82,7 @@ local Skills = {
     {name = "V", key = Enum.KeyCode.V, enabled = true},
 }
 local Input = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 local GuiService = game:GetService("GuiService")
 local TweenService = game:GetService("TweenService")
 local StarterGui = game:GetService("StarterGui")
@@ -3519,6 +3520,13 @@ local C = {
     green = Color3.fromRGB(125, 255, 176),
     amber = Color3.fromRGB(255, 199, 96),
     red = Color3.fromRGB(255, 103, 127),
+    -- Compatibility aliases used by the ESP/older render paths.
+    accent = Color3.fromRGB(168, 85, 247),
+    bright = Color3.fromRGB(143, 227, 255),
+    muted = Color3.fromRGB(155, 143, 184),
+    surface = Color3.fromRGB(16, 8, 29),
+    text = Color3.fromRGB(233, 226, 247),
+    voidDeep = Color3.fromRGB(11, 6, 22),
 }
 local uiScale = make("UIScale", canvas, {Scale = 1})
 local holder = make("Frame", canvas, {
@@ -3614,8 +3622,28 @@ UI.badge = make("TextButton", header, {
     TextXAlignment = Enum.TextXAlignment.Right, AutoButtonColor = false, Active = true,
 })
 
+-- Ticker ---------------------------------------------------------------
+-- Matches the reference HTML's thin telemetry strip between the header and nav.
+local ticker = frame(panel, "Ticker", 0, 64, W, 24, C.black, 0)
+ticker.BackgroundTransparency = 0.38
+ticker.ZIndex = 5
+local tickerClip = make("Frame", ticker, {
+    Name = "Clip", Position = UDim2.fromOffset(0, 0), Size = UDim2.fromScale(1, 1),
+    BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true, Active = false, ZIndex = 6,
+})
+local tickerText = safeText(tickerClip, "Text",
+    "◆ CORE TEMP NOMINAL     ◆ FIELD INTEGRITY 98.4%     ◆ SIGNAL LOCK ACQUIRED     ◆ RIFT PRESSURE STABLE     ◆ NO ANOMALIES DETECTED     ",
+    0, 0, W * 2, 24, 10, C.faint, Enum.Font.Code)
+tickerText.ZIndex = 7
+local tickerStart = os.clock()
+connect(RunService.RenderStepped, function()
+    if not State.alive or not tickerText.Parent then return end
+    local phase = ((os.clock() - tickerStart) * 34) % W
+    tickerText.Position = UDim2.fromOffset(W - phase, 0)
+end)
+
 -- Navigation -----------------------------------------------------------
-local tabs = frame(panel, "Nav", 0, 64, W, 64, C.black, 0)
+local tabs = frame(panel, "Nav", 0, 88, W, 64, C.black, 0)
 tabs.BackgroundTransparency = 0.35
 tabs.ZIndex = 5
 stroke(tabs, C.line, 0.55, 1)
@@ -3623,7 +3651,7 @@ local navNames = {"Skills", "ESP", "Health", "Farm", "Move", "System"}
 local navKinds = {"skills", "esp", "health", "farm", "move", "system"}
 local navButtons = {}
 UI.navStrokes, UI.navBars = {}, {}
-local navX, navW, navGap = 12, 59, 5
+local navX, navW, navGap = 12, 61, 6
 for i, key in ipairs(navNames) do
     local b = button(tabs, key .. "Tab", string.upper(key), navX + (i - 1) * (navW + navGap), 10, navW, 44, Color3.fromRGB(8, 4, 16), 9)
     b.ZIndex = 6
@@ -3649,7 +3677,7 @@ UI.systemTab = navButtons.System
 
 -- Content --------------------------------------------------------------
 local content = make("Frame", panel, {
-    Name = "Content", Position = UDim2.fromOffset(0, 128), Size = UDim2.fromOffset(W, H - 128),
+    Name = "Content", Position = UDim2.fromOffset(0, 152), Size = UDim2.fromOffset(W, H - 152),
     BackgroundTransparency = 1, BorderSizePixel = 0, Active = false, ZIndex = 3,
 })
 
@@ -3771,8 +3799,10 @@ makeRow(healthPage, 168, "Automatic Source", "Uses the client-visible health rea
 makeSlider(healthPage, 228, "Alert Threshold", function() return Settings.HealthThreshold end, function(v) Settings.HealthThreshold = math.floor(v + 0.5); Guard.step() end, 5, 80, "%.0f%%")
 local healthHint = safeText(healthPage, "Hint", "Re-arms 5 percentage points above the threshold.", 16, 312, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
 healthHint.TextXAlignment = Enum.TextXAlignment.Center
-UI.healthStatus = healthHint
-UI.healthDetail = healthHint
+UI.healthStatus = safeText(healthPage, "CompatStatus", "", -100, -100, 1, 1, 1, C.dim)
+UI.healthStatus.Visible = false
+UI.healthDetail = safeText(healthPage, "CompatDetail", "", -100, -100, 1, 1, 1, C.dim)
+UI.healthDetail.Visible = false
 
 local farmPage = newPage("Farm")
 farmBody = farmPage
@@ -3807,8 +3837,10 @@ makeRow(movePage, 168, "Speed", "Adjusts local walk speed", function() return Se
 makeSlider(movePage, 228, "Speed Multiplier", function() return Settings.FlySpeed end, function(v) Settings.FlySpeed = math.floor(v + 0.5); Movement.step(0) end, 20, 200, "%.0f")
 local moveHint = safeText(movePage, "Hint", "T is blocked while NoClip is active.", 16, 312, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
 moveHint.TextXAlignment = Enum.TextXAlignment.Center
-UI.moveStatus = moveHint
-UI.moveDetail = moveHint
+UI.moveStatus = safeText(movePage, "CompatStatus", "", -100, -100, 1, 1, 1, C.dim)
+UI.moveStatus.Visible = false
+UI.moveDetail = safeText(movePage, "CompatDetail", "", -100, -100, 1, 1, 1, C.dim)
+UI.moveDetail.Visible = false
 UI.moveStatusDot = frame(movePage, "MoveDot", 0, 0, 1, 1, C.dim, 1)
 UI.moveMasterStroke = stroke(movePage, C.line, 1, 1)
 
@@ -3831,8 +3863,10 @@ connect(scanButton.Activated, function()
 end)
 local systemHint = safeText(systemPage, "Hint", "VOID NEXUS  /  LINK STABLE", 16, 336, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
 systemHint.TextXAlignment = Enum.TextXAlignment.Center
-UI.systemStatus = systemHint
-UI.systemDetail = systemHint
+UI.systemStatus = safeText(systemPage, "CompatStatus", "", -100, -100, 1, 1, 1, C.dim)
+UI.systemStatus.Visible = false
+UI.systemDetail = safeText(systemPage, "CompatDetail", "", -100, -100, 1, 1, 1, C.dim)
+UI.systemDetail.Visible = false
 UI.systemStatusDot = frame(systemPage, "SystemDot", 0, 0, 1, 1, C.dim, 1)
 UI.systemMasterStroke = stroke(systemPage, C.line, 1, 1)
 UI.rejoinStatus = safeText(systemPage, "RejoinStatus", "", 0, 0, 1, 1, 1, C.dim)
@@ -3860,8 +3894,10 @@ UI.healthSourceDetail = safeText(healthPage, "SourceDetail", "", 0, 0, 1, 1, 1, 
 UI.healthRearm = safeText(healthPage, "Rearm", "", 0, 0, 1, 1, 1, C.dim)
 UI.healthNumbers = safeText(healthPage, "Numbers", "", 0, 0, 1, 1, 1, C.dim)
 UI.healthPercent = safeText(healthPage, "Percent", "", 0, 0, 1, 1, 1, C.dim)
-UI.healthFill = frame(healthPage, "HealthFill", 0, 0, 1, 1, C.green, 1)
-UI.healthMarker = frame(healthPage, "HealthMarker", 0, 0, 1, 1, C.red, 1)
+UI.healthFill = frame(healthPage, "HealthFill", -100, -100, 1, 1, C.green, 1)
+UI.healthFill.Visible = false
+UI.healthMarker = frame(healthPage, "HealthMarker", -100, -100, 1, 1, C.red, 1)
+UI.healthMarker.Visible = false
 UI.healthRelease = safeText(healthPage, "Release", "", 0, 0, 1, 1, 1, C.dim)
 UI.espCount = safeText(espPage, "ESPCount", "0 TRACKED", 0, 0, 1, 1, 1, C.dim)
 UI.espDetail = safeText(espPage, "ESPDetail", "", 0, 0, 1, 1, 1, C.dim)
@@ -3936,11 +3972,11 @@ local function updateTabVisuals()
 end
 
 -- Resize grip, matching the HTML bottom-right handle.
-local resizeGrip = button(panel, "ResizeGrip", "", W - 22, H - 22, 22, 22, C.panel, 1)
+local resizeGrip = button(panel, "ResizeGrip", "", W - 28, H - 28, 28, 28, C.panel, 1)
 resizeGrip.BackgroundTransparency = 1
 resizeGrip.ZIndex = 30
 for i = 1, 3 do
-    local line = frame(resizeGrip, "Line" .. i, 20 - i * 5, 20 - i * 5, i * 5, 1, C.violet2, 1)
+    local line = frame(resizeGrip, "Line" .. i, 26 - i * 6, 26 - i * 6, i * 6, 1, C.violet2, 1)
     line.Rotation = -45
     line.ZIndex = 31
 end
@@ -3950,23 +3986,31 @@ connect(resizeGrip.InputBegan, function(input)
     end
 end)
 
+local windowPlaced = false
 local function fitWindow(centerIfNeeded)
     if not State.alive then return end
     local viewport = canvas.AbsoluteSize
     if viewport.X <= 0 or viewport.Y <= 0 then return end
-    local target = math.min((viewport.X - 24) / W, (viewport.Y - 24) / H, 1)
-    if State.uiScaleTarget then target = math.min(target, State.uiScaleTarget) end
-    uiScale.Scale = math.clamp(target, 0.55, 1)
+    -- The HTML uses a 420x560 base panel.  Keep that 1:1 size, but allow the
+    -- bottom-right grip to enlarge it up to the available viewport.
+    -- Width is the user-controlled dimension; height is kept within the
+    -- viewport so a rightward resize does not force the whole panel off-screen.
+    local maxScale = math.min((viewport.X - 24) / W, 1.35)
+    maxScale = math.max(0.65, maxScale)
+    local target = State.uiScaleTarget or 1
+    target = math.clamp(target, 0.65, maxScale)
+    uiScale.Scale = target
     local width, height = W * uiScale.Scale, H * uiScale.Scale
     local x = (viewport.X - width) / 2
     local y = math.max(8, viewport.Y * 0.08)
-    if not centerIfNeeded then
+    if not centerIfNeeded and windowPlaced then
         x = holder.Position.X.Offset
         y = holder.Position.Y.Offset
     end
     local maxX = math.max(8, viewport.X - width - 8)
     local maxY = math.max(8, viewport.Y - height - 8)
     holder.Position = UDim2.fromOffset(math.clamp(x, 8, maxX), math.clamp(y, 8, maxY))
+    windowPlaced = true
 end
 
 local function renderPageState()
@@ -4078,7 +4122,9 @@ connect(Input.InputChanged, function(input)
         gesture.view.updateFromX(input.Position.X)
     elseif gesture.kind == "resize" then
         local deltaX = input.Position.X - gesture.start.X
-        State.uiScaleTarget = math.clamp(gesture.scale + deltaX / W, 0.65, 1.25)
+        local deltaY = input.Position.Y - gesture.start.Y
+        local delta = math.max(deltaX, deltaY)
+        State.uiScaleTarget = math.clamp(gesture.scale + delta / W, 0.65, 1.35)
         fitWindow(false)
     elseif gesture.kind == "window" then
         local delta = input.Position - gesture.start
@@ -4177,7 +4223,6 @@ local function waitResponsive(duration, isHolding)
 end
 render()
 fitWindow(true)
-task.defer(function() if State.alive then fitWindow(false) end end)
 task.spawn(function()
     local nextIndex = 1
     while State.alive do

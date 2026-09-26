@@ -4464,17 +4464,283 @@ task.spawn(function()
     end
 end)
 
+-- ============================================================
+-- VOID NEXUS UI FX
+-- Animated background, scan grid, orbit rings, particles and
+-- a real bottom-right resize grip. Everything is local UI only.
+-- ============================================================
+local fxLayer = frame(panel, "AmbientFX", 0, 0, W, H, C.panel, 0)
+fxLayer.BackgroundTransparency = 1
+fxLayer.Active = false
+fxLayer.ZIndex = 0
+
+local fxTint = frame(fxLayer, "VoidTint", 0, 0, W, H, Color3.fromRGB(2, 10, 18), 0)
+fxTint.BackgroundTransparency = 0.18
+fxTint.ZIndex = 0
+
+local fxGradient = make("UIGradient", fxTint, {
+    Rotation = 25,
+    Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(7, 27, 43)),
+        ColorSequenceKeypoint.new(0.45, Color3.fromRGB(3, 13, 24)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(9, 7, 27)),
+    }),
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.10),
+        NumberSequenceKeypoint.new(0.5, 0.30),
+        NumberSequenceKeypoint.new(1, 0.08),
+    }),
+})
+
+-- Moving perspective grid.
+local grid = frame(fxLayer, "Grid", 0, 0, W, H, Color3.new(1, 1, 1), 0)
+grid.BackgroundTransparency = 1
+grid.ZIndex = 0
+for i = 1, 13 do
+    local x = math.floor((i - 1) * (W / 12))
+    local line = frame(grid, "V" .. i, x, 0, 1, H, C.accent, 0)
+    line.BackgroundTransparency = 0.93
+    line.ZIndex = 0
+end
+for i = 1, 10 do
+    local y = math.floor((i - 1) * (H / 9))
+    local line = frame(grid, "H" .. i, 0, y, W, 1, C.accent, 0)
+    line.BackgroundTransparency = 0.95
+    line.ZIndex = 0
+end
+
+-- Large atmospheric "void cores".
+local function makeCore(name, x, y, size, color)
+    local core = frame(fxLayer, name, x, y, size, size, color, math.floor(size / 2))
+    core.BackgroundTransparency = 0.965
+    core.ZIndex = 0
+    local coreStroke = stroke(core, color, 0.84, 1)
+    return core, coreStroke
+end
+local coreA, coreAStroke = makeCore("VoidCoreA", -120, 90, 330, C.accent)
+local coreB, coreBStroke = makeCore("VoidCoreB", W - 250, H - 270, 390, Color3.fromRGB(99, 91, 255))
+local coreC, coreCStroke = makeCore("VoidCoreC", W * 0.38, H * 0.35, 220, Color3.fromRGB(55, 155, 255))
+
+-- Orbiting rings give the panel a subtle animated "reactor" look.
+local orbit = frame(fxLayer, "Orbit", W - 330, 120, 250, 250, Color3.new(1, 1, 1), 125)
+orbit.BackgroundTransparency = 1
+orbit.ZIndex = 0
+local orbitStroke = stroke(orbit, C.accent, 0.79, 2)
+
+local orbit2 = frame(fxLayer, "Orbit2", W - 375, 75, 340, 340, Color3.new(1, 1, 1), 170)
+orbit2.BackgroundTransparency = 1
+orbit2.ZIndex = 0
+local orbit2Stroke = stroke(orbit2, Color3.fromRGB(101, 94, 255), 0.88, 1)
+
+local orbit3 = frame(fxLayer, "Orbit3", 70, H - 285, 190, 190, Color3.new(1, 1, 1), 95)
+orbit3.BackgroundTransparency = 1
+orbit3.ZIndex = 0
+local orbit3Stroke = stroke(orbit3, Color3.fromRGB(54, 145, 255), 0.9, 1)
+
+-- Diagonal energy beams.
+local beamA = frame(fxLayer, "BeamA", -140, 150, 420, 2, C.accent, 2)
+beamA.Rotation = 19
+beamA.BackgroundTransparency = 0.82
+beamA.ZIndex = 0
+local beamB = frame(fxLayer, "BeamB", W - 350, 490, 470, 2, Color3.fromRGB(105, 94, 255), 2)
+beamB.Rotation = -17
+beamB.BackgroundTransparency = 0.86
+beamB.ZIndex = 0
+
+-- Small floating particles.
+local particles = {}
+local particlePositions = {
+    {120, 130, 3}, {185, 270, 2}, {305, 180, 2}, {445, 115, 3},
+    {555, 245, 2}, {690, 145, 2}, {805, 310, 3}, {920, 180, 2},
+    {990, 405, 3}, {760, 585, 2}, {600, 690, 3}, {420, 620, 2},
+    {235, 560, 3}, {80, 670, 2}, {520, 420, 2}, {875, 700, 2},
+}
+for index, data in ipairs(particlePositions) do
+    local dot = frame(fxLayer, "Particle" .. index, data[1], data[2], data[3], data[3], C.bright, data[3])
+    dot.BackgroundTransparency = 0.35
+    dot.ZIndex = 0
+    particles[#particles + 1] = dot
+end
+
+local scanLine = frame(fxLayer, "ScanLine", 0, -3, W, 2, C.bright, 2)
+scanLine.BackgroundTransparency = 0.72
+scanLine.ZIndex = 0
+
+local scanLine2 = frame(fxLayer, "ScanLine2", 0, H * 0.62, W, 1, Color3.fromRGB(92, 117, 255), 1)
+scanLine2.BackgroundTransparency = 0.86
+scanLine2.ZIndex = 0
+
+-- Bottom-right resize control.
+local resizeGrip = frame(panel, "ResizeGrip", W - 48, H - 48, 44, 44, Color3.new(1, 1, 1), 10)
+resizeGrip.BackgroundTransparency = 1
+resizeGrip.Active = true
+resizeGrip.ZIndex = 50
+
+local resizeGlow = frame(resizeGrip, "Glow", 5, 5, 34, 34, C.accent, 10)
+resizeGlow.BackgroundTransparency = 0.91
+resizeGlow.ZIndex = 50
+local resizeStroke = stroke(resizeGrip, C.accent, 0.18, 1)
+
+-- Three diagonal grip bars.
+for i = 1, 3 do
+    local bar = frame(resizeGrip, "Grip" .. i, 12 + (i - 1) * 7, 31 - (i - 1) * 7, 4, 18, C.bright, 2)
+    bar.Rotation = 45
+    bar.BackgroundTransparency = 0.18
+    bar.ZIndex = 51
+end
+
+UI.resizeReadout = label(resizeGrip, "Size", "100%", -58, 11, 50, 20, 9, C.dim, Enum.Font.GothamBold)
+UI.resizeReadout.TextXAlignment = Enum.TextXAlignment.Right
+UI.resizeReadout.ZIndex = 51
+
+connect(resizeGrip.MouseEnter, function()
+    animate(resizeGlow, {BackgroundTransparency = 0.78})
+    animate(resizeStroke, {Transparency = 0})
+    animate(UI.resizeReadout, {TextColor3 = C.bright})
+end)
+connect(resizeGrip.MouseLeave, function()
+    if not State.gesture or State.gesture.kind ~= "resize" then
+        animate(resizeGlow, {BackgroundTransparency = 0.91})
+        animate(resizeStroke, {Transparency = 0.18})
+        animate(UI.resizeReadout, {TextColor3 = C.dim})
+    end
+end)
+
+-- Ambient loops.
+task.spawn(function()
+    while State.alive and fxLayer.Parent do
+        local tween = TweenService:Create(orbit,
+            TweenInfo.new(9, Enum.EasingStyle.Linear), {Rotation = orbit.Rotation + 360})
+        tween:Play()
+        tween.Completed:Wait()
+        orbit.Rotation = 0
+    end
+end)
+
+task.spawn(function()
+    while State.alive and fxLayer.Parent do
+        local tween = TweenService:Create(orbit2,
+            TweenInfo.new(13, Enum.EasingStyle.Linear), {Rotation = orbit2.Rotation - 360})
+        tween:Play()
+        tween.Completed:Wait()
+        orbit2.Rotation = 0
+    end
+end)
+
+task.spawn(function()
+    while State.alive and fxLayer.Parent do
+        local tween = TweenService:Create(orbit3,
+            TweenInfo.new(7, Enum.EasingStyle.Linear), {Rotation = orbit3.Rotation + 360})
+        tween:Play()
+        tween.Completed:Wait()
+        orbit3.Rotation = 0
+    end
+end)
+
+task.spawn(function()
+    while State.alive and fxLayer.Parent do
+        animate(coreA, {BackgroundTransparency = 0.985}, false)
+        animate(coreAStroke, {Transparency = 0.93}, false)
+        task.wait(1.4)
+        animate(coreA, {BackgroundTransparency = 0.955}, false)
+        animate(coreAStroke, {Transparency = 0.78}, false)
+        task.wait(1.4)
+    end
+end)
+
+task.spawn(function()
+    while State.alive and fxLayer.Parent do
+        local tween = TweenService:Create(beamA,
+            TweenInfo.new(3.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 0, true),
+            {BackgroundTransparency = 0.94})
+        tween:Play()
+        tween.Completed:Wait()
+    end
+end)
+
+task.spawn(function()
+    while State.alive and fxLayer.Parent do
+        local tween = TweenService:Create(beamB,
+            TweenInfo.new(4.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 0, true),
+            {BackgroundTransparency = 0.96})
+        tween:Play()
+        tween.Completed:Wait()
+    end
+end)
+
+task.spawn(function()
+    while State.alive and fxLayer.Parent do
+        scanLine.Position = UDim2.fromOffset(0, -4)
+        local tween = TweenService:Create(scanLine,
+            TweenInfo.new(3.1, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut),
+            {Position = UDim2.fromOffset(0, H + 4)})
+        tween:Play()
+        tween.Completed:Wait()
+        task.wait(0.9)
+    end
+end)
+
+task.spawn(function()
+    while State.alive and fxLayer.Parent do
+        scanLine2.Position = UDim2.fromOffset(-W * 0.35, math.floor(H * 0.61))
+        local tween = TweenService:Create(scanLine2,
+            TweenInfo.new(2.8, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut),
+            {Position = UDim2.fromOffset(W, math.floor(H * 0.38))})
+        tween:Play()
+        tween.Completed:Wait()
+        task.wait(1.2)
+    end
+end)
+
+for index, dot in ipairs(particles) do
+    task.spawn(function()
+        local baseX, baseY = dot.Position.X.Offset, dot.Position.Y.Offset
+        local phase = (index % 7) * 0.45
+        while State.alive and dot.Parent do
+            local duration = 2.6 + (index % 4) * 0.7
+            local targetY = baseY - 26 - (index % 3) * 12
+            dot.Position = UDim2.fromOffset(baseX, baseY)
+            local tween = TweenService:Create(dot,
+                TweenInfo.new(duration, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
+                {Position = UDim2.fromOffset(baseX + math.sin(phase) * 18, targetY)})
+            tween:Play()
+            tween.Completed:Wait()
+            if not State.alive then break end
+            local fade = TweenService:Create(dot,
+                TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                {BackgroundTransparency = 0.9})
+            fade:Play()
+            fade.Completed:Wait()
+            dot.BackgroundTransparency = 0.35
+            task.wait(0.35 + (index % 3) * 0.25)
+        end
+    end)
+end
+
+local userScale = 1.0
+local MIN_USER_SCALE, MAX_USER_SCALE = 0.55, 1.35
 local function fitWindow(centerIfNeeded)
     if not State.alive then return end
     local viewport = canvas.AbsoluteSize
     if viewport.X <= 0 or viewport.Y <= 0 then return end
-    uiScale.Scale = math.clamp(math.min((viewport.X - 24) / W, (viewport.Y - 36) / H), 0.28, 1)
-    local width = W * uiScale.Scale
-    local height = (State.minimized and 78 or H) * uiScale.Scale
+
+    -- User-controlled scale is preserved when the viewport changes.
+    -- The viewport only limits the maximum visible scale; it never resets the
+    -- size the player chose with the bottom-right resize grip.
+    local fitScale = math.min((viewport.X - 24) / W, (viewport.Y - 36) / H)
+    local effectiveScale = math.clamp(math.min(userScale, fitScale), 0.28, MAX_USER_SCALE)
+    uiScale.Scale = effectiveScale
+
+    local width = W * effectiveScale
+    local height = (State.minimized and 60 or H) * effectiveScale
     local maxX, maxY = math.max(12, viewport.X - width - 12), math.max(44, viewport.Y - height - 12)
     local x, y = holder.Position.X.Offset, holder.Position.Y.Offset
     if centerIfNeeded then x, y = 20, 40 end
     holder.Position = UDim2.fromOffset(math.clamp(x, 12, maxX), math.clamp(y, 44, maxY))
+
+    if UI.resizeReadout then
+        UI.resizeReadout.Text = string.format("%d%%", math.floor(effectiveScale * 100 + 0.5))
+    end
 end
 local function setMinimized(value)
     State.minimized = value
@@ -4484,6 +4750,7 @@ local function setMinimized(value)
     animate(halo, {Size = UDim2.fromOffset(W + 4, height + 4)})
     animate(shadow, {Size = UDim2.fromOffset(W + 12, height + 12)})
     holder.Size = UDim2.fromOffset(W, height)
+    resizeGrip.Position = UDim2.fromOffset(W - 48, height - 48)
     render()
     fitWindow(false)
 end
@@ -4504,6 +4771,7 @@ render = function()
     tabs.Visible = not State.minimized
     sidebarInfo.Visible = not State.minimized
     UI.footerBar.Visible = not State.minimized
+    resizeGrip.Visible = not State.minimized
     body.Visible = not State.minimized and State.tab == "Skills"
     espBody.Visible = not State.minimized and State.tab == "ESP"
     healthBody.Visible = not State.minimized and State.tab == "Health"
@@ -4723,6 +4991,17 @@ connect(minimize.Activated, function() setMinimized(not State.minimized) end)
 connect(close.Activated, function() controller.Stop() end)
 connect(root.Destroying, function() controller.Stop() end)
 connect(canvas:GetPropertyChangedSignal("AbsoluteSize"), function() fitWindow(false) end)
+connect(resizeGrip.InputBegan, function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        State.gesture = {
+            kind = "resize",
+            input = input,
+            start = input.Position,
+            startScale = userScale,
+        }
+        releaseOrPause()
+    end
+end)
 connect(header.InputBegan, function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         State.gesture = {kind = "window", input = input, start = input.Position,
@@ -4738,6 +5017,14 @@ connect(Input.InputChanged, function(input)
     if not mouseMove and input ~= gesture.input then return end
     if gesture.kind == "slider" then
         gesture.view.updateFromX(input.Position.X)
+    elseif gesture.kind == "resize" then
+        -- Vertical drag controls scale: down = larger, up = smaller.
+        local deltaY = input.Position.Y - gesture.start.Y
+        userScale = math.clamp(gesture.startScale + (deltaY / H), MIN_USER_SCALE, MAX_USER_SCALE)
+        fitWindow(false)
+        if UI.resizeReadout then
+            UI.resizeReadout.Text = string.format("%d%%", math.floor(uiScale.Scale * 100 + 0.5))
+        end
     else
         local delta = input.Position - gesture.start
         holder.Position = UDim2.fromOffset(gesture.x + delta.X, gesture.y + delta.Y)

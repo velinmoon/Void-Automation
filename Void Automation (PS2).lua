@@ -125,6 +125,7 @@ local stopFarm = function() end
 local stopMovement = function() end
 local pauseFarmForEscape = function() end
 local root
+local loaderRoot
 
 environment[slot] = controller
 local function connect(signal, callback)
@@ -173,6 +174,7 @@ function controller.Stop()
     for _, connection in ipairs(connections) do connection:Disconnect() end
     for _, tween in pairs(tweens) do tween:Cancel() end
     if root then root:Destroy() end
+    if loaderRoot then loaderRoot:Destroy() end
     if environment[slot] == controller then environment[slot] = nil end
 end
 local function inputFault(err)
@@ -3547,10 +3549,20 @@ end
 root = make("ScreenGui", playerGui, {
     Name = "AutoSkillsVoidUI", ResetOnSpawn = false, IgnoreGuiInset = true,
     DisplayOrder = 100, ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-    Enabled = true,
+    Enabled = false,
 })
 local canvas = make("Frame", root, {
     Name = "Canvas", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
+    BorderSizePixel = 0, Active = false,
+})
+local loaderCanvas
+loaderRoot = make("ScreenGui", playerGui, {
+    Name = "AutoSkillsVoidLoader", ResetOnSpawn = false, IgnoreGuiInset = true,
+    DisplayOrder = 101, ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+    Enabled = true,
+})
+loaderCanvas = make("Frame", loaderRoot, {
+    Name = "LoaderCanvas", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
     BorderSizePixel = 0, Active = false,
 })
 
@@ -4720,7 +4732,7 @@ do
     -- VOID NEXUS loading sequence ------------------------------------------------
     -- Source: the uploaded animated VOID NEXUS SVG. Roblox cannot execute SVG/SMIL
     -- directly, so its layers and animation timings are translated into GUI primitives.
-        __loaderLayer = make("Frame", canvas, {
+        __loaderLayer = make("Frame", loaderCanvas, {
         Name = "VoidLoading", Position = UDim2.fromScale(0, 0), Size = UDim2.fromScale(1, 1),
         BackgroundColor3 = C.black, BackgroundTransparency = 0.08, BorderSizePixel = 0,
         Active = true, ZIndex = 100,
@@ -4997,17 +5009,37 @@ do
             loadStatus.Text = "CORE LINK STABLE"
             task.wait(0.10)
             if not State.alive then return end
-            holder.Visible = true
-            local bootScale = make("UIScale", holder, {Scale = 0.94})
-            local bootStroke = panel:FindFirstChildOfClass("UIStroke")
-            TweenService:Create(bootScale, TweenInfo.new(0.48, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Scale = 1}):Play()
-            if bootStroke then
-                bootStroke.Transparency = 1
-                TweenService:Create(bootStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 0.28}):Play()
-            end
+
+            -- Keep the real UI completely disabled while the loader finishes its exit.
+            -- This prevents the main panel from appearing underneath / alongside the animation.
             TweenService:Create(loadScale, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.58}):Play()
             TweenService:Create(loadingLayer, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
-            task.delay(0.30, function() if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end end)
+
+            task.delay(0.32, function()
+                if not State.alive then return end
+                if loaderRoot and loaderRoot.Parent then
+                    loaderRoot.Enabled = false
+                end
+                if loadingLayer and loadingLayer.Parent then
+                    loadingLayer:Destroy()
+                end
+
+                -- Only now does the actual VOID NEXUS UI become visible.
+                holder.Visible = true
+                root.Enabled = true
+
+                local bootScale = make("UIScale", holder, {Scale = 0.94})
+                local bootStroke = panel:FindFirstChildOfClass("UIStroke")
+                TweenService:Create(bootScale, TweenInfo.new(0.48, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Scale = 1}):Play()
+                if bootStroke then
+                    bootStroke.Transparency = 1
+                    TweenService:Create(bootStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 0.28}):Play()
+                end
+
+                if loaderRoot and loaderRoot.Parent then
+                    loaderRoot:Destroy()
+                end
+            end)
         end
     end)
 
@@ -5016,6 +5048,9 @@ do
     if not __loaderOK then
         if __loaderLayer and __loaderLayer.Parent then
             __loaderLayer:Destroy()
+        end
+        if loaderRoot and loaderRoot.Parent then
+            loaderRoot:Destroy()
         end
         holder.Visible = true
         root.Enabled = true

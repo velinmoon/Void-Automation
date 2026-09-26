@@ -490,7 +490,7 @@ do
 end
 
 local System
-local BUILT_IN_BOSS_SEED_CODE = "ASLOC1:c045d752:eyJtYXJrZXJzIjpbXSwiYm9zc2VzIjpbeyJwYXRoIjoiRGVicmVlLlJlZ2lvbnMuQnV0dGVyZmx5IEVzdGF0ZS5TdGF0aW9uYXJ5TnBjcy5SZW4iLCJuYW1lIjoiUmVuIiwibWF4aW11bSI6MTAwLCJwb3NpdGlvbiI6Wy0xNjYyLjA3OTcxMTkxNDA2MjYsMzE0LjAwMDE1MjU4Nzg5MDYsLTEyNC43NjA1ODE5NzAyMTQ4NV0sInNwYXduIjpbLTE2NjIuMDc5NzExOTE0MDYyNiwzMTQuMDAwMTUyNTg3ODkwNiwtMTI0Ljc2MDU4MTk3MDIxNDg1XX0seyJwYXRoIjoiRGVicmVlLlJlZ2lvbnMuTWlzdGZhbGwgSGFyYm9yLlN0YXRpb25hcnlOcGNzLkVzdGF0ZSBXb3JrZXIgTmlrbyIsIm5hbWUiOiJFc3RhdGUgV29ya2VyIE5pa28iLCJtYXhpbXVtIjoxMDAsInBvc2l0aW9uIjpbMzQxLjA2NzcxODUwNTg1OTQsOTM4LjkwNDk2ODI2MTcxODgsNTgwLjU4Njk3NTA5NzY1NjNdLCJzcGF3biI6WzM0MS4wNjc3MTg1MDU4NTk0LDkzOC45MDQ5NjgyNjE3MTg4LDU4MC41ODY5NzUwOTc2NTYzXX0seyJwYXRoIjoiSHVtYW5vaWRzLkZpZ2h0aW5nIHN0YXR1ZSIsIm5hbWUiOiJGaWdodGluZyBzdGF0dWUiLCJtYXhpbXVtIjoxMDAwMDAwLCJwb3NpdGlvbiI6WzIwODIuNTI0MTY5OTIxODc1LDE1NDMuNzYwOTg2MzI4MTI1LC0yMTUuOTYyOTgyMTc3NzM0MzhdLCJzcGF3biI6WzIwODIuNTI0MTY5OTIxODc1LDE1NDMuNzYwOTg2MzI4MTI1LC0yMTUuOTYyOTgyMTc3NzM0MzhdfSx7InBhdGgiOiJIdW1hbm9pZHMuUG93ZXIgc3RhdHVlIiwibmFtZSI6IlBvd2VyIHN0YXR1ZSIsIm1heGltdW0iOjEwMDAwMDAsInBvc2l0aW9uIjpbLTY5Ny40NDEzNDUyMTQ4NDM4LDEzODYuNTQyNDgwNDY4NzUsLTE5MTQuMjg5NTUwNzgxMjVdLCJzcGF3biI6Wy02OTcuNDQxMzQ1MjE0ODQzOCwxMzg2LjU0MjQ4MDQ2ODc1LC0xOTE0LjI4OTU1MDc4MTI1XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuQnV0dGVyZmx5IEVzdGF0ZS5BY3RpdmVOcGNzLkxlc3NlciBEZW1vbi5MZXNzZXIgRGVtb24iLCJuYW1lIjoiTGVzc2VyIERlbW9uIiwibWF4aW11bSI6MjcwLCJwb3NpdGlvbiI6Wy02ODEuODkxNDc5NDkyMTg3NSwyMjQuMzEyMzc3OTI5Njg3NSwzOTUuNjY1Mzc0NzU1ODU5NF0sInNwYXduIjpbLTY4MS44OTE0Nzk0OTIxODc1LDIyNC4zMTIzNzc5Mjk2ODc1LDM5NS42NjUzNzQ3NTU4NTk0XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuRmluYWwgU2VsZWN0aW9uIFBsYWlucy5BY3RpdmVOcGNzLkZ1amlrby5GdWppa28iLCJuYW1lIjoiRnVqaWtvIiwibWF4aW11bSI6MzIwMCwicG9zaXRpb24iOlstMjQ1Ny4wMTI5Mzk0NTMxMjUsMzguMzQyMzUwMDA2MTAzNTE5LDExMTYuOTg0ODYzMjgxMjVdLCJzcGF3biI6Wy0yNDU3LjAxMjkzOTQ1MzEyNSwzOC4zNDIzNTAwMDYxMDM1MTksMTExNi45ODQ4NjMyODEyNV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLkZpbmFsIFNlbGVjdGlvbiBQbGFpbnMuQWN0aXZlTnBjcy5NaXp1bm9lIERlbW9uIFNsYXllci5NaXp1bm9lIERlbW9uIFNsYXllciIsIm5hbWUiOiJNaXp1bm9lIERlbW9uIFNsYXllciIsIm1heGltdW0iOjI3MCwicG9zaXRpb24iOlstMTgwNy4zMDAwNDg4MjgxMjUsMjkuNDk5MTEzMDgyODg1NzQzLDUxMC4zMjI0MTgyMTI4OTA2XSwic3Bhd24iOlstMTgwNy4zMDAwNDg4MjgxMjUsMjkuNDk5MTEzMDgyODg1NzQzLDUxMC4zMjI0MTgyMTI4OTA2XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLkFrYXpvLkFrYXpvIiwibmFtZSI6IkFrYXpvIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstMTEzNC41MTI2OTUzMTI1LDEzODEuMzE3MDE2NjAxNTYyNiwtMTc0NS4yMzc5MTUwMzkwNjI2XSwic3Bhd24iOlstMTEzNC41MTI2OTUzMTI1LDEzODEuMzE3MDE2NjAxNTYyNiwtMTc0NS4yMzc5MTUwMzkwNjI2XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLkRhdGFpLkRhdGFpIiwibmFtZSI6IkRhdGFpIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstMTY0LjY1MzgwODU5Mzc1LDEwNDMuNDk0NTA2ODM1OTM3NiwtMTEzOC45MzM5NTk5NjA5Mzc2XSwic3Bhd24iOlstMTY0LjY1MzgwODU5Mzc1LDEwNDMuNDk0NTA2ODM1OTM3NiwtMTEzOC45MzM5NTk5NjA5Mzc2XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLkVucnUuRW5ydSIsIm5hbWUiOiJFbnJ1IiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOls4MjIuMTk1MjUxNDY0ODQzOCw3OTYuMDgzOTIzMzM5ODQzOCw1NDMuNDE2NzQ4MDQ2ODc1XSwic3Bhd24iOls4MjIuMTk1MjUxNDY0ODQzOCw3OTYuMDgzOTIzMzM5ODQzOCw1NDMuNDE2NzQ4MDQ2ODc1XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLkdpeWVuLkdpeWVuIiwibmFtZSI6IkdpeWVuIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlszODYuNDEwNjE0MDEzNjcxOSwxMDE4LjQ5NDkzNDA4MjAzMTMsLTgzLjY0NDA1MDU5ODE0NDUzXSwic3Bhd24iOlszODYuNDEwNjE0MDEzNjcxOSwxMDE4LjQ5NDkzNDA4MjAzMTMsLTgzLjY0NDA1MDU5ODE0NDUzXX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLkd5b3JlaS5HeW9yZWkiLCJuYW1lIjoiR3lvcmVpIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlsyNTc1LjcxMzYyMzA0Njg3NSwxMDg5LjQ5NDYyODkwNjI1LC03NDIuODI1OTg4NzY5NTMxM10sInNwYXduIjpbMjU3NS43MTM2MjMwNDY4NzUsMTA4OS40OTQ2Mjg5MDYyNSwtNzQyLjgyNTk4ODc2OTUzMTNdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuR3l1dGFpLkd5dXRhaSIsIm5hbWUiOiJHeXV0YWkiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wy0yNjQuNDMzNzE1ODIwMzEyNSwxMDQ1LjczNDg2MzI4MTI1LC0xMTM3LjM2MDgzOTg0Mzc1XSwic3Bhd24iOlstMjY0LjQzMzcxNTgyMDMxMjUsMTA0NS43MzQ4NjMyODEyNSwtMTEzNy4zNjA4Mzk4NDM3NV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5JbnNlY3QgVHJhaW5lZS5JbnNlY3QgVHJhaW5lZSIsIm5hbWUiOiJJbnNlY3QgVHJhaW5lZSIsIm1heGltdW0iOjYwMCwicG9zaXRpb24iOlstMTM5Mi42NDYxMTgxNjQwNjI2LDI2NC4wMDAxMjIwNzAzMTI1LDcxLjU1NTY5NDU4MDA3ODEzXSwic3Bhd24iOlstMTM5Mi42NDYxMTgxNjQwNjI2LDI2NC4wMDAxMjIwNzAzMTI1LDcxLjU1NTY5NDU4MDA3ODEzXX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLk5lenVyYS5OZXp1cmEiLCJuYW1lIjoiTmV6dXJhIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstMTQ2Mi41NDE2MjU5NzY1NjI2LDI3Ni40NDkxMjcxOTcyNjU2LDkzNy40NDk3MDcwMzEyNV0sInNwYXduIjpbLTE0NjIuNTQxNjI1OTc2NTYyNiwyNzYuNDQ5MTI3MTk3MjY1Niw5MzcuNDQ5NzA3MDMxMjVdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuT2JhcmkuT2JhcmkiLCJuYW1lIjoiT2JhcmkiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wzc3MS40NTEwNDk4MDQ2ODc1LDExMjEuNDk0ODczMDQ2ODc1LC0xMDQ2Ljc5OTY4MjYxNzE4NzZdLCJzcGF3biI6Wzc3MS40NTEwNDk4MDQ2ODc1LDExMjEuNDk0ODczMDQ2ODc1LC0xMDQ2Ljc5OTY4MjYxNzE4NzZdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuUmVhcGVyLlJlYXBlciIsIm5hbWUiOiJSZWFwZXIiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wzk3LjUzMDMxOTIxMzg2NzE5LDEwNDUuNDk5NTExNzE4NzUsLTU3MS42NDg2ODE2NDA2MjVdLCJzcGF3biI6Wzk3LjUzMDMxOTIxMzg2NzE5LDEwNDUuNDk5NTExNzE4NzUsLTU3MS42NDg2ODE2NDA2MjVdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuUmVuZ3UuUmVuZ3UiLCJuYW1lIjoiUmVuZ3UiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wy03MTUuODAyMTg1MDU4NTkzOCw5NjUuNDk0NTY3ODcxMDkzOCw4ODQuNDQwOTc5MDAzOTA2M10sInNwYXduIjpbLTcxNS44MDIxODUwNTg1OTM4LDk2NS40OTQ1Njc4NzEwOTM4LDg4NC40NDA5NzkwMDM5MDYzXX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLlNhbmVyaS5TYW5lcmkiLCJuYW1lIjoiU2FuZXJpIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstMzc5LjYzOTI4MjIyNjU2MjUsMTA5My45MTk0MzM1OTM3NSwtNDIwLjQ4OTEzNTc0MjE4NzVdLCJzcGF3biI6Wy0zNzkuNjM5MjgyMjI2NTYyNSwxMDkzLjkxOTQzMzU5Mzc1LC00MjAuNDg5MTM1NzQyMTg3NV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5TaGlub3JhLlNoaW5vcmEiLCJuYW1lIjoiU2hpbm9yYSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbLTQ1MS4xNjM2NjU3NzE0ODQ0LDk2NC45NjU2OTgyNDIxODc1LC0xLjM2MTY3NDA3MDM1ODI3NjRdLCJzcGF3biI6Wy00NTEuMTYzNjY1NzcxNDg0NCw5NjQuOTY1Njk4MjQyMTg3NSwtMS4zNjE2NzQwNzAzNTgyNzY0XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLlN1bWFyaS5TdW1hcmkiLCJuYW1lIjoiU3VtYXJpIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlszOTMuOTEyMjYxOTYyODkwNiwxMDIwLjQ5OTkzODk2NDg0MzgsLTYxOS4xODEzMzU0NDkyMTg4XSwic3Bhd24iOlszOTMuOTEyMjYxOTYyODkwNiwxMDIwLjQ5OTkzODk2NDg0MzgsLTYxOS4xODEzMzU0NDkyMTg4XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLlRlbmdhaS5UZW5nYWkiLCJuYW1lIjoiVGVuZ2FpIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstMTM2LjMxNzcwMzI0NzA3MDMsMTM0OS40OTQ3NTA5NzY1NjI2LC0yNjI4LjM2NDk5MDIzNDM3NV0sInNwYXduIjpbLTEzNi4zMTc3MDMyNDcwNzAzLDEzNDkuNDk0NzUwOTc2NTYyNiwtMjYyOC4zNjQ5OTAyMzQzNzVdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuV2F0ZXIgVHJhaW5lZSBTYWJpdG8uV2F0ZXIgVHJhaW5lZSBTYWJpdG8iLCJuYW1lIjoiV2F0ZXIgVHJhaW5lZSBTYWJpdG8iLCJtYXhpbXVtIjo2MDAsInBvc2l0aW9uIjpbODE3LjU0MzcwMTE3MTg3NSwxMDE4LjcwMzA2Mzk2NDg0MzgsMTAxLjg3NjU1NjM5NjQ4NDM4XSwic3Bhd24iOls4MTcuNTQzNzAxMTcxODc1LDEwMTguNzAzMDYzOTY0ODQzOCwxMDEuODc2NTU2Mzk2NDg0MzhdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuWWFoYXJpLllhaGFyaSIsIm5hbWUiOiJZYWhhcmkiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6WzgyNy45MDMyNTkyNzczNDM4LDEwMjEuNzAzMDYzOTY0ODQzOCwtNjM5LjI0NDE0MDYyNV0sInNwYXduIjpbODI3LjkwMzI1OTI3NzM0MzgsMTAyMS43MDMwNjM5NjQ4NDM4LC02MzkuMjQ0MTQwNjI1XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLlplbnRhcm8uWmVudGFybyIsIm5hbWUiOiJaZW50YXJvIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlsxMzMzLjE5MzExNTIzNDM3NSw4MjEuNDk1MDU2MTUyMzQzOCwtMTAxNi44ODk2NDg0Mzc1XSwic3Bhd24iOlsxMzMzLjE5MzExNTIzNDM3NSw4MjEuNDk1MDU2MTUyMzQzOCwtMTAxNi44ODk2NDg0Mzc1XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzdGZhbGwgSGFyYm9yLkFjdGl2ZU5wY3MuTWl6dW5vdG8uTWl6dW5vdG8iLCJuYW1lIjoiTWl6dW5vdG8iLCJtYXhpbXVtIjoyMzAsInBvc2l0aW9uIjpbLTg1MC41NzIyNjU2MjUsOTczLjQ1ODA2ODg0NzY1NjMsLTE1Mi4zNDIyODUxNTYyNV0sInNwYXduIjpbLTg1MC41NzIyNjU2MjUsOTczLjQ1ODA2ODg0NzY1NjMsLTE1Mi4zNDIyODUxNTYyNV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLlRlbXBvcmFyeS5BY3RpdmVOcGNzLkNhY2hlIExhbmNlci5DYWNoZSBMYW5jZXIiLCJuYW1lIjoiQ2FjaGUgTGFuY2VyIiwibWF4aW11bSI6NDAwLCJwb3NpdGlvbiI6Wy04MzYuODcyMTMxMzQ3NjU2Myw5NDguNDk4ODQwMzMyMDMxMyw3MDQuNjA0NDkyMTg3NV0sInNwYXduIjpbLTgzNi44NzIxMzEzNDc2NTYzLDk0OC40OTg4NDAzMzIwMzEzLDcwNC42MDQ0OTIxODc1XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuVGVtcG9yYXJ5LkFjdGl2ZU5wY3MuR3JvdmUgUmFpZGVyLkdyb3ZlIFJhaWRlciIsIm5hbWUiOiJHcm92ZSBSYWlkZXIiLCJtYXhpbXVtIjoyNDUsInBvc2l0aW9uIjpbOTAyLjk5ODE2ODk0NTMxMjUsMTAxOS41MTU1NjM5NjQ4NDM4LDI0Ljg5MTAwNDU2MjM3NzkzXSwic3Bhd24iOls5MDIuOTk4MTY4OTQ1MzEyNSwxMDE5LjUxNTU2Mzk2NDg0MzgsMjQuODkxMDA0NTYyMzc3OTNdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5UZW1wb3JhcnkuQWN0aXZlTnBjcy5MYW5jZXIgQ2FwdGFpbi5MYW5jZXIgQ2FwdGFpbiIsIm5hbWUiOiJMYW5jZXIgQ2FwdGFpbiIsIm1heGltdW0iOjEyMDAsInBvc2l0aW9uIjpbLTgzNC40MTkwMDYzNDc2NTYzLDk0OC40MzYzNDAzMzIwMzEzLDcwOS4zNzAxNzgyMjI2NTYzXSwic3Bhd24iOlstODM0LjQxOTAwNjM0NzY1NjMsOTQ4LjQzNjM0MDMzMjAzMTMsNzA5LjM3MDE3ODIyMjY1NjNdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5UZW1wb3JhcnkuQWN0aXZlTnBjcy5SYWlkIENhcHRhaW4uUmFpZCBDYXB0YWluIiwibmFtZSI6IlJhaWQgQ2FwdGFpbiIsIm1heGltdW0iOjczNSwicG9zaXRpb24iOls5MDguOTk4MjI5OTgwNDY4OCwxMDE5LjAxNTU2Mzk2NDg0MzgsMjMuMjAzNDc5NzY2ODQ1NzA0XSwic3Bhd24iOls5MDguOTk4MjI5OTgwNDY4OCwxMDE5LjAxNTU2Mzk2NDg0MzgsMjMuMjAzNDc5NzY2ODQ1NzA0XX0seyJwYXRoIjoiSHVtYW5vaWRzLldlYXBvbnMgU3RhdHVlIiwibmFtZSI6IldlYXBvbnMgU3RhdHVlIiwibWF4aW11bSI6MTAwMDAwMCwicG9zaXRpb24iOlstMTM4MS43MjEwNjkzMzU5Mzc2LDEwMTAuMjU4MTE3Njc1NzgxMywxMTA5LjM4ODQyNzczNDM3NV0sInNwYXduIjpbLTEzODEuNzIxMDY5MzM1OTM3NiwxMDEwLjI1ODExNzY3NTc4MTMsMTEwOS4zODg0Mjc3MzQzNzVdfV0sImZvcm1hdCI6IkF1dG9Ta2lsbHNMb2NhdGlvbnMiLCJzY2hlbWEiOjEsInBsYWNlSWQiOiIxMzY0MDY4ODE1NzY1MTcifQ=="
+local BUILT_IN_BOSS_SEED_CODE = "__AUTOSKILLS_BOSS_SEED_PLACEHOLDER__"
 local Farm = {catalog = {}, remembered = {}, pinned = nil, records = {}, selected = nil, nextScan = 0, status = "OFF",
     detail = "Select a target, then enable Auto farm.", count = 0, aliveCount = 0,
     autoVisited = {}, autoCurrent = nil, autoLastPath = nil, autoArrivedAt = 0,
@@ -682,6 +682,130 @@ do
     local function safeText(value,limit)
         return short(value,limit) and not value:find("[%z\1-\31\127]")
     end
+
+    -- Shared boss-location sync: local saves remain intact, while discovered boss
+    -- locations are also merged into a public per-place store so other users of
+    -- the same script can receive them without changing the GitHub file.
+    Farm.remoteStatus, Farm.remoteReady, Farm.remoteSaving = "Not started", false, false
+    Farm.remoteDirty, Farm.remoteNextPush = false, 0
+    local remoteNamespace = ("voidnexus_bosses_v2_%s"):format(place):gsub("[^%w_%-]", "")
+    local remoteURL = "https://mantledb.sh/v2/" .. remoteNamespace .. "/bosses"
+    local function remoteRequester()
+        local candidates = {
+            type(environment.request)=="function" and environment.request or nil,
+            type(environment.http_request)=="function" and environment.http_request or nil,
+            type(_G.request)=="function" and _G.request or nil,
+            type(_G.http_request)=="function" and _G.http_request or nil,
+            type(syn)=="table" and type(syn.request)=="function" and syn.request or nil,
+            type(http)=="table" and type(http.request)=="function" and http.request or nil,
+        }
+        for _, fn in ipairs(candidates) do if fn then return fn end end
+    end
+    local function remoteCall(method, body)
+        local fn=remoteRequester()
+        if not fn then return nil,"executor HTTP request API unavailable" end
+        local payload={
+            Url=remoteURL, Method=method,
+            Headers={ ["Content-Type"]="application/json", ["Accept"]="application/json" },
+        }
+        if body then payload.Body=body end
+        local ok,response=pcall(fn,payload)
+        if not ok or type(response)~="table" then return nil,tostring(response) end
+        local status=tonumber(response.StatusCode or response.Status or response.status_code or 200) or 200
+        local text=response.Body or response.body or response.ResponseBody or ""
+        if status<200 or status>=300 then return nil,"HTTP "..tostring(status).." "..tostring(text):sub(1,160) end
+        return text
+    end
+    local function remoteBossKey(entry)
+        local p=entry and entry.spawn
+        if not p or not finite(p.X) or not finite(p.Y) or not finite(p.Z) then return nil end
+        local name=Farm.bossKey(entry.name)
+        local rx=math.floor(p.X*10+0.5)/10
+        local ry=math.floor(p.Y*10+0.5)/10
+        local rz=math.floor(p.Z*10+0.5)/10
+        return "b_"..checksum(name.."|"..rx.."|"..ry.."|"..rz)
+    end
+    local function remoteMergeEntry(key,data)
+        if type(key)~="string" or type(data)~="table" then return false end
+        if not safeText(data.name,200) or not finite(data.maximum) or not attackHealthAllowed(data.maximum) then return false end
+        local spawn=unpackPosition(data.spawn)
+        if not spawn then return false end
+        for _,current in pairs(Farm.catalog) do
+            if current.spawn and Farm.bossKey(current.name)==Farm.bossKey(data.name)
+                and (current.spawn-spawn).Magnitude<384 then return false end
+        end
+        local path="@remote:"..key
+        if Farm.catalog[path] then return false end
+        Farm.catalog[path]={path=path,name=data.name,id="Shared location",spawn=spawn,position=spawn,maximum=data.maximum,rigPath=nil}
+        return true
+    end
+    function Farm.remotePull()
+        if Farm.remotePulling then return false end
+        Farm.remotePulling=true
+        local body,err=remoteCall("GET")
+        if not body then
+            Farm.remoteStatus="Unavailable: "..tostring(err)
+            Farm.remotePulling=false
+            return false
+        end
+        local ok,data=pcall(function() return HTTP:JSONDecode(body) end)
+        if not ok or type(data)~="table" then
+            Farm.remoteStatus="Invalid shared data"
+            Farm.remotePulling=false
+            return false
+        end
+        local added=0
+        for key,entry in pairs(data) do
+            if remoteMergeEntry(key,entry) then added=added+1 end
+        end
+        Farm.remoteReady=true
+        Farm.remoteStatus=string.format("Shared sync online | +%d remote boss locations",added)
+        Farm.remotePulling=false
+        if added>0 then Farm.markDirty() end
+        return true
+    end
+    function Farm.remotePush(force)
+        if Farm.remoteSaving then return false end
+        if not force and not Farm.remoteDirty then return false end
+        local now=os.clock()
+        if not force and now<Farm.remoteNextPush then return false end
+        local patch={}
+        for _,entry in pairs(Farm.catalog) do
+            if entry.spawn and attackHealthAllowed(entry.maximum) then
+                local key=remoteBossKey(entry)
+                if key then
+                    patch[key]={name=entry.name,maximum=entry.maximum,spawn=pack(entry.spawn)}
+                end
+            end
+        end
+        if next(patch)==nil then Farm.remoteDirty=false;return false end
+        local encoded=HTTP:JSONEncode(patch)
+        if #encoded>60000 then
+            Farm.remoteStatus="Shared sync skipped: payload too large"
+            return false
+        end
+        Farm.remoteSaving=true
+        local body,err=remoteCall("PATCH",encoded)
+        Farm.remoteSaving=false
+        Farm.remoteNextPush=now+12
+        if body then
+            Farm.remoteDirty=false
+            Farm.remoteStatus="Shared sync saved"
+            return true
+        end
+        Farm.remoteStatus="Shared sync failed: "..tostring(err)
+        return false
+    end
+    function Farm.remoteSchedule()
+        Farm.remoteDirty=true
+        if Farm.remoteNextPush==0 or os.clock()>=Farm.remoteNextPush then
+            task.spawn(function()
+                task.wait(0.4)
+                if State.alive then pcall(Farm.remotePush,false) end
+            end)
+        end
+    end
+
     function Farm.exportCode()
         if not okHTTP then return nil,"JSON service unavailable" end
         Farm.scan(true)
@@ -804,6 +928,7 @@ do
         end
         table.sort(Farm.remembered,function(a,b) return a.path<b.path end)
         Farm.saveConfig(false)
+        Farm.remoteSchedule()
     end
 end
 
@@ -5805,6 +5930,12 @@ task.spawn(function()
         task.wait(0.1)
     end
 end)
+task.spawn(function()
+    while State.alive do
+        if Farm.remoteDirty then pcall(function() Farm.remotePush(false) end) end
+        task.wait(8)
+    end
+end)
 
 if type(BUILT_IN_BOSS_SEED_CODE) == "string"
     and BUILT_IN_BOSS_SEED_CODE:sub(1, 7) == "ASLOC1:" then
@@ -5816,6 +5947,7 @@ if type(BUILT_IN_BOSS_SEED_CODE) == "string"
     end
 end
 
+pcall(function() Farm.remotePull() end)
 Farm.scan(true)
 
 if Settings.StaticMapScan then
@@ -5830,6 +5962,9 @@ if Settings.BossFirstDiscovery then
     Farm.bootDiscovery()
 end
 
+task.delay(2.0, function()
+    if State.alive and not Farm.remoteReady then pcall(function() Farm.remotePull(); Farm.scan(true); render() end) end
+end)
 task.delay(1.5, function()
     if State.alive and System and System.writeFriendReady then
         System.writeFriendReady()

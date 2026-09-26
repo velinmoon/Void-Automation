@@ -6090,7 +6090,7 @@ Title.Font = Enum.Font.GothamBold
 Title.TextSize = 11
 Title.TextColor3 = Color3.fromRGB(235, 249, 255)
 Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Text = "SLAYERS 2 • AUTO JOIN V5"
+Title.Text = "SLAYERS 2 • AUTO JOIN V6"
 Title.Parent = Card
 
 local Status = Instance.new("TextLabel")
@@ -6132,6 +6132,13 @@ local mouse1Release = type(mouse1release) == "function" and mouse1release
     or nil
 local mouse1Click = type(mouse1click) == "function" and mouse1click
     or (type(env.mouse1click) == "function" and env.mouse1click)
+    or nil
+
+local keyPress = type(keypress) == "function" and keypress
+    or (type(env.keypress) == "function" and env.keypress)
+    or nil
+local keyRelease = type(keyrelease) == "function" and keyrelease
+    or (type(env.keyrelease) == "function" and env.keyrelease)
     or nil
 
 local function viewport()
@@ -6392,7 +6399,9 @@ local function clickObject(object, hold)
 end
 
 local function loadOwner()
-    local owner = Player.Name
+    -- Screenshot-confirmed private-server owner.
+    -- A saved AutoSkills_System_v1.json owner still overrides this.
+    local owner = "thingbelow"
 
     local isFile = type(isfile) == "function" and isfile
         or (type(env.isfile) == "function" and env.isfile)
@@ -6420,46 +6429,235 @@ end
 
 local Owner = loadOwner()
 
-local function fillOwner()
-    local box = findOwnerBox()
+local OWNER_FIELD_1920 = Vector2.new(1180, 931)
+local JOIN_PRIVATE_1920 = Vector2.new(1180, 990)
 
-    if box then
-        local ok = pcall(function()
-            clickObject(box, 0.05)
-            box:CaptureFocus()
-            task.wait(0.05)
-            box.Text = Owner
-            box.CursorPosition = #Owner + 1
-            task.wait(0.12)
-            box:ReleaseFocus(false)
-        end)
-        if ok then return true end
-    end
+local function scaled1920(point)
+    local v = viewport()
+    return Vector2.new(
+        math.clamp(point.X * (v.X / 1920), 4, v.X - 4),
+        math.clamp(point.Y * (v.Y / 1080), 4, v.Y - 4)
+    )
+end
 
-    -- Screenshot fallback for the "Private server owner" field.
-    local p = pointFraction(0.615, 0.862)
-    clickPoint(p, 0.06)
-    task.wait(0.06)
-
-    -- Clipboard paste fallback.
-    local setClip = type(setclipboard) == "function" and setclipboard
-        or (type(env.setclipboard) == "function" and env.setclipboard)
-        or nil
-
-    if type(setClip) == "function" and vimOK and VIM then
-        pcall(setClip, Owner)
+local function clearFocusedText()
+    if vimOK and VIM then
         pcall(function()
             VIM:SendKeyEvent(true, Enum.KeyCode.LeftControl, false, game)
             VIM:SendKeyEvent(true, Enum.KeyCode.A, false, game)
             VIM:SendKeyEvent(false, Enum.KeyCode.A, false, game)
-            VIM:SendKeyEvent(true, Enum.KeyCode.V, false, game)
-            VIM:SendKeyEvent(false, Enum.KeyCode.V, false, game)
             VIM:SendKeyEvent(false, Enum.KeyCode.LeftControl, false, game)
+            task.wait(0.03)
+            VIM:SendKeyEvent(true, Enum.KeyCode.Backspace, false, game)
+            VIM:SendKeyEvent(false, Enum.KeyCode.Backspace, false, game)
         end)
-        return true
     end
 
-    return false
+    if type(keyPress) == "function" and type(keyRelease) == "function" then
+        pcall(function()
+            keyPress(0x11) -- CTRL
+            keyPress(0x41) -- A
+            keyRelease(0x41)
+            keyRelease(0x11)
+            keyPress(0x08) -- BACKSPACE
+            keyRelease(0x08)
+        end)
+    end
+end
+
+local function typeOwnerCharacters(owner)
+    local typed = false
+
+    -- Some executors expose this VIM method even though ordinary key events
+    -- don't update custom text fields correctly.
+    if vimOK and VIM then
+        local methodOK = pcall(function()
+            VIM:SendTextInputCharacterEvent("a", game)
+        end)
+
+        if methodOK then
+            -- Remove the test character immediately, then send the real string.
+            pcall(function()
+                VIM:SendKeyEvent(true, Enum.KeyCode.Backspace, false, game)
+                VIM:SendKeyEvent(false, Enum.KeyCode.Backspace, false, game)
+            end)
+
+            for i = 1, #owner do
+                local ch = owner:sub(i, i)
+                pcall(function()
+                    VIM:SendTextInputCharacterEvent(ch, game)
+                end)
+                task.wait(0.018)
+            end
+            typed = true
+        end
+    end
+
+    -- Normal per-letter keyboard input. The confirmed owner only contains letters,
+    -- but this path supports digits too.
+    if vimOK and VIM then
+        for i = 1, #owner do
+            local ch = owner:sub(i, i)
+            local upper = string.upper(ch)
+            local keyCode
+
+            pcall(function()
+                keyCode = Enum.KeyCode[upper]
+            end)
+
+            if keyCode then
+                pcall(function()
+                    VIM:SendKeyEvent(true, keyCode, false, game)
+                    task.wait(0.012)
+                    VIM:SendKeyEvent(false, keyCode, false, game)
+                end)
+                typed = true
+            end
+        end
+    end
+
+    -- Executor virtual-key fallback.
+    if type(keyPress) == "function" and type(keyRelease) == "function" then
+        for i = 1, #owner do
+            local ch = owner:sub(i, i)
+            local upper = string.upper(ch)
+            local byte = string.byte(upper)
+
+            if byte and (
+                (byte >= string.byte("A") and byte <= string.byte("Z"))
+                or (byte >= string.byte("0") and byte <= string.byte("9"))
+            ) then
+                pcall(function()
+                    keyPress(byte)
+                    task.wait(0.012)
+                    keyRelease(byte)
+                end)
+                typed = true
+            end
+        end
+    end
+
+    return typed
+end
+
+local function submitOwnerField(box)
+    -- Make the game process Text/FocusLost exactly like manual entry.
+    if box then
+        pcall(function()
+            box.CursorPosition = #tostring(box.Text or "") + 1
+            box:ReleaseFocus(true)
+        end)
+
+        local fire = type(firesignal) == "function" and firesignal
+            or (type(env.firesignal) == "function" and env.firesignal)
+            or nil
+
+        if type(fire) == "function" then
+            pcall(fire, box.FocusLost, true)
+        end
+    end
+
+    if vimOK and VIM then
+        pcall(function()
+            VIM:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+            task.wait(0.035)
+            VIM:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+        end)
+    end
+end
+
+local function fillOwner()
+    local box = findOwnerBox()
+    local owner = tostring(Owner or "thingbelow")
+    local fieldPoint = box and objectPoint(box) or scaled1920(OWNER_FIELD_1920)
+
+    setStatus("OWNER • typing " .. owner)
+
+    -- Click the field first. This is crucial for the Slayers 2 custom lobby.
+    clickPoint(fieldPoint, 0.07)
+    task.wait(0.10)
+
+    if box then
+        pcall(function()
+            box:CaptureFocus()
+        end)
+        task.wait(0.05)
+    end
+
+    clearFocusedText()
+    task.wait(0.05)
+
+    -- Direct property assignment first. It fires Text changed signals on a real TextBox.
+    if box then
+        pcall(function()
+            box.Text = owner
+            box.CursorPosition = #owner + 1
+        end)
+        task.wait(0.08)
+    end
+
+    -- Clipboard paste path.
+    local setClip = type(setclipboard) == "function" and setclipboard
+        or (type(env.setclipboard) == "function" and env.setclipboard)
+        or nil
+
+    if type(setClip) == "function" then
+        pcall(setClip, owner)
+        clearFocusedText()
+        task.wait(0.03)
+
+        if vimOK and VIM then
+            pcall(function()
+                VIM:SendKeyEvent(true, Enum.KeyCode.LeftControl, false, game)
+                VIM:SendKeyEvent(true, Enum.KeyCode.V, false, game)
+                VIM:SendKeyEvent(false, Enum.KeyCode.V, false, game)
+                VIM:SendKeyEvent(false, Enum.KeyCode.LeftControl, false, game)
+            end)
+        end
+
+        if type(keyPress) == "function" and type(keyRelease) == "function" then
+            pcall(function()
+                keyPress(0x11)
+                keyPress(0x56)
+                keyRelease(0x56)
+                keyRelease(0x11)
+            end)
+        end
+
+        task.wait(0.10)
+    end
+
+    -- If paste/custom textbox handling is weird, physically type the username too.
+    local currentText = box and tostring(box.Text or "") or ""
+    if norm(currentText) ~= norm(owner) then
+        clearFocusedText()
+        task.wait(0.04)
+        typeOwnerCharacters(owner)
+        task.wait(0.12)
+
+        -- Keep a real TextBox synchronized after physical typing.
+        if box then
+            pcall(function()
+                if norm(box.Text) ~= norm(owner) then
+                    box.Text = owner
+                end
+            end)
+        end
+    end
+
+    submitOwnerField(box)
+    task.wait(0.20)
+
+    local finalText = box and tostring(box.Text or "") or owner
+    local good = norm(finalText) == norm(owner)
+
+    if good then
+        setStatus("OWNER SET • " .. owner)
+    else
+        setStatus("OWNER INPUT SENT • " .. owner)
+    end
+
+    return true
 end
 
 local PLAY_FALLBACK = Vector2.new(0.040, 0.438)
@@ -6533,12 +6731,19 @@ local function doJoin()
     setStatus("JOIN PRIVATE • clicking")
 
     if join then
-        clickObject(join, 0.14)
-        return
+        clickObject(join, 0.13)
+        task.wait(0.07)
     end
 
-    -- Fallback is a normal click too, not a hold.
-    clickPoint(pointFraction(JOIN_FALLBACK.X, JOIN_FALLBACK.Y), 0.14)
+    -- Exact private-screen button center for 1920x1080, scaled if necessary.
+    local exactPoint = scaled1920(JOIN_PRIVATE_1920)
+
+    for _ = 1, 3 do
+        clickPoint(exactPoint, 0.13)
+        task.wait(0.09)
+    end
+
+    setStatus("JOIN PRIVATE CLICKED • waiting for teleport")
 end
 
 -- If no input backend exists, the HUD tells you instead of silently doing nothing.
@@ -6550,7 +6755,7 @@ if not (vimOK and VIM)
     return
 end
 
-setStatus("LOBBY DETECTED • owner: " .. Owner)
+setStatus("LOBBY DETECTED • 1920x1080 • owner: " .. Owner)
 
 -- ------------------------------------------------------------
 -- Time-assisted stage machine.
@@ -6635,14 +6840,15 @@ task.spawn(function()
                     -- User requested a normal click immediately after the name
                     -- is entered, instead of a long hold.
                     if filled then
-                        task.wait(0.30)
-                        privateJoin = findJoin()
-                        if privateJoin then
-                            doJoin()
-                            stage = "join"
-                            stageAt = os.clock()
-                            lastAction = os.clock()
-                        end
+                        -- Slayers 2 validates the owner field before enabling the button.
+                        task.wait(0.65)
+
+                        -- Click through the exact 1920x1080 fallback even when the
+                        -- JOIN PRIVATE GuiObject isn't exposed to introspection.
+                        doJoin()
+                        stage = "join"
+                        stageAt = os.clock()
+                        lastAction = os.clock()
                     end
                 end
             elseif not privateJoinContextVisible() and os.clock() - stageAt > 2.0 then
@@ -6662,19 +6868,11 @@ task.spawn(function()
             end
 
         elseif stage == "join" then
-            privateJoin = findJoin()
-
-            if not privateJoin then
-                if findMap() and not privateJoinContextVisible() then
-                    stage = "map"
-                    stageAt = os.clock()
-                    lastAction = 0
-                    mapAttempts = 0
-                end
-            elseif os.clock() - lastAction >= 2.0 then
+            -- Keep retrying JOIN PRIVATE by both GUI lookup and exact 1920x1080
+            -- coordinates until Roblox teleports us.
+            if os.clock() - lastAction >= 2.0 then
                 lastAction = os.clock()
                 doJoin()
-                setStatus("JOIN PRIVATE clicked • waiting for teleport")
             end
         end
 

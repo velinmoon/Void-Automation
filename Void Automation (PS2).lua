@@ -232,9 +232,8 @@ local function availability()
     if shouldPauseForTextEntry() then
         return false, "PAUSED", "Chat typing detected. Resumes when chat closes."
     end
-    if Settings.PauseWhenUnfocused and not State.focused then
-        return false, "PAUSED", "Return to Roblox to resume."
-    end
+    -- Auto Skills intentionally keep running while the Roblox window is unfocused.
+    -- M1 has its own focus handling below and is deliberately untouched.
     -- Do not pause for game inventories/menus; the combat workers handle blocked input directly.
     if State.gesture then return false, "PAUSED", "Adjusting controls. Resumes when released." end
     local character = Player.Character

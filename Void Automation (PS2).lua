@@ -7,7 +7,7 @@ local __AUTOSKILLS_SOURCE = [====[
 -- Z / X / C / V only. B is not used. Starts OFF.
 -- Requires the same virtual-input support as the original script.
 -- Repeats keypresses, not cooldown detection. Equip your tool and aim normally.
--- All UI is built locally. No downloaded UI libraries or assets.
+-- All UI is built locally. Cyan side-navigation control-panel layout; no downloaded UI libraries or assets.
 -- Player ESP uses available character models; it cannot reveal unloaded characters.
 -- Health Escape: moves your character exactly 70 studs UP in world space.
 -- Uses CURRENT Health / MaxHealth, including live maximum-health changes.
@@ -3185,14 +3185,20 @@ end)
 end
 
 local C = {
-    panel = Color3.fromRGB(12, 14, 24), surface = Color3.fromRGB(20, 23, 36),
-    raised = Color3.fromRGB(29, 31, 50), line = Color3.fromRGB(55, 59, 86),
-    text = Color3.fromRGB(246, 247, 255), muted = Color3.fromRGB(159, 165, 191),
-    dim = Color3.fromRGB(105, 112, 143), accent = Color3.fromRGB(139, 116, 255),
-    bright = Color3.fromRGB(205, 195, 255), green = Color3.fromRGB(77, 231, 179),
-    amber = Color3.fromRGB(255, 200, 105), red = Color3.fromRGB(255, 104, 139),
+    panel = Color3.fromRGB(5, 14, 23),
+    surface = Color3.fromRGB(10, 25, 38),
+    raised = Color3.fromRGB(14, 36, 52),
+    line = Color3.fromRGB(30, 67, 88),
+    text = Color3.fromRGB(235, 248, 255),
+    muted = Color3.fromRGB(149, 177, 202),
+    dim = Color3.fromRGB(91, 125, 151),
+    accent = Color3.fromRGB(24, 207, 255),
+    bright = Color3.fromRGB(145, 234, 255),
+    green = Color3.fromRGB(55, 238, 147),
+    amber = Color3.fromRGB(255, 201, 96),
+    red = Color3.fromRGB(255, 103, 127),
 }
-local W, H = 440, 750
+local W, H = 900, 720
 local function make(className, parent, properties)
     local object = Instance.new(className)
     for name, value in pairs(properties or {}) do object[name] = value end
@@ -3390,21 +3396,25 @@ local canvas = make("Frame", root, {
     Name = "Canvas", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
     BorderSizePixel = 0, Active = false,
 })
-local holder = frame(canvas, "Window", 28, 76, W, H)
+local holder = frame(canvas, "Window", 24, 58, W, H)
 holder.BackgroundTransparency = 1
 local uiScale = make("UIScale", holder, {Scale = 1})
-local shadow = frame(holder, "Shadow", -6, 8, W + 12, H + 12, Color3.new(0, 0, 0), 24)
-shadow.BackgroundTransparency = 0.6
-local halo = frame(holder, "EdgeGlow", -2, -2, W + 4, H + 4, C.accent, 20)
-halo.BackgroundTransparency = 0.91
-local panel = frame(holder, "Panel", 0, 0, W, H, C.panel, 18)
+local shadow = frame(holder, "Shadow", -7, 9, W + 14, H + 14, Color3.new(0, 0, 0), 18)
+shadow.BackgroundTransparency = 0.48
+local halo = frame(holder, "EdgeGlow", -2, -2, W + 4, H + 4, C.accent, 16)
+halo.BackgroundTransparency = 0.88
+local panel = frame(holder, "Panel", 0, 0, W, H, C.panel, 14)
 panel.Active, panel.ClipsDescendants = true, true
-stroke(panel, C.line, 0.12)
+stroke(panel, C.accent, 0.16, 1)
 make("UIGradient", panel, {
-    Rotation = 70,
-    Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(200, 197, 234)),
+    Rotation = 35,
+    Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(10, 26, 39)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(5, 15, 24)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(3, 10, 18)),
+    }),
 })
-local accentLine = frame(panel, "AccentLine", 24, 0, W - 48, 2, C.accent)
+local accentLine = frame(panel, "AccentLine", 0, 58, W, 1, C.accent)
 make("UIGradient", accentLine, {
     Color = ColorSequence.new(C.accent, Color3.fromRGB(91, 210, 230)),
     Transparency = NumberSequence.new({
@@ -3412,28 +3422,57 @@ make("UIGradient", accentLine, {
         NumberSequenceKeypoint.new(0.7, 0), NumberSequenceKeypoint.new(1, 0.8),
     }),
 })
-local header = button(panel, "HeaderDrag", "", 0, 4, 253, 70, C.panel)
+local header = button(panel, "HeaderDrag", "", 0, 0, W - 170, 58, C.panel)
 header.BackgroundTransparency = 1
-local logo = frame(header, "Logo", 24, 18, 34, 34, C.accent, 10)
-make("UIGradient", logo, {Rotation = 45, Color = ColorSequence.new(C.bright, C.accent)})
-local logoText = label(logo, "Mark", "A", 0, 0, 34, 34, 23, Color3.fromRGB(28, 20, 48), Enum.Font.GothamBlack)
+local logo = frame(header, "Logo", 18, 13, 32, 32, C.surface, 7)
+stroke(logo, C.accent, 0.08, 1)
+make("UIGradient", logo, {
+    Rotation = 45,
+    Color = ColorSequence.new(Color3.fromRGB(11, 66, 82), Color3.fromRGB(19, 201, 245)),
+})
+local logoText = label(logo, "Mark", "V", 0, 0, 32, 32, 19, C.text, Enum.Font.GothamBlack)
 logoText.TextXAlignment = Enum.TextXAlignment.Center
-label(header, "Title", "AutoSkills", 70, 13, 175, 30, 24, C.text, Enum.Font.GothamBold)
-label(header, "Edition", "V O I D  /  A U T O M A T I O N", 72, 43, 205, 15, 9, C.dim, Enum.Font.GothamMedium)
-UI.badge = button(panel, "HeaderToggle", "OFF", 269, 26, 64, 26, C.surface, 10)
-local minimize = button(panel, "Minimize", "-", 346, 24, 28, 28, C.surface, 20)
-local close = button(panel, "Unload", "x", 384, 24, 28, 28, C.surface, 15)
+local brand = label(header, "Title", "G A M E   C O N T R O L", 68, 11, 300, 22, 13, C.text, Enum.Font.GothamBold)
+label(header, "Edition", "P A N E L", 369, 11, 120, 22, 12, C.accent, Enum.Font.GothamBold)
+label(header, "SubTitle", "VOID AUTOMATION SUITE", 68, 32, 280, 15, 8, C.dim, Enum.Font.GothamMedium)
+UI.badge = button(panel, "HeaderToggle", "OFF", W - 238, 17, 82, 25, C.surface, 10)
+stroke(UI.badge, C.line, 0.3)
+local minimize = button(panel, "Minimize", "-", W - 140, 15, 32, 28, C.surface, 19)
+local close = button(panel, "Unload", "x", W - 94, 15, 32, 28, C.surface, 15)
 hover(minimize, C.muted, C.text)
 hover(close, C.muted, C.red)
-local tabs = frame(panel, "Tabs", 24, 78, 392, 30)
-tabs.BackgroundTransparency = 1
-UI.skillsTab = button(tabs, "SkillsTab", "Skills", 0, 0, 60, 30, C.raised, 9)
-UI.espTab = button(tabs, "ESPTab", "ESP", 66, 0, 60, 30, C.surface, 9)
-UI.healthTab = button(tabs, "HealthTab", "Health", 132, 0, 60, 30, C.surface, 9)
-UI.farmTab = button(tabs, "FarmTab", "Farm", 198, 0, 60, 30, C.surface, 9)
-UI.moveTab = button(tabs, "MoveTab", "Move", 264, 0, 60, 30, C.surface, 9)
-UI.systemTab = button(tabs, "SystemTab", "System", 330, 0, 62, 30, C.surface, 9)
-local body = frame(panel, "Controls", 0, 122, W, H - 122)
+local tabs = frame(panel, "Tabs", 14, 74, 166, 348, C.surface, 12)
+stroke(tabs, C.line, 0.34)
+label(tabs, "MenuTitle", "NAVIGATION", 14, 8, 138, 16, 9, C.dim, Enum.Font.GothamBold)
+
+UI.skillsTab = button(tabs, "SkillsTab", "   Skills", 12, 32, 142, 43, C.raised, 11)
+UI.espTab = button(tabs, "ESPTab", "   ESP", 12, 84, 142, 43, C.surface, 11)
+UI.healthTab = button(tabs, "HealthTab", "   Health", 12, 136, 142, 43, C.surface, 11)
+UI.farmTab = button(tabs, "FarmTab", "   Farm", 12, 188, 142, 43, C.surface, 11)
+UI.moveTab = button(tabs, "MoveTab", "   Move", 12, 240, 142, 43, C.surface, 11)
+UI.systemTab = button(tabs, "SystemTab", "   System", 12, 292, 142, 43, C.surface, 11)
+
+UI.navStrokes, UI.navBars = {}, {}
+for _, entry in ipairs({
+    {"Skills", UI.skillsTab}, {"ESP", UI.espTab}, {"Health", UI.healthTab},
+    {"Farm", UI.farmTab}, {"Move", UI.moveTab}, {"System", UI.systemTab},
+}) do
+    local key, tab = entry[1], entry[2]
+    tab.TextXAlignment = Enum.TextXAlignment.Left
+    tab.UICorner.CornerRadius = UDim.new(0, 9)
+    UI.navStrokes[key] = stroke(tab, C.accent, 0.86, 1)
+    UI.navBars[key] = frame(tab, "ActiveBar", 0, 7, 3, 29, C.accent, 2)
+end
+
+local sidebarInfo = frame(panel, "SidebarInfo", 14, 438, 166, 212, C.surface, 12)
+stroke(sidebarInfo, C.line, 0.45)
+label(sidebarInfo, "Label", "SESSION", 14, 12, 138, 15, 9, C.dim, Enum.Font.GothamBold)
+UI.sidebarState = label(sidebarInfo, "State", "CONNECTED", 14, 36, 138, 18, 11, C.green, Enum.Font.GothamBold)
+label(sidebarInfo, "Hint1", "F7  Unload", 14, 70, 138, 18, 10, C.muted, Enum.Font.GothamMedium)
+label(sidebarInfo, "Hint2", "R-Shift  Hide UI", 14, 94, 138, 18, 10, C.muted, Enum.Font.GothamMedium)
+label(sidebarInfo, "Hint3", "F6  Skills", 14, 118, 138, 18, 10, C.muted, Enum.Font.GothamMedium)
+label(sidebarInfo, "Version", "VOID  v1.5", 14, 173, 138, 18, 9, C.dim, Enum.Font.GothamBold)
+local body = frame(panel, "Controls", 192, 74, W - 206, H - 102)
 body.BackgroundTransparency = 1
 local master = frame(body, "MasterCard", 24, 0, 392, 80, C.raised, 13)
 UI.masterStroke = stroke(master, C.accent, 0.65)
@@ -3552,7 +3591,7 @@ UI.status = label(status, "Status", "STANDBY", 26, 5, 354, 16, 9, C.muted, Enum.
 UI.detail = label(status, "Detail", "", 13, 22, 366, 12, 9, C.muted)
 label(body, "Hotkeys", "F6  TOGGLE    /    F7  UNLOAD    /    R-SHIFT  HIDE", 26, 536, 390, 15, 9, C.dim, Enum.Font.GothamMedium)
 
-local espBody = frame(panel, "ESPControls", 0, 122, W, H - 122)
+local espBody = frame(panel, "ESPControls", 192, 74, W - 206, H - 102)
 espBody.BackgroundTransparency, espBody.Visible = 1, false
 local espMaster = frame(espBody, "ESPMasterCard", 24, 0, 392, 80, C.raised, 13)
 UI.espMasterStroke = stroke(espMaster, C.accent, 0.65)
@@ -3593,7 +3632,7 @@ UI.espStatus = label(espStatusCard, "ESPStatus", "ESP OFF", 26, 5, 354, 16, 9, C
 UI.espDetail = label(espStatusCard, "Detail", "", 13, 22, 366, 12, 9, C.muted)
 label(espBody, "ESPHotkeys", "F8  ESP    /    F7  UNLOAD    /    R-SHIFT  HIDE", 26, 536, 390, 15, 9, C.dim, Enum.Font.GothamMedium)
 
-local healthBody = frame(panel, "HealthControls", 0, 122, W, H - 122)
+local healthBody = frame(panel, "HealthControls", 192, 74, W - 206, H - 102)
 healthBody.BackgroundTransparency, healthBody.Visible = 1, false
 do
     local master = frame(healthBody, "HealthMasterCard", 24, 0, 392, 80, C.raised, 13)
@@ -3648,7 +3687,7 @@ do
         26, 536, 390, 15, 9, C.dim, Enum.Font.GothamMedium)
 end
 
-local farmBody = frame(panel, "FarmControls", 0, 122, W, H - 122)
+local farmBody = frame(panel, "FarmControls", 192, 74, W - 206, H - 102)
 farmBody.BackgroundTransparency, farmBody.Visible = 1, false
 do
     local master = frame(farmBody, "FarmMasterCard", 24, 0, 392, 80, C.raised, 13)
@@ -3831,7 +3870,7 @@ do
     label(farmBody, "FarmFooter", "OFF returns to the farming start point. F7 unloads all.", 26, 604, 390, 14, 9, C.dim)
 end
 
-local moveBody = frame(panel, "MovementControls", 0, 122, W, H - 122)
+local moveBody = frame(panel, "MovementControls", 192, 74, W - 206, H - 102)
 moveBody.BackgroundTransparency, moveBody.Visible = 1, false
 
 local moveMaster = frame(moveBody, "MovementMasterCard", 24, 0, 392, 80, C.raised, 13)
@@ -3881,7 +3920,7 @@ label(moveBody, "MovementFooter",
     26, 548, 390, 32, 9, C.dim, Enum.Font.GothamMedium)
 
 
-local systemBody = frame(panel, "SystemControls", 0, 122, W, H - 122)
+local systemBody = frame(panel, "SystemControls", 192, 74, W - 206, H - 102)
 systemBody.BackgroundTransparency, systemBody.Visible = 1, false
 
 local systemMaster = frame(systemBody, "SystemMasterCard", 24, 0, 392, 80, C.raised, 13)
@@ -3953,22 +3992,77 @@ UI.systemStatus = label(systemStatusCard, "Status", "READY", 26, 8, 350, 16, 10,
 UI.systemDetail = label(systemStatusCard, "Detail", "", 13, 29, 366, 34, 9, C.muted)
 UI.systemDetail.TextWrapped = true
 
+
+-- Reference-style content shell. All original controls stay inside a centered
+-- 440px content canvas, so behavior/callbacks are untouched while the outer
+-- layout becomes a wide cyan game-control panel.
+local function skinPage(page)
+    page.BackgroundColor3 = Color3.fromRGB(6, 18, 29)
+    page.BackgroundTransparency = 0.08
+    page.ClipsDescendants = true
+    corner(page, 12)
+    stroke(page, C.line, 0.42)
+
+    local oldChildren = {}
+    for _, child in ipairs(page:GetChildren()) do
+        if not child:IsA("UICorner") and not child:IsA("UIStroke") then
+            oldChildren[#oldChildren + 1] = child
+        end
+    end
+
+    local inner = frame(page, "PageContent", math.floor(((W - 206) - 440) / 2), 0, 440, H - 102)
+    inner.BackgroundTransparency = 1
+
+    for _, child in ipairs(oldChildren) do
+        child.Parent = inner
+    end
+
+    -- Give cards a cooler cyan edge without changing their geometry.
+    for _, object in ipairs(inner:GetDescendants()) do
+        if object:IsA("Frame") and object.BackgroundTransparency < 1 then
+            local existing = object:FindFirstChildOfClass("UIStroke")
+            if existing then
+                existing.Color = C.line
+            end
+        elseif object:IsA("TextButton") then
+            local existing = object:FindFirstChildOfClass("UIStroke")
+            if existing and object.Name ~= "HeaderToggle" then
+                existing.Color = C.line
+            end
+        end
+    end
+end
+
+for _, page in ipairs({body, espBody, healthBody, farmBody, moveBody, systemBody}) do
+    skinPage(page)
+end
+
+local footerBar = frame(panel, "FooterBar", 0, H - 30, W, 30, Color3.fromRGB(4, 13, 21))
+stroke(footerBar, C.line, 0.45)
+local footerDot = frame(footerBar, "ConnectedDot", 16, 11, 7, 7, C.green, 4)
+UI.footerConnected = label(footerBar, "Connected", "CONNECTED", 30, 5, 110, 20, 9, C.green, Enum.Font.GothamBold)
+label(footerBar, "Divider1", "|", 139, 5, 12, 20, 9, C.dim, Enum.Font.GothamMedium)
+label(footerBar, "FooterHint", "F7 UNLOAD    /    R-SHIFT HIDE", 156, 5, 260, 20, 9, C.muted, Enum.Font.GothamMedium)
+local footerVersion = label(footerBar, "FooterVersion", "v1.5.0", W - 90, 5, 72, 20, 9, C.dim, Enum.Font.GothamMedium)
+footerVersion.TextXAlignment = Enum.TextXAlignment.Right
+UI.footerBar = footerBar
+
 local function fitWindow(centerIfNeeded)
     if not State.alive then return end
     local viewport = canvas.AbsoluteSize
     if viewport.X <= 0 or viewport.Y <= 0 then return end
-    uiScale.Scale = math.clamp(math.min((viewport.X - 24) / W, (viewport.Y - 64) / H), 0.35, 1)
+    uiScale.Scale = math.clamp(math.min((viewport.X - 28) / W, (viewport.Y - 48) / H), 0.32, 1)
     local width = W * uiScale.Scale
     local height = (State.minimized and 78 or H) * uiScale.Scale
     local maxX, maxY = math.max(12, viewport.X - width - 12), math.max(44, viewport.Y - height - 12)
     local x, y = holder.Position.X.Offset, holder.Position.Y.Offset
-    if centerIfNeeded then x, y = 28, 76 end
+    if centerIfNeeded then x, y = 24, 58 end
     holder.Position = UDim2.fromOffset(math.clamp(x, 12, maxX), math.clamp(y, 44, maxY))
 end
 local function setMinimized(value)
     State.minimized = value
     minimize.Text = value and "+" or "-"
-    local height = value and 78 or H
+    local height = value and 60 or H
     animate(panel, {Size = UDim2.fromOffset(W, height)})
     animate(halo, {Size = UDim2.fromOffset(W + 4, height + 4)})
     animate(shadow, {Size = UDim2.fromOffset(W + 12, height + 12)})
@@ -3991,6 +4085,8 @@ render = function()
     UI.cycle.Text = count > 0 and string.format("~ %.2f s / cycle", count * (Settings.HoldTime + Settings.KeyGap)) or "No keys selected"
     UI.masterStroke.Transparency = State.enabled and 0.18 or 0.65
     tabs.Visible = not State.minimized
+    sidebarInfo.Visible = not State.minimized
+    UI.footerBar.Visible = not State.minimized
     body.Visible = not State.minimized and State.tab == "Skills"
     espBody.Visible = not State.minimized and State.tab == "ESP"
     healthBody.Visible = not State.minimized and State.tab == "Health"
@@ -4009,6 +4105,16 @@ render = function()
     UI.moveTab.TextColor3 = State.tab == "Move" and C.bright or C.dim
     UI.systemTab.BackgroundColor3 = State.tab == "System" and C.raised or C.surface
     UI.systemTab.TextColor3 = State.tab == "System" and C.bright or C.dim
+    for key, navStroke in pairs(UI.navStrokes) do
+        local selected = State.tab == key
+        navStroke.Transparency = selected and 0.08 or 0.86
+        UI.navBars[key].Visible = selected
+    end
+    UI.sidebarState.Text = State.fault and "ERROR" or "CONNECTED"
+    UI.sidebarState.TextColor3 = State.fault and C.red or C.green
+    UI.footerConnected.Text = State.fault and "ERROR" or "CONNECTED"
+    UI.footerConnected.TextColor3 = State.fault and C.red or C.green
+    footerDot.BackgroundColor3 = State.fault and C.red or C.green
     local espColor = State.espFault and C.red or (Settings.ESPEnabled and C.green or C.dim)
     UI.espStatus.Text = State.espFault and "ESP ERROR" or (Settings.ESPEnabled and "ESP ACTIVE" or "ESP OFF")
     UI.espStatus.TextColor3, UI.espStatusDot.BackgroundColor3 = espColor, espColor
@@ -4119,7 +4225,7 @@ render = function()
         local pressed = State.heldKey == skill.key
         if view.selected ~= skill.enabled or view.pressed ~= pressed then
             view.selected, view.pressed = skill.enabled, pressed
-            view.button.BackgroundColor3 = pressed and Color3.fromRGB(56, 43, 82) or (skill.enabled and C.raised or C.surface)
+            view.button.BackgroundColor3 = pressed and Color3.fromRGB(12, 75, 99) or (skill.enabled and C.raised or C.surface)
             view.border.Color = pressed and C.bright or (skill.enabled and C.accent or C.line)
             view.border.Transparency = pressed and 0 or (skill.enabled and 0.58 or 0.45)
             view.keyText.TextColor3 = skill.enabled and C.bright or C.dim

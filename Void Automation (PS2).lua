@@ -2818,6 +2818,48 @@ local function movementCharacter()
     return character, humanoid, rootPart
 end
 
+local function startupGroundRecovery()
+    -- Never enable NoClip just by executing the script. If an older instance
+    -- left nearby map geometry non-collidable, recover the actual floor while
+    -- Auto Boss/NoClip/Fly are OFF.
+    if Settings.AutoBoss or Settings.NoClip or Settings.FlyEnabled then return end
+    local character, humanoid, rootPart = movementCharacter()
+    if not character or not character.Parent or not rootPart or not rootPart.Parent then return end
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {character}
+    params.IgnoreWater = false
+
+    local origin = rootPart.Position + Vector3.new(0, 8, 0)
+    local result = World:Raycast(origin, Vector3.new(0, -5000, 0), params)
+    if not result or not result.Instance or not result.Position then return end
+    if result.Normal and result.Normal.Y < 0.45 then return end
+
+    local hit = result.Instance
+    local name = string.lower(hit.Name or "")
+    if hit:IsA("BasePart") then
+        local blockedName = name:find("hitbox", 1, true) or name:find("trigger", 1, true)
+            or name:find("zone", 1, true) or name:find("vfx", 1, true)
+            or name:find("effect", 1, true) or name:find("prompt", 1, true)
+        if not blockedName then
+            pcall(function() hit.CanCollide = true end)
+        end
+    elseif hit == World.Terrain then
+        pcall(function() World.Terrain.CanCollide = true end)
+    end
+
+    local velocity = rootPart.AssemblyLinearVelocity
+    if velocity.Y < -25 then
+        local safeY = result.Position.Y + 5
+        pcall(function()
+            character:PivotTo(CFrame.new(rootPart.Position.X, safeY, rootPart.Position.Z))
+            rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        end)
+    end
+end
+
 function Movement.updateTBlock()
     if Settings.NoClip and not Movement.tBlocked then
         ContextActionService:BindActionAtPriority(
@@ -3154,6 +3196,8 @@ stopMovement = function()
     Movement.restoreNoClip(true)
 end
 
+Settings.NoClip = false
+Settings.FlyEnabled = false
 Movement.updateTBlock()
 
 do
@@ -3172,6 +3216,12 @@ do
         end)
     end
 end
+
+-- Emergency floor guard. It is completely dormant while Auto Boss/NoClip are active.
+pcall(startupGroundRecovery)
+connect(RunService.Stepped, function()
+    if State.alive then startupGroundRecovery() end
+end)
 
 System = {
     configPath = "AutoSkills_System_v1.json",

@@ -122,6 +122,266 @@ if type(previous) == "table" and type(previous.Stop) == "function" then previous
 local SLAYERS2_LOBBY_PLACE_ID = 16205713724
 
 -- ============================================================
+-- SAFE SLAYERS 2 LOBBY RECOVERY V14
+-- PLAY -> ONE Ouwland click -> private owner -> JOIN PRIVATE.
+-- Generic/public Join is never clicked.
+-- ============================================================
+if tonumber(game.PlaceId) == SLAYERS2_LOBBY_PLACE_ID
+    and tostring(game.PrivateServerId or "") == "" then
+
+    local lobbyController = {alive = true}
+    function lobbyController.Stop()
+        lobbyController.alive = false
+    end
+    environment[slot] = lobbyController
+
+    local function ln(value)
+        return string.lower(tostring(value or "")):gsub("[^%w]", "")
+    end
+
+    local function lv(object)
+        if not object or not object.Parent then return false end
+        local node = object
+        while node and node ~= playerGui do
+            if node:IsA("GuiObject") and not node.Visible then return false end
+            if node:IsA("ScreenGui") and not node.Enabled then return false end
+            node = node.Parent
+        end
+        return true
+    end
+
+    local function lt(object)
+        if object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox") then
+            return tostring(object.Text or "")
+        end
+        return ""
+    end
+
+    local function lfind(exactTexts)
+        local wanted = {}
+        for _, value in ipairs(exactTexts) do wanted[ln(value)] = true end
+
+        local best, bestScore
+        for _, object in ipairs(playerGui:GetDescendants()) do
+            if object:IsA("GuiObject")
+                and lv(object)
+                and object.AbsoluteSize.X > 2
+                and object.AbsoluteSize.Y > 2 then
+
+                local compact = ln(lt(object))
+                if wanted[compact] then
+                    local score = object.AbsoluteSize.X * object.AbsoluteSize.Y
+                    if object:IsA("GuiButton") then score = score - 100000000 end
+                    if not bestScore or score < bestScore then
+                        best, bestScore = object, score
+                    end
+                end
+            end
+        end
+        return best
+    end
+
+    local function lclickPoint(point, hold)
+        hold = hold or 0.10
+        return pcall(function()
+            VirtualInput:SendMouseMoveEvent(point.X, point.Y, game)
+            task.wait(0.035)
+            VirtualInput:SendMouseButtonEvent(point.X, point.Y, 0, true, game, 0)
+            task.wait(hold)
+            VirtualInput:SendMouseButtonEvent(point.X, point.Y, 0, false, game, 0)
+        end)
+    end
+
+    local function lpoint(object)
+        if not object or not object.Parent then return nil end
+        return object.AbsolutePosition + object.AbsoluteSize / 2
+    end
+
+    local function lplayClick(play)
+        local point = lpoint(play)
+        if point then return lclickPoint(point, 0.10) end
+
+        local camera = World.CurrentCamera
+        local size = camera and camera.ViewportSize or Vector2.new(1912, 948)
+        return lclickPoint(Vector2.new(size.X * 0.040, size.Y * 0.438), 0.10)
+    end
+
+    local function lmapClickOnce(map)
+        if not map then return false end
+
+        local point
+        local node = map
+        for _ = 1, 10 do
+            if not node or node == playerGui then break end
+            if node:IsA("GuiObject") and lv(node) then
+                local size = node.AbsoluteSize
+                if size.X >= 180 and size.X <= 560
+                    and size.Y >= 280 and size.Y <= 850 then
+                    point = node.AbsolutePosition + size / 2
+                    break
+                end
+            end
+            node = node.Parent
+        end
+
+        if not point then
+            local camera = World.CurrentCamera
+            local size = camera and camera.ViewportSize or Vector2.new(1912, 948)
+            point = Vector2.new(size.X * 0.175, size.Y * 0.430)
+        end
+
+        return lclickPoint(point, 0.11)
+    end
+
+    local function lprivateContext()
+        return lfind({"JOIN PRIVATE"}) ~= nil
+            or lfind({"Hold to join private server"}) ~= nil
+    end
+
+    local function lownerBox()
+        if not lprivateContext() then return nil end
+
+        local join = lfind({"JOIN PRIVATE"})
+        local boxes = {}
+
+        for _, object in ipairs(playerGui:GetDescendants()) do
+            if object:IsA("TextBox") and lv(object) then
+                boxes[#boxes + 1] = object
+
+                local blob = ln(
+                    tostring(object.Name or "") .. " "
+                    .. tostring(object.PlaceholderText or "")
+                )
+
+                if blob:find("privateserverowner", 1, true) then
+                    return object
+                end
+            end
+        end
+
+        if join then
+            local joinCenter = join.AbsolutePosition + join.AbsoluteSize / 2
+            local best, bestScore
+
+            for _, box in ipairs(boxes) do
+                local center = box.AbsolutePosition + box.AbsoluteSize / 2
+                local dy = joinCenter.Y - center.Y
+                local dx = math.abs(joinCenter.X - center.X)
+
+                if dy > 0 and dy < 220 and dx < 240 then
+                    local score = dy + dx * 0.4
+                    if not bestScore or score < bestScore then
+                        best, bestScore = box, score
+                    end
+                end
+            end
+
+            if best then return best end
+        end
+
+        table.sort(boxes, function(a, b)
+            return a.AbsolutePosition.Y > b.AbsolutePosition.Y
+        end)
+
+        return boxes[1]
+    end
+
+    local ownerName = Player.Name
+
+    pcall(function()
+        local rf = type(readfile) == "function" and readfile or environment.readfile
+        local ff = type(isfile) == "function" and isfile or environment.isfile
+
+        if rf and ff and ff("AutoSkills_System_v1.json") then
+            local data = HttpService:JSONDecode(rf("AutoSkills_System_v1.json"))
+
+            if type(data) == "table"
+                and type(data.PrivateServerOwner) == "string"
+                and data.PrivateServerOwner ~= "" then
+                ownerName = data.PrivateServerOwner
+            end
+        end
+    end)
+
+    local queue = type(queue_on_teleport) == "function" and queue_on_teleport
+        or (type(environment.queue_on_teleport) == "function" and environment.queue_on_teleport)
+        or (type(syn) == "table"
+            and type(syn.queue_on_teleport) == "function"
+            and syn.queue_on_teleport)
+        or nil
+
+    if type(queue) == "function" then
+        pcall(queue, [[
+task.wait(1)
+pcall(function()
+    local rf = type(readfile) == "function" and readfile
+    local ff = type(isfile) == "function" and isfile
+    if rf and ff and ff("AutoSkills_Void_AutoRun.lua") then
+        local fn = loadstring(rf("AutoSkills_Void_AutoRun.lua"))
+        if fn then fn() end
+    end
+end)
+]])
+    end
+
+    task.spawn(function()
+        local mapClicked = false
+        local ownerEntered = false
+        local joinLast = 0
+        local playLast = 0
+
+        while lobbyController.alive do
+            local play = lfind({"PLAY"})
+            local map = lfind({"Ouwland"})
+            local privateContext = lprivateContext()
+
+            if play and not map then
+                if os.clock() - playLast >= 0.9 then
+                    playLast = os.clock()
+                    lplayClick(play)
+                end
+
+            elseif map and not mapClicked then
+                -- EXACTLY ONE Ouwland click for this whole lobby run.
+                mapClicked = true
+                lmapClickOnce(map)
+
+            elseif privateContext then
+                local box = lownerBox()
+                local join = lfind({"JOIN PRIVATE"})
+
+                if box and not ownerEntered then
+                    pcall(function()
+                        box:CaptureFocus()
+                        box.Text = ownerName
+                        box.CursorPosition = #ownerName + 1
+                        task.wait(0.08)
+                        box:ReleaseFocus(true)
+                    end)
+
+                    ownerEntered = ln(box.Text) == ln(ownerName)
+                end
+
+                if ownerEntered and join and os.clock() - joinLast >= 1.5 then
+                    joinLast = os.clock()
+                    local point = lpoint(join)
+
+                    if point then
+                        -- EXACTLY ONE normal click on JOIN PRIVATE.
+                        lclickPoint(point, 0.14)
+                    end
+                end
+            end
+
+            task.wait(0.10)
+        end
+    end)
+
+    return
+end
+
+
+-- ============================================================
 -- LOBBY-ONLY MODE
 -- If the script starts on the PLAY / Ouwland lobby UI, NOTHING
 -- below this block is started: no farm scans, UI, ESP, movement,
@@ -3889,11 +4149,29 @@ end)
         return direct or physical
     end
 
+    local function privateMenuContext()
+        local joinPrivate = findGuiText(function(_, textCompact)
+            return textCompact == "joinprivate"
+        end)
+
+        local holdText = findGuiText(function(_, textCompact)
+            return textCompact == "holdtojoinprivateserver"
+        end)
+
+        return joinPrivate ~= nil or holdText ~= nil, joinPrivate
+    end
+
     local function findOwnerBox()
+        local privateContext, joinPrivate = privateMenuContext()
+        if not privateContext then return nil end
+
+        local boxes = {}
         for _, object in ipairs(playerGui:GetDescendants()) do
             if object:IsA("TextBox")
                 and not ownUI(object)
                 and guiVisible(object) then
+
+                boxes[#boxes + 1] = object
 
                 local blob = normalize(
                     tostring(object.Name or "") .. " "
@@ -3907,6 +4185,33 @@ end)
                 end
             end
         end
+
+        if joinPrivate then
+            local joinCenter = joinPrivate.AbsolutePosition + joinPrivate.AbsoluteSize / 2
+            local best, bestScore
+
+            for _, box in ipairs(boxes) do
+                local center = box.AbsolutePosition + box.AbsoluteSize / 2
+                local dy = joinCenter.Y - center.Y
+                local dx = math.abs(joinCenter.X - center.X)
+
+                if dy > 0 and dy < 220 and dx < 240 then
+                    local score = dy + dx * 0.4
+
+                    if not bestScore or score < bestScore then
+                        best, bestScore = box, score
+                    end
+                end
+            end
+
+            if best then return best end
+        end
+
+        table.sort(boxes, function(a, b)
+            return a.AbsolutePosition.Y > b.AbsolutePosition.Y
+        end)
+
+        return boxes[1]
     end
 
     local function fillOwnerBox(box)
@@ -3943,12 +4248,8 @@ end)
     end
 
     local function findJoin()
-        return findGuiText(function(textValue, textCompact, _, blobCompact)
-            return textCompact == "join"
-                or textCompact == "joinserver"
-                or textCompact == "enter"
-                or blobCompact:find("joinbutton", 1, true) ~= nil
-                or blobCompact:find("joinserver", 1, true) ~= nil
+        return findGuiText(function(_, textCompact)
+            return textCompact == "joinprivate"
         end)
     end
 
@@ -3973,6 +4274,43 @@ end)
             end
 
             return false
+        end)
+    end
+
+    local function singleMenuMapPress(map)
+        if not map or not map.Parent then return false end
+
+        local point
+        local node = map
+
+        for _ = 1, 10 do
+            if not node or node == playerGui then break end
+
+            if node:IsA("GuiObject") and guiVisible(node) then
+                local size = node.AbsoluteSize
+
+                if size.X >= 180 and size.X <= 560
+                    and size.Y >= 280 and size.Y <= 850 then
+                    point = node.AbsolutePosition + size / 2
+                    break
+                end
+            end
+
+            node = node.Parent
+        end
+
+        if not point then
+            local camera = World.CurrentCamera
+            local size = camera and camera.ViewportSize or Vector2.new(1912, 948)
+            point = Vector2.new(size.X * 0.175, size.Y * 0.430)
+        end
+
+        return pcall(function()
+            VirtualInput:SendMouseMoveEvent(point.X, point.Y, game)
+            task.wait(0.035)
+            VirtualInput:SendMouseButtonEvent(point.X, point.Y, 0, true, game, 0)
+            task.wait(0.11)
+            VirtualInput:SendMouseButtonEvent(point.X, point.Y, 0, false, game, 0)
         end)
     end
 
@@ -4025,102 +4363,101 @@ end)
         if not Settings.AutoRejoin then return false end
         if os.clock() < System.menuNextAt then return false end
 
-        if tostring(game.PrivateServerId or "") ~= "" then
-            System.rememberPrivateServer()
-            return true
+        local menuVisible, play, map, ownerBox, join = visibleGameMenu()
+        local privateContext = privateMenuContext()
+
+        if not menuVisible then
+            return false
         end
 
-        local menuVisible, play, map, ownerBox, join = visibleGameMenu()
-        if not menuVisible then return false end
-
-        -- If the game's menu exists, recovery becomes active automatically.
-        -- We no longer depend on Roblox raising ErrorMessageChanged first.
         System.rejoinRequested = true
-        System.menuDetectedAt = System.menuDetectedAt ~= 0 and System.menuDetectedAt or os.clock()
+        System.menuDetectedAt = System.menuDetectedAt ~= 0
+            and System.menuDetectedAt or os.clock()
 
-        -- SCREEN 1: PLAY / CUSTOMIZE / HUB / SLOTS.
-        if play and not ownerBox and not join then
+        -- Main lobby.
+        if play and not map and not privateContext then
             System.menuStage = "play"
             System.menuLastAction = "play"
-            System.rejoinStatus = "Main menu found -> clicking PLAY"
-            System.menuNextAt = os.clock() + 0.80
+            System.rejoinStatus = "Recovery menu -> clicking PLAY"
+            System.menuNextAt = os.clock() + 0.90
 
             System.menuMapClickedAt = 0
             System.menuOwnerFilledAt = 0
             System.menuJoinTriedAt = 0
 
-            pressGui(play, 0.09, true)
+            pressGui(play, 0.09, false)
             render()
             return true
         end
 
-        -- SCREEN 2: Ouwland card + private-server owner + JOIN.
-        -- Click the actual Ouwland text/card once after entering the screen.
-        if map and (System.menuMapClickedAt == 0
-            or os.clock() - System.menuMapClickedAt > 8) then
-
+        -- Ouwland: EXACTLY ONE map click.
+        if map and not privateContext and System.menuMapClickedAt == 0 then
             System.menuStage = "map"
             System.menuLastAction = "map"
-            System.rejoinStatus = "Selecting Ouwland..."
+            System.rejoinStatus = "Selecting Ouwland once..."
             System.menuMapClickedAt = os.clock()
-            System.menuNextAt = os.clock() + 0.80
+            System.menuNextAt = os.clock() + 2.50
 
-            pressGui(map, 0.10, true)
+            singleMenuMapPress(map)
             render()
             return true
         end
 
-        -- Enter the private-server owner exactly as the visible field requests.
-        if ownerBox then
-            local wanted = tostring(System.privateOwnerName or Player.Name)
-            local current = tostring(ownerBox.Text or "")
+        -- Never click Ouwland again during this menu flow.
+        if map and not privateContext and System.menuMapClickedAt ~= 0 then
+            System.menuStage = "map-wait"
+            System.rejoinStatus = "Ouwland clicked once; waiting for private panel."
+            System.menuNextAt = os.clock() + 0.30
+            return true
+        end
 
-            if normalize(current) ~= normalize(wanted)
-                or System.menuOwnerFilledAt == 0 then
+        -- Private panel only.
+        if privateContext then
+            ownerBox = findOwnerBox()
+            join = findJoin()
 
-                System.menuStage = "owner"
-                System.menuLastAction = "owner"
-                System.rejoinStatus = "Entering private server owner: " .. wanted
+            if ownerBox then
+                local wanted = tostring(System.privateOwnerName or Player.Name)
+                local current = tostring(ownerBox.Text or "")
 
-                fillOwnerBox(ownerBox)
-                System.menuNextAt = os.clock() + 0.55
-                render()
-                return true
+                if normalize(current) ~= normalize(wanted)
+                    or System.menuOwnerFilledAt == 0 then
+
+                    System.menuStage = "owner"
+                    System.menuLastAction = "owner"
+                    System.rejoinStatus = "Entering private server owner: " .. wanted
+
+                    fillOwnerBox(ownerBox)
+                    System.menuNextAt = os.clock() + 0.65
+                    render()
+                    return true
+                end
             end
-        end
 
-        -- Hold JOIN. Do NOT directly fire Activated here because this game's
-        -- button explicitly requires a sustained mouse hold.
-        if join and (System.menuJoinTriedAt == 0
-            or os.clock() - System.menuJoinTriedAt > 5) then
+            -- Exact JOIN PRIVATE only, one normal click.
+            if join and ownerBox then
+                local wanted = tostring(System.privateOwnerName or Player.Name)
 
-            System.menuStage = "join"
-            System.menuLastAction = "join"
-            System.menuJoinTriedAt = os.clock()
-            System.rejoinStatus = string.format(
-                "Holding JOIN for %.2fs...",
-                Settings.PrivateJoinHold
-            )
-            System.menuNextAt = os.clock() + Settings.PrivateJoinHold + 1.0
+                if normalize(ownerBox.Text) == normalize(wanted)
+                    and (System.menuJoinTriedAt == 0
+                        or os.clock() - System.menuJoinTriedAt > 2.0) then
 
-            pressGui(join, Settings.PrivateJoinHold, false)
-            render()
+                    System.menuStage = "join-private"
+                    System.menuLastAction = "join-private"
+                    System.menuJoinTriedAt = os.clock()
+                    System.rejoinStatus = "Clicking JOIN PRIVATE"
+                    System.menuNextAt = os.clock() + 1.50
+
+                    pressGui(join, 0.14, false)
+                    render()
+                    return true
+                end
+            end
+
+            System.rejoinStatus = "Private panel detected; waiting for owner/JOIN PRIVATE."
             return true
         end
 
-        -- If Ouwland is visible without the owner/join controls yet, click it.
-        if map and not ownerBox and not join then
-            System.menuStage = "map"
-            System.menuLastAction = "map"
-            System.rejoinStatus = "Ouwland visible -> opening private-server panel"
-            System.menuMapClickedAt = os.clock()
-            System.menuNextAt = os.clock() + 0.80
-            pressGui(map, 0.10, true)
-            render()
-            return true
-        end
-
-        System.rejoinStatus = "Menu detected; waiting for next private-server control..."
         return true
     end
 
@@ -4154,16 +4491,15 @@ end)
     task.spawn(function()
         while State.alive do
             if Settings.AutoRejoin then
-                local inPrivate = System.rememberPrivateServer()
+                -- Inspect visible lobby/menu BEFORE trusting PrivateServerId.
+                local handledMenu = System.menuStep()
+                local inPrivate = false
 
-                -- ALWAYS inspect the game's menu. In this game, returning to
-                -- PLAY can happen without ErrorMessageChanged firing first.
-                local handledMenu = false
-                if not inPrivate then
-                    handledMenu = System.menuStep()
+                if not handledMenu then
+                    inPrivate = System.rememberPrivateServer()
                 end
 
-                if not handledMenu and System.rejoinRequested
+                if not handledMenu and not inPrivate and System.rejoinRequested
                     and os.clock() >= (System.directPendingUntil or 0) then
                     System.tryDirectRejoin("fallback")
                 end
@@ -6090,7 +6426,7 @@ Title.Font = Enum.Font.GothamBold
 Title.TextSize = 11
 Title.TextColor3 = Color3.fromRGB(235, 249, 255)
 Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Text = "SLAYERS 2 • AUTO JOIN V13"
+Title.Text = "SLAYERS 2 • AUTO JOIN V14"
 Title.Parent = Card
 
 local Status = Instance.new("TextLabel")
@@ -6782,61 +7118,38 @@ local function doOwner()
 end
 
 local function doJoin()
-    -- ONLY run this on the real private-server panel.
-    -- This prevents ever clicking the blue/public Friend Join button.
     if not privateJoinContextVisible() then
         setStatus("JOIN PRIVATE • private panel not confirmed")
         return false
     end
 
     local join = findJoin()
-    setStatus("JOIN PRIVATE • clicking real private button")
-
-    -- 1) Try the detected JOIN PRIVATE GUI/text first.
-    if join then
-        clickObject(join, 0.14)
-        task.wait(0.08)
+    if not join then
+        setStatus("JOIN PRIVATE • waiting for exact button")
+        return false
     end
 
-    -- 2) Exact 1920x1080 fallback from the user's latest screenshot.
-    -- JOIN PRIVATE center ~= (1089, 986).
-    -- Use normalized coordinates so Roblox inset/scaling changes do not matter.
-    local v = viewport()
-    local center = Vector2.new(v.X * 0.567, v.Y * 0.913)
+    local box = findOwnerBox()
+    local wanted = tostring(Owner or "")
 
-    -- Click three safe points INSIDE the gold JOIN PRIVATE button.
-    -- These are normal clicks, not holds.
-    for _, offset in ipairs({
-        Vector2.new(0, 0),
-        Vector2.new(-45 * (v.X / 1920), 0),
-        Vector2.new(45 * (v.X / 1920), 0),
-    }) do
-        clickPoint(center + offset, 0.14)
-        task.wait(0.10)
+    if not box or norm(box.Text) ~= norm(wanted) then
+        setStatus("JOIN PRIVATE • owner not confirmed yet")
+        return false
     end
 
-    -- 3) If firesignal is available, try nearby GuiButtons around that exact area.
-    local fire = type(firesignal) == "function" and firesignal
-        or (type(env.firesignal) == "function" and env.firesignal)
-        or nil
+    local point = objectPoint(join)
+    if not point then return false end
 
-    if type(fire) == "function" then
-        for _, object in ipairs(PlayerGui:GetDescendants()) do
-            if object:IsA("GuiButton") and visible(object) then
-                local c = object.AbsolutePosition + object.AbsoluteSize / 2
-                local dx = math.abs(c.X - center.X)
-                local dy = math.abs(c.Y - center.Y)
+    setStatus("JOIN PRIVATE • single click")
 
-                if dx <= 180 and dy <= 100 then
-                    pcall(fire, object.Activated)
-                    pcall(fire, object.MouseButton1Click)
-                end
-            end
-        end
+    -- Exactly ONE physical click, same one-backend routine as map.
+    local ok = singleMapClick(point)
+
+    if ok then
+        setStatus("JOIN PRIVATE CLICKED • waiting for teleport")
     end
 
-    setStatus("JOIN PRIVATE CLICK SENT • waiting for teleport")
-    return true
+    return ok
 end
 
 -- If no input backend exists, the HUD tells you instead of silently doing nothing.
@@ -6858,7 +7171,7 @@ task.spawn(function()
     local ok, err = pcall(function()
         local stage = "play"
         local lastAction = 0
-        local mapClicksTotal = 0
+        local mapClicked = false
         local ownerAttempts = 0
 
         while Screen.Parent and tonumber(game.PlaceId) == LOBBY_PLACE_ID
@@ -6883,29 +7196,22 @@ task.spawn(function()
                 end
 
             elseif stage == "map" then
-                -- Lifetime HARD CAP: at most 3 actual physical Ouwland clicks.
                 if privateContext then
                     stage = "owner"
                     lastAction = 0
                     ownerAttempts = 0
                     setStatus("OUWLAND selected • private panel detected")
 
-                elseif mapClicksTotal < 3 and os.clock() - lastAction >= 2.40 then
+                elseif not mapClicked then
+                    mapClicked = true
                     lastAction = os.clock()
-                    mapClicksTotal = mapClicksTotal + 1
 
-                    setStatus(
-                        "OUWLAND • physical click "
-                        .. tostring(mapClicksTotal)
-                        .. "/3"
-                    )
-
-                    -- doMap() now generates exactly ONE physical click.
+                    setStatus("OUWLAND • single click 1/1")
                     doMap()
 
-                    -- Wait long enough for the UI transition before allowing
-                    -- another toggle click.
-                    local detectUntil = os.clock() + 2.20
+                    -- Wait for the panel. NEVER toggle Ouwland again.
+                    local detectUntil = os.clock() + 6.0
+
                     repeat
                         if privateJoinContextVisible() then
                             stage = "owner"
@@ -6917,19 +7223,18 @@ task.spawn(function()
                         task.wait(0.10)
                     until os.clock() >= detectUntil
 
-                    if stage == "map" and mapClicksTotal >= 3 then
-                        setStatus("OUWLAND • 3/3 TOTAL • map clicks permanently locked")
+                    if stage == "map" then
+                        setStatus("OUWLAND • clicked once • map permanently locked")
                     end
 
-                elseif mapClicksTotal >= 3 then
-                    -- NEVER click the map again during this script execution.
+                else
                     if privateJoinContextVisible() then
                         stage = "owner"
                         lastAction = 0
                         ownerAttempts = 0
                         setStatus("OUWLAND selected • private panel detected")
                     else
-                        setStatus("OUWLAND • map click lock active (3/3)")
+                        setStatus("OUWLAND • map locked at 1/1 • waiting")
                     end
                 end
 
@@ -6940,7 +7245,7 @@ task.spawn(function()
                 if not privateJoinContextVisible() then
                     stage = "map"
                     lastAction = 0
-                    setStatus("PRIVATE panel lost • map clicks remain capped at " .. tostring(mapClicksTotal) .. "/3")
+                    setStatus("PRIVATE panel lost • Ouwland stays locked at 1/1")
                 elseif privateJoin and findOwnerBox() then
                     if os.clock() - lastAction >= 1.10 then
                         lastAction = os.clock()
@@ -6974,7 +7279,7 @@ task.spawn(function()
                 if not privateJoinContextVisible() then
                     stage = "map"
                     lastAction = 0
-                    setStatus("PRIVATE panel lost • map clicks remain capped at " .. tostring(mapClicksTotal) .. "/3")
+                    setStatus("PRIVATE panel lost • Ouwland stays locked at 1/1")
                 elseif os.clock() - lastAction >= 1.50 then
                     -- Retry the exact private-button click until teleport.
                     lastAction = os.clock()

@@ -493,7 +493,7 @@ local System
 local BUILT_IN_BOSS_SEED_CODE = "ASLOC1:22fb26d3:eyJmb3JtYXQiOiJBdXRvU2tpbGxzTG9jYXRpb25zIiwic2NoZW1hIjoxLCJwbGFjZUlkIjoiMTM2NDA2ODgxNTc2NTE3IiwiYm9zc2VzIjpbeyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuRmluYWwgU2VsZWN0aW9uIFBsYWlucy5BY3RpdmVOcGNzLkZ1amlrby5GdWppa28iLCJuYW1lIjoiRnVqaWtvIiwibWF4aW11bSI6MzIwMCwicG9zaXRpb24iOlstMjQ1Ny4wMTI5Mzk0NTMxMjUsMzguMzQyMzUwMDA2MTAzNTE2LDExMTYuOTg0ODYzMjgxMjVdLCJzcGF3biI6Wy0yNDU3LjAxMjkzOTQ1MzEyNSwzOC4zNDIzNTAwMDYxMDM1MTYsMTExNi45ODQ4NjMyODEyNV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5Ba2F6by5Ba2F6byIsIm5hbWUiOiJBa2F6byIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbLTExMzQuNTEyNjk1MzEyNSwxMzgxLjMxNzAxNjYwMTU2MjUsLTE3NDUuMjM3OTE1MDM5MDYyNV0sInNwYXduIjpbLTExMzQuNTEyNjk1MzEyNSwxMzgxLjMxNzAxNjYwMTU2MjUsLTE3NDUuMjM3OTE1MDM5MDYyNV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5EYXRhaS5EYXRhaSIsIm5hbWUiOiJEYXRhaSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbLTE2NC42NTM4MDg1OTM3NSwxMDQzLjQ5NDUwNjgzNTkzNzUsLTExMzguOTMzOTU5OTYwOTM3NV0sInNwYXduIjpbLTE2NC42NTM4MDg1OTM3NSwxMDQzLjQ5NDUwNjgzNTkzNzUsLTExMzguOTMzOTU5OTYwOTM3NV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5FbnJ1LkVucnUiLCJuYW1lIjoiRW5ydSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbODIyLjE5NTI1MTQ2NDg0MzgsNzk2LjA4MzkyMzMzOTg0MzgsNTQzLjQxNjc0ODA0Njg3NV0sInNwYXduIjpbODIyLjE5NTI1MTQ2NDg0MzgsNzk2LjA4MzkyMzMzOTg0MzgsNTQzLjQxNjc0ODA0Njg3NV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5HaXllbi5HaXllbiIsIm5hbWUiOiJHaXllbiIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbMzg2LjQxMDYxNDAxMzY3MTksMTAxOC40OTQ5MzQwODIwMzEyLC04My42NDQwNTA1OTgxNDQ1M10sInNwYXduIjpbMzg2LjQxMDYxNDAxMzY3MTksMTAxOC40OTQ5MzQwODIwMzEyLC04My42NDQwNTA1OTgxNDQ1M119LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5HeW9yZWkuR3lvcmVpIiwibmFtZSI6Ikd5b3JlaSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbMjU3NS43MTM2MjMwNDY4NzUsMTA4OS40OTQ2Mjg5MDYyNSwtNzQyLjgyNTk4ODc2OTUzMTJdLCJzcGF3biI6WzI1NzUuNzEzNjIzMDQ2ODc1LDEwODkuNDk0NjI4OTA2MjUsLTc0Mi44MjU5ODg3Njk1MzEyXX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLkd5dXRhaS5HeXV0YWkiLCJuYW1lIjoiR3l1dGFpIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstMjY0LjQzMzcxNTgyMDMxMjUsMTA0NS43MzQ4NjMyODEyNSwtMTEzNy4zNjA4Mzk4NDM3NV0sInNwYXduIjpbLTI2NC40MzM3MTU4MjAzMTI1LDEwNDUuNzM0ODYzMjgxMjUsLTExMzcuMzYwODM5ODQzNzVdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuTmV6dXJhLk5lenVyYSIsIm5hbWUiOiJOZXp1cmEiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wy0xNDYyLjU0MTYyNTk3NjU2MjUsMjc2LjQ0OTEyNzE5NzI2NTYsOTM3LjQ0OTcwNzAzMTI1XSwic3Bhd24iOlstMTQ2Mi41NDE2MjU5NzY1NjI1LDI3Ni40NDkxMjcxOTcyNjU2LDkzNy40NDk3MDcwMzEyNV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5PYmFyaS5PYmFyaSIsIm5hbWUiOiJPYmFyaSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbNzcxLjQ1MTA0OTgwNDY4NzUsMTEyMS40OTQ4NzMwNDY4NzUsLTEwNDYuNzk5NjgyNjE3MTg3NV0sInNwYXduIjpbNzcxLjQ1MTA0OTgwNDY4NzUsMTEyMS40OTQ4NzMwNDY4NzUsLTEwNDYuNzk5NjgyNjE3MTg3NV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5SZWFwZXIuUmVhcGVyIiwibmFtZSI6IlJlYXBlciIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbOTcuNTMwMzE5MjEzODY3MTksMTA0NS40OTk1MTE3MTg3NSwtNTcxLjY0ODY4MTY0MDYyNV0sInNwYXduIjpbOTcuNTMwMzE5MjEzODY3MTksMTA0NS40OTk1MTE3MTg3NSwtNTcxLjY0ODY4MTY0MDYyNV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5SZW5ndS5SZW5ndSIsIm5hbWUiOiJSZW5ndSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbLTcxNS44MDIxODUwNTg1OTM4LDk2NS40OTQ1Njc4NzEwOTM4LDg4NC40NDA5NzkwMDM5MDYyXSwic3Bhd24iOlstNzE1LjgwMjE4NTA1ODU5MzgsOTY1LjQ5NDU2Nzg3MTA5MzgsODg0LjQ0MDk3OTAwMzkwNjJdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuU2FuZXJpLlNhbmVyaSIsIm5hbWUiOiJTYW5lcmkiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wy0zNzkuNjM5MjgyMjI2NTYyNSwxMDkzLjkxOTQzMzU5Mzc1LC00MjAuNDg5MTM1NzQyMTg3NV0sInNwYXduIjpbLTM3OS42MzkyODIyMjY1NjI1LDEwOTMuOTE5NDMzNTkzNzUsLTQyMC40ODkxMzU3NDIxODc1XX0seyJwYXRoIjoiSHVtYW5vaWRzLlJlZ2lvbnMuTWlzYy5BY3RpdmVOcGNzLlNoaW5vcmEuU2hpbm9yYSIsIm5hbWUiOiJTaGlub3JhIiwibWF4aW11bSI6MzAwMCwicG9zaXRpb24iOlstNDUxLjE2MzY2NTc3MTQ4NDQsOTY0Ljk2NTY5ODI0MjE4NzUsLTEuMzYxNjc0MDcwMzU4Mjc2NF0sInNwYXduIjpbLTQ1MS4xNjM2NjU3NzE0ODQ0LDk2NC45NjU2OTgyNDIxODc1LC0xLjM2MTY3NDA3MDM1ODI3NjRdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuU3VtYXJpLlN1bWFyaSIsIm5hbWUiOiJTdW1hcmkiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6WzM5My45MTIyNjE5NjI4OTA2LDEwMjAuNDk5OTM4OTY0ODQzOCwtNjE5LjE4MTMzNTQ0OTIxODhdLCJzcGF3biI6WzM5My45MTIyNjE5NjI4OTA2LDEwMjAuNDk5OTM4OTY0ODQzOCwtNjE5LjE4MTMzNTQ0OTIxODhdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuVGVuZ2FpLlRlbmdhaSIsIm5hbWUiOiJUZW5nYWkiLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6Wy0xMzYuMzE3NzAzMjQ3MDcwMywxMzQ5LjQ5NDc1MDk3NjU2MjUsLTI2MjguMzY0OTkwMjM0Mzc1XSwic3Bhd24iOlstMTM2LjMxNzcwMzI0NzA3MDMsMTM0OS40OTQ3NTA5NzY1NjI1LC0yNjI4LjM2NDk5MDIzNDM3NV19LHsicGF0aCI6Ikh1bWFub2lkcy5SZWdpb25zLk1pc2MuQWN0aXZlTnBjcy5ZYWhhcmkuWWFoYXJpIiwibmFtZSI6IllhaGFyaSIsIm1heGltdW0iOjMwMDAsInBvc2l0aW9uIjpbODI3LjkwMzI1OTI3NzM0MzgsMTAyMS43MDMwNjM5NjQ4NDM4LC02MzkuMjQ0MTQwNjI1XSwic3Bhd24iOls4MjcuOTAzMjU5Mjc3MzQzOCwxMDIxLjcwMzA2Mzk2NDg0MzgsLTYzOS4yNDQxNDA2MjVdfSx7InBhdGgiOiJIdW1hbm9pZHMuUmVnaW9ucy5NaXNjLkFjdGl2ZU5wY3MuWmVudGFyby5aZW50YXJvIiwibmFtZSI6IlplbnRhcm8iLCJtYXhpbXVtIjozMDAwLCJwb3NpdGlvbiI6WzEzMzMuMTkzMTE1MjM0Mzc1LDgyMS40OTUwNTYxNTIzNDM4LC0xMDE2Ljg4OTY0ODQzNzVdLCJzcGF3biI6WzEzMzMuMTkzMTE1MjM0Mzc1LDgyMS40OTUwNTYxNTIzNDM4LC0xMDE2Ljg4OTY0ODQzNzVdfV0sIm1hcmtlcnMiOltdfQ=="
 local Farm = {catalog = {}, remembered = {}, pinned = nil, records = {}, selected = nil, nextScan = 0, status = "OFF",
     detail = "Select a target, then enable Auto farm.", count = 0, aliveCount = 0,
-    autoVisited = {}, autoCurrent = nil, autoLastPath = nil, autoArrivedAt = 0,
+    autoVisited = {}, autoHazards = {}, autoCurrent = nil, autoLastPath = nil, autoArrivedAt = 0,
     autoCombatAt = 0, autoLastProgressAt = 0, autoLastHP = nil, autoDefeated = false,
     autoRespawnResume = false, autoResumePath = nil,
     autoCycles = 0, autoSkipped = 0, travelHealth = nil,
@@ -1700,7 +1700,10 @@ do
         g.lastHealth, g.damageSince, g.damageBase = nil, 0, nil
         g.lastPosition, g.lastPositionAt, g.stuckSince, g.lostSince = nil, 0, 0, 0
         g.verifyAt, g.recoveries, g.lastAction, g.lastActionAt = 0, 0, "STANDBY", 0
-        if clearLast then Farm.autoLastPath = nil end
+        if clearLast then
+            Farm.autoLastPath = nil
+            Farm.autoHazards = {}
+        end
     end
     local function autoBossLocation(entry)
         return entry and (entry.spawn or entry.position) or nil
@@ -1750,6 +1753,7 @@ do
             for _, entry in ipairs(Farm.remembered) do
                 local location = autoBossLocation(entry)
                 if autoBossEligible(entry) and not Farm.autoVisited[entry.path]
+                    and not Farm.autoHazards[entry.path]
                     and (not excludeLast or entry.path ~= Farm.autoLastPath) then
                     local distance = (location - position).Magnitude
                     if distance <= Settings.BossAutoRange and (not bestDistance or distance < bestDistance) then
@@ -1787,6 +1791,12 @@ do
         Farm.status = "AUTO BOSS"
         Farm.detail = string.format("Next: %s | %.0f studs away", entry.name, distance or 0)
         return entry
+    end
+    local function markAutoBossHazard(reason)
+        local path = Farm.autoCurrent
+        if path then
+            Farm.autoHazards[path] = reason or true
+        end
     end
     local function advanceAutoBoss(reason, rootPart, skipped)
         local previous = Farm.autoCurrent and Farm.catalog[Farm.autoCurrent]
@@ -1837,22 +1847,12 @@ do
 
         local drop = g.lastHealth - hp
         if not engaged and drop > 0.01 then
-            if g.damageSince == 0 then
-                g.damageSince = now
-                g.damageBase = g.lastHealth
-            end
-            local cumulative = (g.damageBase or g.lastHealth) - hp
-            if cumulative >= 1 or now - g.damageSince >= Settings.GuardianDamageTimeout then
-                g.lastHealth = hp
-                g.damageSince, g.damageBase = 0, nil
-                return true
-            end
-        elseif not engaged and g.damageSince ~= 0 then
-            local cumulative = (g.damageBase or g.lastHealth) - hp
-            if now - g.damageSince >= Settings.GuardianDamageTimeout then
-                g.damageSince, g.damageBase = 0, nil
-                if cumulative >= 0.25 then return true end
-            end
+            -- Environmental hazards (such as the snow biome) can deal small,
+            -- repeated damage while no boss exists. Do not wait for a timer:
+            -- the first real HP drop is enough to abandon the saved location.
+            g.lastHealth = hp
+            g.damageSince, g.damageBase = 0, nil
+            return true
         end
 
         g.lastHealth = hp
@@ -2040,6 +2040,7 @@ do
             -- such as the snow biome cannot trap Auto Boss at an empty saved location.
             if guardianObservePlayer(humanoid, rootPart, Farm.autoEngaged == true) then
                 Farm.guardian.lastAction, Farm.guardian.lastActionAt = "DAMAGE WITHOUT COMBAT", os.clock()
+                markAutoBossHazard("environmental damage")
                 advanceAutoBoss("Guardian: environmental damage with no boss active", rootPart, true)
                 return
             end
@@ -2131,6 +2132,7 @@ do
                     local damagedHealth = humanoid.Health
                     Farm.travelHealth = nil
                     if Settings.AutoBoss then
+                        markAutoBossHazard("environmental damage")
                         advanceAutoBoss("No boss loaded; environmental damage detected, moving on", rootPart, false)
                     else
                         pause("DANGER", string.format("No boss loaded; damage detected (%.0f HP). Returning to safety.", damagedHealth))
@@ -2193,6 +2195,7 @@ do
             local engaged = Farm.autoEngaged == true
             if guardianObservePlayer(humanoid, rootPart, engaged) then
                 Farm.guardian.lastAction, Farm.guardian.lastActionAt = "DAMAGE WITHOUT COMBAT", os.clock()
+                markAutoBossHazard("environmental damage")
                 advanceAutoBoss("Guardian: player taking damage with no boss being damaged", rootPart, true)
                 return
             end
@@ -4087,8 +4090,9 @@ end
 local OBL = {visible = false, fields = {}, rays = {}, particles = {}}
 OBL.bg = frame(panel, "OblivionBackground", 0, 0, W, H, Color3.fromRGB(2,3,5), 12)
 OBL.bg.BackgroundTransparency = 0
-OBL.bg.ZIndex = 1
+OBL.bg.ZIndex = 2
 OBL.bg.Active = false
+OBL.bg.ClipsDescendants = true
 OBL.bg.Visible = false
 
 OBL.grav = frame(OBL.bg, "GravityField", 0, 0, 640, 640, Color3.new(1,1,1), 0)
@@ -4127,7 +4131,7 @@ for i,d in ipairs(oblRayData) do
     ray.Position = UDim2.fromScale(0.5,0.5)
     ray.Rotation = d[1]
     ray.BackgroundTransparency = 0.72
-    ray.ZIndex = 3
+    ray.ZIndex = 2
     OBL.rays[#OBL.rays+1] = {object=ray, base=d[1], phase=i*1.13}
 end
 
@@ -4135,18 +4139,18 @@ OBL.halo = frame(OBL.grav, "CoreHalo", 0,0,100,100, Color3.fromRGB(95,145,190), 
 OBL.halo.AnchorPoint = Vector2.new(0.5,0.5)
 OBL.halo.Position = UDim2.fromScale(0.5,0.52)
 OBL.halo.BackgroundTransparency = 0.94
-OBL.halo.ZIndex = 4
+OBL.halo.ZIndex = 2
 OBL.core = frame(OBL.grav, "Core", 0,0,6,6, Color3.fromRGB(255,255,255), 3)
 OBL.core.AnchorPoint = Vector2.new(0.5,0.5)
 OBL.core.Position = UDim2.fromScale(0.5,0.52)
 OBL.core.BackgroundTransparency = 0
-OBL.core.ZIndex = 5
+OBL.core.ZIndex = 2
 stroke(OBL.core, Color3.fromRGB(180,220,255), 0.20, 1)
 
 for i=1,26 do
     local p = frame(OBL.grav, "Particle"..i, 0,0,2,2, Color3.fromRGB(225,240,255), 1)
     p.BackgroundTransparency = 0.45 + math.random()*0.35
-    p.ZIndex = 3
+    p.ZIndex = 2
     local o = {object=p, a=math.random()*math.pi*2, r=130+math.random()*270,
         speed=0.00015+math.random()*0.00028, phase=math.random()*10}
     OBL.particles[#OBL.particles+1] = o
@@ -4458,7 +4462,7 @@ connect(RunService.RenderStepped, function()
     local heroWidth = math.max(420, BH.hero.AbsoluteSize.X)
     local cx = heroWidth * 0.5
     local cy = 76
-    local stageScale = 1
+    local stageScale = math.clamp(heroWidth / BH.stageWidth, 1, 2.35)
     local stageWidth = BH.stageWidth * stageScale
     local stageLeft = cx - stageWidth * 0.5
     local stageCenter = stageWidth * 0.5
@@ -5304,6 +5308,7 @@ function Theme.apply(themeName)
         voidFX.Visible = false
         ticker.Visible = false
         OBL.bg.Visible = true
+        BH.hero.Visible = false
         OBL.mainPanel.Visible = true
         OBL.side.Visible = true
         OBL.footer.Visible = true

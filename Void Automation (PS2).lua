@@ -3550,6 +3550,59 @@ make("UIGradient", panel, {
     }),
 })
 
+-- Subtle animated VOID/star field.  It sits behind the real controls, so it
+-- never blocks clicks and remains visible through the transparent page gaps.
+local voidFX = make("Frame", panel, {
+    Name = "VoidFX", Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(W, H),
+    BackgroundTransparency = 1, BorderSizePixel = 0, Active = false, ZIndex = 2,
+})
+local voidRings = {}
+local voidStars = {}
+local voidCore = frame(voidFX, "Core", 166, 214, 88, 88, C.black, 44)
+voidCore.BackgroundTransparency = 0.22
+voidCore.ZIndex = 2
+stroke(voidCore, C.violet2, 0.72, 1)
+local coreGlow = frame(voidFX, "CoreGlow", 151, 199, 118, 118, C.violet, 59)
+coreGlow.BackgroundTransparency = 0.97
+coreGlow.ZIndex = 2
+stroke(coreGlow, C.violet2, 0.88, 1)
+for i, size in ipairs({180, 290}) do
+    local ring = frame(voidFX, "Ring" .. i, 210 - size / 2, 258 - size / 2, size, size, C.black, size / 2)
+    ring.BackgroundTransparency = 1
+    ring.ZIndex = 2
+    stroke(ring, i == 1 and C.violet2 or C.magenta, i == 1 and 0.82 or 0.91, 1)
+    voidRings[#voidRings + 1] = {object = ring, speed = i == 1 and 7 or -4, phase = i * 0.9}
+end
+for i = 1, 34 do
+    local size = math.random(1, 3)
+    local star = frame(voidFX, "Star" .. i, math.random(8, math.max(9, W - 12)), math.random(70, math.max(72, H - 12)), C.cyan, size)
+    star.BackgroundTransparency = math.random(45, 82) / 100
+    star.ZIndex = 2
+    voidStars[#voidStars + 1] = {
+        object = star, base = star.BackgroundTransparency, phase = math.random() * math.pi * 2,
+        speed = 0.8 + math.random() * 1.7,
+    }
+end
+local voidFXStart = os.clock()
+connect(RunService.RenderStepped, function()
+    if not State.alive or not voidFX.Parent then return end
+    local t = os.clock() - voidFXStart
+    for _, star in ipairs(voidStars) do
+        if star.object.Parent then
+            local pulse = (math.sin(t * star.speed + star.phase) + 1) * 0.5
+            star.object.BackgroundTransparency = math.clamp(star.base - pulse * 0.32, 0.18, 0.94)
+        end
+    end
+    for _, ring in ipairs(voidRings) do
+        if ring.object.Parent then ring.object.Rotation = (t * ring.speed + ring.phase * 57) % 360 end
+    end
+    if voidCore.Parent then
+        local pulse = 0.5 + math.sin(t * 1.2) * 0.5
+        voidCore.BackgroundTransparency = 0.16 + pulse * 0.13
+        coreGlow.BackgroundTransparency = 0.975 - pulse * 0.035
+    end
+end)
+
 local function safeText(parent, name, text, x, y, w, h, size, color, font)
     return label(parent, name, text, x, y, w, h, size, color, font)
 end
@@ -3638,7 +3691,7 @@ tickerText.ZIndex = 7
 local tickerStart = os.clock()
 connect(RunService.RenderStepped, function()
     if not State.alive or not tickerText.Parent then return end
-    local phase = ((os.clock() - tickerStart) * 34) % W
+    local phase = ((os.clock() - tickerStart) * 34) % math.max(windowWidth, W)
     tickerText.Position = UDim2.fromOffset(W - phase, 0)
 end)
 
@@ -3972,7 +4025,7 @@ local function updateTabVisuals()
 end
 
 -- Resize grip, matching the HTML bottom-right handle.
-local resizeGrip = button(panel, "ResizeGrip", "", W - 28, H - 28, 28, 28, C.panel, 1)
+resizeGrip = button(panel, "ResizeGrip", "", W - 28, H - 28, 28, 28, C.panel, 1)
 resizeGrip.BackgroundTransparency = 1
 resizeGrip.ZIndex = 30
 for i = 1, 3 do
@@ -3982,34 +4035,107 @@ for i = 1, 3 do
 end
 connect(resizeGrip.InputBegan, function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        State.gesture = {kind = "resize", input = input, start = input.Position, scale = State.uiScaleTarget}
+        State.gesture = {kind = "resize", input = input, start = input.Position, width = windowWidth}
     end
 end)
 
+local resizeGrip
 local windowPlaced = false
+local windowWidth = W
+local MIN_WINDOW_WIDTH = W
+
+local function setObjectWidth(obj, width)
+    if obj and obj.Parent then
+        obj.Size = UDim2.new(0, math.max(1, width), obj.Size.Y.Scale, obj.Size.Y.Offset)
+    end
+end
+
+local function applyWindowWidth(width)
+    windowWidth = math.max(MIN_WINDOW_WIDTH, math.floor(width + 0.5))
+    setObjectWidth(holder, windowWidth)
+    setObjectWidth(shadow, windowWidth + 12)
+    setObjectWidth(panel, windowWidth)
+    setObjectWidth(header, windowWidth)
+    headerLine.Size = UDim2.fromOffset(windowWidth, 1)
+    statusDot.Position = UDim2.fromOffset(windowWidth - 84, 27)
+    UI.badge.Position = UDim2.fromOffset(windowWidth - 72, 18)
+    setObjectWidth(ticker, windowWidth)
+    setObjectWidth(tickerClip, windowWidth)
+    setObjectWidth(tickerText, windowWidth * 2)
+    setObjectWidth(tabs, windowWidth)
+    setObjectWidth(content, windowWidth)
+    setObjectWidth(voidFX, windowWidth)
+
+    local availableNav = math.max(240, windowWidth - 24 - navGap * 5)
+    local dynamicNavW = math.floor(availableNav / 6)
+    for i, key in ipairs(navNames) do
+        local tab = navButtons[key]
+        if tab then
+            tab.Size = UDim2.fromOffset(dynamicNavW, 44)
+            tab.Position = UDim2.fromOffset(navX + (i - 1) * (dynamicNavW + navGap), 10)
+            local icon = tab:FindFirstChild("Icon")
+            if icon then icon.Position = UDim2.fromOffset(math.floor((dynamicNavW - 19) / 2), 5) end
+            local bar = UI.navBars[key]
+            if bar then
+                bar.Position = UDim2.fromOffset(8, 40)
+                bar.Size = UDim2.fromOffset(math.max(12, dynamicNavW - 16), 2)
+            end
+        end
+    end
+
+    for _, page in pairs(pageMap) do
+        setObjectWidth(page, windowWidth)
+        for _, child in ipairs(page:GetChildren()) do
+            if child.Name == "PaneHead" then
+                child.Size = UDim2.fromOffset(windowWidth - 32, child.Size.Y.Offset)
+            elseif child.Name:match("^Row_") or child.Name:match("^Slider_") or child.Name == "KeyLoadout" then
+                local rowWidth = windowWidth - 32
+                child.Size = UDim2.fromOffset(rowWidth, child.Size.Y.Offset)
+                local toggle = child:FindFirstChild("Toggle")
+                if toggle then toggle.Position = UDim2.fromOffset(rowWidth - 54, 14) end
+                local value = child:FindFirstChild("Value")
+                if value then value.Position = UDim2.fromOffset(rowWidth - 120, 8) end
+                local hit = child:FindFirstChild("Slider")
+                if hit then
+                    hit.Size = UDim2.fromOffset(rowWidth - 56, 24)
+                    local rail = hit:FindFirstChild("Rail")
+                    if rail then rail.Size = UDim2.fromOffset(rowWidth - 56, 4) end
+                end
+            end
+            if child:IsA("TextLabel") and (child.Name == "Hint") then
+                child.Size = UDim2.fromOffset(windowWidth - 32, child.Size.Y.Offset)
+            end
+        end
+    end
+    resizeGrip.Position = UDim2.fromOffset(windowWidth - 28, H - 28)
+    voidCore.Position = UDim2.fromOffset(math.floor(windowWidth * 0.5 - 44), math.floor(H * 0.49 - 44))
+    coreGlow.Position = UDim2.fromOffset(math.floor(windowWidth * 0.5 - 59), math.floor(H * 0.49 - 59))
+    local ringCenters = {{180, 0}, {290, 0}}
+    for i, data in ipairs(voidRings) do
+        local size = i == 1 and 180 or 290
+        data.object.Position = UDim2.fromOffset(math.floor(windowWidth * 0.5 - size / 2), math.floor(H * 0.49 - size / 2))
+    end
+end
+
 local function fitWindow(centerIfNeeded)
     if not State.alive then return end
     local viewport = canvas.AbsoluteSize
     if viewport.X <= 0 or viewport.Y <= 0 then return end
-    -- The HTML uses a 420x560 base panel.  Keep that 1:1 size, but allow the
-    -- bottom-right grip to enlarge it up to the available viewport.
-    -- Width is the user-controlled dimension; height is kept within the
-    -- viewport so a rightward resize does not force the whole panel off-screen.
-    local maxScale = math.min((viewport.X - 24) / W, 1.35)
-    maxScale = math.max(0.65, maxScale)
-    local target = State.uiScaleTarget or 1
-    target = math.clamp(target, 0.65, maxScale)
-    uiScale.Scale = target
-    local width, height = W * uiScale.Scale, H * uiScale.Scale
-    local x = (viewport.X - width) / 2
-    local y = math.max(8, viewport.Y * 0.08)
-    if not centerIfNeeded and windowPlaced then
+    local maxWidth = math.max(MIN_WINDOW_WIDTH, viewport.X - 16)
+    windowWidth = math.clamp(windowWidth, MIN_WINDOW_WIDTH, maxWidth)
+    applyWindowWidth(windowWidth)
+    local width, height = windowWidth, H
+    local x, y
+    if centerIfNeeded or not windowPlaced then
+        x = (viewport.X - width) / 2
+        y = math.max(8, viewport.Y * 0.08)
+    else
         x = holder.Position.X.Offset
         y = holder.Position.Y.Offset
+        -- Horizontal resizing grows/shrinks to the RIGHT.  Never alter Y.
+        x = math.clamp(x, 8, math.max(8, viewport.X - width - 8))
     end
-    local maxX = math.max(8, viewport.X - width - 8)
-    local maxY = math.max(8, viewport.Y - height - 8)
-    holder.Position = UDim2.fromOffset(math.clamp(x, 8, maxX), math.clamp(y, 8, maxY))
+    holder.Position = UDim2.fromOffset(math.floor(x), math.floor(y))
     windowPlaced = true
 end
 
@@ -4122,9 +4248,12 @@ connect(Input.InputChanged, function(input)
         gesture.view.updateFromX(input.Position.X)
     elseif gesture.kind == "resize" then
         local deltaX = input.Position.X - gesture.start.X
-        local deltaY = input.Position.Y - gesture.start.Y
-        local delta = math.max(deltaX, deltaY)
-        State.uiScaleTarget = math.clamp(gesture.scale + delta / W, 0.65, 1.35)
+        local viewport = canvas.AbsoluteSize
+        local maxWidth = math.max(MIN_WINDOW_WIDTH, viewport.X - holder.Position.X.Offset - 8)
+        -- Only horizontal movement controls the resize.  Dragging downward/upward
+        -- does nothing, so the panel never grows vertically by accident.
+        windowWidth = math.clamp(gesture.width + deltaX, MIN_WINDOW_WIDTH, maxWidth)
+        applyWindowWidth(windowWidth)
         fitWindow(false)
     elseif gesture.kind == "window" then
         local delta = input.Position - gesture.start
@@ -4143,6 +4272,23 @@ end)
 connect(canvas:GetPropertyChangedSignal("AbsoluteSize"), function() fitWindow(false) end)
 fitWindow(true)
 render()
+
+-- Global controls: F6 toggles skills, F7 fully unloads, Right Shift only
+-- hides/shows the panel while every automation task continues running.
+connect(Input.InputBegan, function(input, gameProcessed)
+    if gameProcessed or not State.alive then return end
+    if input.KeyCode == Settings.StopKey then
+        controller.Stop()
+        return
+    elseif input.KeyCode == Settings.VisibilityKey then
+        State.minimized = not State.minimized
+        if root then root.Enabled = not State.minimized end
+        return
+    elseif input.KeyCode == Settings.ToggleKey then
+        setEnabled(not State.enabled)
+        render()
+    end
+end)
 
 -- Menus/inventories no longer stop M1 or Auto Skills.
 connect(GuiService.MenuOpened, function() render() end)

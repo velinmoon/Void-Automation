@@ -3564,7 +3564,7 @@ make("UIGradient", panel, {
 panel.BackgroundTransparency = 0.40
 local panelBackdrop = make("Frame", panel, {
     Name = "VoidBackdrop", Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(W, H),
-    BackgroundColor3 = C.black, BackgroundTransparency = 0.48, BorderSizePixel = 0,
+    BackgroundColor3 = C.black, BackgroundTransparency = 0.56, BorderSizePixel = 0,
     Active = false, ZIndex = 1,
 })
 
@@ -3587,6 +3587,36 @@ local coreGlow2 = frame(voidFX, "CoreGlow2", 125, 173, 170, 170, C.magenta, 85)
 coreGlow2.BackgroundTransparency = 0.96
 coreGlow2.ZIndex = 2
 stroke(coreGlow2, C.magenta, 0.96, 1)
+
+-- Slow, translucent nebula ribbons.  These make the field feel like a living
+-- void instead of a collection of UI dots, while remaining subtle enough that
+-- the controls stay readable.
+local nebulaA = frame(voidFX, "NebulaA", -90, 155, 300, 90, C.violet, 45)
+nebulaA.BackgroundTransparency = 0.985
+nebulaA.Rotation = -18
+nebulaA.ZIndex = 2
+make("UIGradient", nebulaA, {
+    Rotation = 0,
+    Color = ColorSequence.new(C.violet, C.magenta),
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(0.48, 0.88),
+        NumberSequenceKeypoint.new(1, 1),
+    }),
+})
+local nebulaB = frame(voidFX, "NebulaB", 230, 300, 300, 75, C.cyan, 38)
+nebulaB.BackgroundTransparency = 0.988
+nebulaB.Rotation = 16
+nebulaB.ZIndex = 2
+make("UIGradient", nebulaB, {
+    Rotation = 180,
+    Color = ColorSequence.new(C.cyan, C.violet2),
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(0.5, 0.92),
+        NumberSequenceKeypoint.new(1, 1),
+    }),
+})
 
 -- Rotating void rings.
 for i, size in ipairs({180, 290, 390}) do
@@ -3622,30 +3652,55 @@ for i = 1, 34 do
     }
 end
 
--- Falling stars: each has a bright core + soft halo and drifts diagonally
--- downward.  When one leaves the bottom it wraps back to the top, creating a
--- continuous void-rain effect instead of a static star field.
-for i = 1, 64 do
-    local size = math.random(1, 2)
-    local x = math.random(8, math.max(9, W - 12))
-    local y = math.random(68, math.max(69, H - 10))
-    local glowSize = size == 1 and 9 or 12
+-- Fancy falling void stars ------------------------------------------------
+-- These are deliberately star-shaped rather than single-point particles.
+-- Each glyph has a soft halo, four-point rays, a tiny core and a short tail.
+-- The objects live in the same effect layer as the rest of the void field so
+-- the entire field can be reflowed when the window is widened.
+for i = 1, 42 do
+    local size = (i % 7 == 0) and 2.4 or (i % 3 == 0 and 1.8 or 1.35)
+    local x = math.random(10, math.max(11, W - 12))
+    local y = math.random(72, math.max(73, H - 12))
+    local color = (i % 6 == 0) and C.magenta or ((i % 4 == 0) and C.violet2 or C.cyan)
+    local groupSize = math.floor(18 * size)
+    local group = frame(voidFX, "Star" .. i, math.floor(x), math.floor(y), groupSize, groupSize, C.black, math.floor(groupSize / 2))
+    group.BackgroundTransparency = 1
+    group.ZIndex = 3
+
+    local glowSize = math.floor(20 * size)
     local glow = frame(voidFX, "StarGlow" .. i,
-        x - math.floor(glowSize / 2), y - math.floor(glowSize / 2),
-        glowSize, glowSize, (i % 5 == 0) and C.magenta or C.cyan, math.floor(glowSize / 2))
-    glow.BackgroundTransparency = math.random(72, 88) / 100
+        math.floor(x + groupSize / 2 - glowSize / 2),
+        math.floor(y + groupSize / 2 - glowSize / 2),
+        glowSize, glowSize, color, math.floor(glowSize / 2))
+    glow.BackgroundTransparency = 0.93
     glow.ZIndex = 2
-    local star = frame(voidFX, "Star" .. i, x, y, size, size,
-        (i % 5 == 0) and C.magenta or C.cyan, size / 2)
-    star.BackgroundTransparency = math.random(8, 42) / 100
-    star.ZIndex = 3
+
+    local coreSize = math.max(2, math.floor(3 * size))
+    local core = frame(group, "Core", math.floor(groupSize / 2 - coreSize / 2), math.floor(groupSize / 2 - coreSize / 2), coreSize, coreSize, C.ink, math.floor(coreSize / 2))
+    local rayLen = math.max(5, math.floor(7 * size))
+    local rayW = math.max(1, math.floor(size))
+    local rayV = frame(group, "RayV", math.floor(groupSize / 2 - rayW / 2), math.floor(groupSize / 2 - rayLen / 2), rayW, rayLen, color, 1)
+    local rayH = frame(group, "RayH", math.floor(groupSize / 2 - rayLen / 2), math.floor(groupSize / 2 - rayW / 2), rayLen, rayW, color, 1)
+    local rayD1 = frame(group, "RayD1", math.floor(groupSize / 2 - rayW / 2), math.floor(groupSize / 2 - rayLen / 2), rayW, rayLen, color, 1)
+    rayD1.Rotation = 45
+    local rayD2 = frame(group, "RayD2", math.floor(groupSize / 2 - rayW / 2), math.floor(groupSize / 2 - rayLen / 2), rayW, rayLen, color, 1)
+    rayD2.Rotation = -45
+    local tailLen = math.floor(10 + size * 8)
+    local tail = frame(group, "Tail", math.floor(groupSize / 2 - 0.5), math.floor(groupSize / 2 + 2), 1, tailLen, color, 1)
+    tail.BackgroundTransparency = 0.45
+    tail.Rotation = -18
+
     voidStars[#voidStars + 1] = {
-        object = star, glow = glow,
+        object = group, glow = glow,
+        core = core, rays = {rayV, rayH, rayD1, rayD2}, tail = tail,
         x = x, y = y,
-        speed = 22 + math.random() * 52,
-        drift = -5 + math.random() * 10,
+        speed = 24 + math.random() * 64,
+        drift = -10 + math.random() * 20,
         phase = math.random() * math.pi * 2,
-        twinkle = 1.2 + math.random() * 3.2,
+        twinkle = 1.5 + math.random() * 3.8,
+        spin = -18 + math.random() * 36,
+        size = size,
+        widthAtSpawn = W,
     }
 end
 
@@ -3693,23 +3748,39 @@ connect(RunService.RenderStepped, function()
     voidLast = now
     local t = now - voidFXClock
 
-    -- Falling stars + glow pulse.
+    -- Fancy falling stars: four-point glyphs, rotating rays, bright cores and tails.
     for _, star in ipairs(voidStars) do
         if star.object.Parent then
             star.y = star.y + star.speed * dt
-            star.x = star.x + star.drift * dt + math.sin(t * 0.7 + star.phase) * 0.10
-            if star.y > H + 12 then
-                star.y = math.random(62, 78)
-                star.x = math.random(8, math.max(9, W - 12))
+            star.x = star.x + star.drift * dt + math.sin(t * 0.72 + star.phase) * 0.16
+            local fxWidth = math.max(W, windowWidth or W)
+            if star.y > H + 22 then
+                star.y = math.random(68, 82)
+                star.x = math.random(8, math.max(9, math.floor(fxWidth - 18)))
             end
-            if star.x < 4 then star.x = W - 5 elseif star.x > W - 4 then star.x = 5 end
+            if star.x < -18 then star.x = fxWidth + 10 elseif star.x > fxWidth + 18 then star.x = -10 end
             local pulse = (math.sin(t * star.twinkle + star.phase) + 1) * 0.5
-            local alpha = math.clamp(0.38 - pulse * 0.30, 0.04, 0.72)
+            local alpha = math.clamp(0.18 - pulse * 0.16, 0.015, 0.28)
             star.object.Position = UDim2.fromOffset(math.floor(star.x), math.floor(star.y))
-            star.object.BackgroundTransparency = alpha
+            star.object.Rotation = math.sin(t * 0.45 + star.phase) * 8 + t * star.spin * 0.015
+            star.object.BackgroundTransparency = 1
+            if star.core then
+                star.core.BackgroundTransparency = math.clamp(0.04 + (1 - pulse) * 0.25, 0.02, 0.45)
+            end
+            if star.rays then
+                for n, ray in ipairs(star.rays) do
+                    ray.BackgroundTransparency = math.clamp(alpha + (n == 3 and 0.10 or 0), 0.01, 0.55)
+                end
+            end
+            if star.tail then
+                star.tail.BackgroundTransparency = math.clamp(0.30 + (1 - pulse) * 0.40, 0.22, 0.78)
+                star.tail.Size = UDim2.fromOffset(1, math.floor(8 + pulse * 14 * star.size))
+            end
             if star.glow.Parent then
-                star.glow.Position = UDim2.fromOffset(math.floor(star.x - star.glow.AbsoluteSize.X / 2), math.floor(star.y - star.glow.AbsoluteSize.Y / 2))
-                star.glow.BackgroundTransparency = math.clamp(0.88 - pulse * 0.34, 0.40, 0.90)
+                local glowSize = star.glow.AbsoluteSize.X
+                star.glow.Position = UDim2.fromOffset(math.floor(star.x + star.object.AbsoluteSize.X / 2 - glowSize / 2), math.floor(star.y + star.object.AbsoluteSize.Y / 2 - glowSize / 2))
+                star.glow.BackgroundTransparency = math.clamp(0.93 - pulse * 0.48, 0.32, 0.94)
+                star.glow.Size = UDim2.fromOffset(math.floor(16 * star.size + pulse * 6), math.floor(16 * star.size + pulse * 6))
             end
         end
     end
@@ -3719,8 +3790,9 @@ connect(RunService.RenderStepped, function()
         if dust.object.Parent then
             dust.y = dust.y + dust.speed * dt
             dust.x = dust.x + math.sin(t * 0.35 + dust.phase) * dt * 2
+            local fxWidth = math.max(W, windowWidth or W)
             if dust.y > H + 5 then dust.y = 68 end
-            if dust.x < 3 then dust.x = W - 3 elseif dust.x > W - 3 then dust.x = 3 end
+            if dust.x < 3 then dust.x = fxWidth - 3 elseif dust.x > fxWidth - 3 then dust.x = 3 end
             local pulse = (math.sin(t * 0.9 + dust.phase) + 1) * 0.5
             dust.object.Position = UDim2.fromOffset(math.floor(dust.x), math.floor(dust.y))
             dust.object.BackgroundTransparency = 0.90 + pulse * 0.08
@@ -3734,9 +3806,10 @@ connect(RunService.RenderStepped, function()
             local active = cycle < 1.05
             if active then
                 shot.y = shot.y + shot.speed * dt
+                local fxWidth = math.max(W, windowWidth or W)
                 if shot.y > H + 60 then
                     shot.y = math.random(72, 150)
-                    shot.x = math.random(20, W - 20)
+                    shot.x = math.random(20, math.max(21, math.floor(fxWidth - 20)))
                 end
                 local fade = cycle < 0.16 and cycle / 0.16 or (cycle > 0.78 and (1.05 - cycle) / 0.27 or 1)
                 shot.object.Position = UDim2.fromOffset(math.floor(shot.x), math.floor(shot.y))
@@ -3754,7 +3827,8 @@ connect(RunService.RenderStepped, function()
     for _, wisp in ipairs(voidWisps or {}) do
         if wisp.object.Parent then
             wisp.x = wisp.x + wisp.speed * dt
-            if wisp.x > W + wisp.length then
+            local fxWidth = math.max(W, windowWidth or W)
+            if wisp.x > fxWidth + wisp.length then
                 wisp.x = -wisp.length
                 wisp.y = math.random(72, math.max(74, H - 30))
             end
@@ -3763,6 +3837,14 @@ connect(RunService.RenderStepped, function()
             wisp.object.BackgroundTransparency = 0.78 - wp * 0.22
         end
     end
+
+    -- Living nebula ribbons: very slow orbital drift and breathing intensity.
+    nebulaA.Rotation = -18 + math.sin(t * 0.18) * 7
+    nebulaA.Position = UDim2.fromOffset(math.floor((windowWidth * 0.16) + math.sin(t * 0.22) * 24 - 90), math.floor(155 + math.cos(t * 0.31) * 18))
+    nebulaB.Rotation = 16 + math.cos(t * 0.16) * 6
+    nebulaB.Position = UDim2.fromOffset(math.floor((windowWidth * 0.56) + math.cos(t * 0.19) * 28), math.floor(300 + math.sin(t * 0.27) * 20))
+    nebulaA.BackgroundTransparency = 0.982 + math.sin(t * 0.65) * 0.008
+    nebulaB.BackgroundTransparency = 0.985 + math.cos(t * 0.52) * 0.008
 
     -- Breathing singularity and slow ring rotation.
     local pulse = 0.5 + math.sin(t * 1.2) * 0.5
@@ -3778,6 +3860,46 @@ connect(RunService.RenderStepped, function()
         end
     end
 end)
+
+-- Reflow the entire visual field whenever the panel width changes.  The HTML
+-- panel is horizontally resizable, so the void should never remain trapped in
+-- the original 420px strip while the controls stretch to the right.
+local lastVoidFXWidth = W
+local function resizeVoidEffects(newWidth)
+    newWidth = math.max(W, math.floor(newWidth + 0.5))
+    local oldWidth = math.max(W, lastVoidFXWidth or W)
+    local ratio = newWidth / oldWidth
+    if math.abs(ratio - 1) > 0.001 then
+        for _, star in ipairs(voidStars) do
+            star.x = star.x * ratio
+            star.object.Position = UDim2.fromOffset(math.floor(star.x), math.floor(star.y))
+        end
+        for _, dust in ipairs(voidDust) do
+            dust.x = dust.x * ratio
+            dust.object.Position = UDim2.fromOffset(math.floor(dust.x), math.floor(dust.y))
+        end
+        for _, shot in ipairs(voidShots) do
+            shot.x = shot.x * ratio
+            shot.object.Position = UDim2.fromOffset(math.floor(shot.x), math.floor(shot.y))
+            shot.glow.Position = UDim2.fromOffset(math.floor(shot.x - 1), math.floor(shot.y - 4))
+        end
+        for _, wisp in ipairs(voidWisps or {}) do
+            wisp.x = wisp.x * ratio
+            wisp.object.Position = UDim2.fromOffset(math.floor(wisp.x), math.floor(wisp.y))
+        end
+    end
+    voidFX.Size = UDim2.fromOffset(newWidth, H)
+    panelBackdrop.Size = UDim2.fromOffset(newWidth, H)
+    lastVoidFXWidth = newWidth
+
+    -- Recenter the singularity and orbitals around the new panel center.
+    voidCore.Position = UDim2.fromOffset(math.floor(newWidth * 0.5 - 44), math.floor(H * 0.49 - 44))
+    coreGlow.Position = UDim2.fromOffset(math.floor(newWidth * 0.5 - 65), math.floor(H * 0.49 - 65))
+    coreGlow2.Position = UDim2.fromOffset(math.floor(newWidth * 0.5 - 85), math.floor(H * 0.49 - 85))
+    for _, data in ipairs(voidRings) do
+        data.object.Position = UDim2.fromOffset(math.floor(newWidth * 0.5 - data.size / 2), math.floor(H * 0.49 - data.size / 2))
+    end
+end
 
 local function safeText(parent, name, text, x, y, w, h, size, color, font)
     return label(parent, name, text, x, y, w, h, size, color, font)
@@ -3881,7 +4003,7 @@ connect(RunService.RenderStepped, function()
     if not State.alive or not tickerText.Parent then return end
     local now = os.clock()
     local phase = ((now - tickerStart) * 34) % math.max(windowWidth, W)
-    tickerText.Position = UDim2.fromOffset(W - phase, 0)
+    tickerText.Position = UDim2.fromOffset(windowWidth - phase, 0)
 
     -- Subtle UI life: rotating mark, breathing status, moving header sheen and border pulse.
     local t = now - uiAnimStart
@@ -4282,6 +4404,7 @@ local function applyWindowWidth(width)
     setObjectWidth(content, windowWidth)
     setObjectWidth(panelBackdrop, windowWidth)
     setObjectWidth(voidFX, windowWidth)
+    resizeVoidEffects(windowWidth)
 
     local availableNav = math.max(240, windowWidth - 24 - navGap * 5)
     local dynamicNavW = math.floor(availableNav / 6)
@@ -4325,13 +4448,6 @@ local function applyWindowWidth(width)
         end
     end
     resizeGrip.Position = UDim2.fromOffset(windowWidth - 28, H - 28)
-    voidCore.Position = UDim2.fromOffset(math.floor(windowWidth * 0.5 - 44), math.floor(H * 0.49 - 44))
-    coreGlow.Position = UDim2.fromOffset(math.floor(windowWidth * 0.5 - 59), math.floor(H * 0.49 - 59))
-    local ringCenters = {{180, 0}, {290, 0}}
-    for i, data in ipairs(voidRings) do
-        local size = i == 1 and 180 or 290
-        data.object.Position = UDim2.fromOffset(math.floor(windowWidth * 0.5 - size / 2), math.floor(H * 0.49 - size / 2))
-    end
 end
 
 local function fitWindow(centerIfNeeded)

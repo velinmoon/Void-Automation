@@ -1438,6 +1438,7 @@ do
     end
 
     local loot, watched, deathConnection, lastTargetPosition
+    local chestLike
     local LOOT_OLD_HORIZONTAL_RADIUS = 60
     local LOOT_NEW_HORIZONTAL_RADIUS = 250
     local LOOT_VERTICAL_RADIUS = 400
@@ -1492,8 +1493,10 @@ do
             count = 0,
             opened = setmetatable({}, {__mode = "k"}),
             fresh = setmetatable({}, {__mode = "k"}),
+            groundDrops = setmetatable({}, {__mode = "k"}),
             dropCenter = nil,
             chestCenter = nil,
+            chestOpenedAt = nil,
             message = "Waiting for World Event Chest / boss drops.",
         }
 
@@ -1501,11 +1504,46 @@ do
         -- horizontal search radius, while old map crates keep the original 60-stud limit.
         loot.spawnConnection = World.DescendantAdded:Connect(function(object)
             if not loot then return end
+
             local node = object
             for _ = 1, 8 do
                 if not node or node == World then break end
                 loot.fresh[node] = true
                 node = node.Parent
+            end
+
+            -- Dedicated World Event Chest ground-drop index.
+            -- Reward meshes are sometimes generic/anchored and have no "loot"
+            -- name, so don't depend on lootIdentity() for newly spawned rewards.
+            if loot.chestOpenedAt and loot.dropCenter then
+                local function rememberPart(part)
+                    if not loot or not part or not part:IsA("BasePart") then return end
+                    if not part.Parent or chestLike(part) then return end
+
+                    local delta = part.Position - loot.dropCenter
+                    local horizontal = Vector3.new(delta.X, 0, delta.Z).Magnitude
+                    local vertical = math.abs(delta.Y)
+
+                    if horizontal <= LOOT_NEW_HORIZONTAL_RADIUS
+                        and vertical <= LOOT_VERTICAL_RADIUS
+                        and part.Size.Magnitude <= 120
+                        and part.Transparency < 1 then
+                        loot.groundDrops[part] = os.clock()
+                    end
+                end
+
+                if object:IsA("BasePart") then
+                    rememberPart(object)
+                elseif object:IsA("Model") or object:IsA("Tool") then
+                    task.defer(function()
+                        if not loot or not object or not object.Parent then return end
+                        for _, descendant in ipairs(object:GetDescendants()) do
+                            if descendant:IsA("BasePart") then
+                                rememberPart(descendant)
+                            end
+                        end
+                    end)
+                end
             end
         end)
 
@@ -1557,7 +1595,7 @@ do
             or action:find("loot", 1, true) or action:find("claim", 1, true)
         return action == "" or action:find("open", 1, true) or pickup, pickup
     end
-    local function chestLike(object)
+    chestLike = function(object)
         local node = object
         for _ = 1, 8 do
             if not node or node == World then break end
@@ -1705,7 +1743,7 @@ do
             -- After we just opened a chest, temporarily stop selecting the same
             -- chest so its spawned rewards get a chance to be collected.
             local openedAt = loot.opened[entity]
-            if chest and openedAt and os.clock() - openedAt < WORLD_EVENT_CHEST_RETRY_GRACE then
+            if chest and openedAt then
                 return
             end
 
@@ -1768,6 +1806,43 @@ do
             addInteraction(object)
         end
 
+        -- Guaranteed ground-reward path. World Event Chest drops can have generic
+        -- names and can be Anchored, so anything physically spawned after the chest
+        -- opened is considered a reward candidate if it remains close to the chest.
+        if loot.chestOpenedAt and loot.dropCenter then
+            for part, spawnedAt in pairs(loot.groundDrops) do
+                if part and part.Parent and part:IsA("BasePart") and not chestLike(part) then
+                    local entity = select(1, lootIdentity(part)) or part
+
+                    if not seen[entity] and available(entity) then
+                        local delta = part.Position - loot.dropCenter
+                        local horizontal = Vector3.new(delta.X, 0, delta.Z).Magnitude
+                        local vertical = math.abs(delta.Y)
+
+                        if horizontal <= LOOT_NEW_HORIZONTAL_RADIUS
+                            and vertical <= LOOT_VERTICAL_RADIUS
+                            and part.Size.Magnitude <= 120
+                            and part.Transparency < 1 then
+
+                            seen[entity] = true
+                            candidates[#candidates + 1] = {
+                                object = entity,
+                                part = part,
+                                entity = entity,
+                                touch = true,
+                                fresh = true,
+                                chestDrop = true,
+                                spawnedAt = spawnedAt,
+                                horizontal = horizontal,
+                            }
+                        end
+                    end
+                else
+                    loot.groundDrops[part] = nil
+                end
+            end
+        end
+
         local character = Player.Character
         lootOverlap.FilterDescendantsInstances = character and {character} or {}
 
@@ -1804,10 +1879,11 @@ do
                 local chest = chestLike(part)
                 local spawnedNow = freshObject(part) or (entity and freshObject(entity))
 
+                local indexedChestDrop = loot.groundDrops and loot.groundDrops[part] ~= nil
                 local freshPhysicalDrop = spawnedNow
-                    and not part.Anchored
                     and part.Transparency < 1
-                    and part.Size.Magnitude < 80
+                    and part.Size.Magnitude < 120
+                    and (indexedChestDrop or not part.Anchored)
 
                 if entity and (marked or freshPhysicalDrop)
                     and not chest
@@ -1837,8 +1913,9 @@ do
                 if item.interaction and item.chest then return 1 end
                 if item.interaction and item.pickupInteraction then return 2 end
                 if item.interaction then return 3 end
-                if item.touch and item.fresh then return 4 end
-                return 5
+                if item.chestDrop then return 4 end
+                if item.touch and item.fresh then return 5 end
+                return 6
             end
 
             local pa, pb = priority(a), priority(b)
@@ -1854,7 +1931,7 @@ do
         if type(candidates) ~= "table" or #candidates == 0 then return false end
 
         local collected = 0
-        local MAX_PICKUPS_PER_SCAN = 4
+        local MAX_PICKUPS_PER_SCAN = 3
 
         -- Keep pickup fast, but cap work per scan so the client does not hitch.
         for _, item in ipairs(candidates) do
@@ -1880,23 +1957,30 @@ do
 
                 if type(firetouchinterest) == "function" then
                     pcall(function()
-                        -- One touch cycle is normally enough; the old double cycle
-                        -- multiplied physics/input work for every drop.
                         firetouchinterest(rootPart, item.part, 0)
                         firetouchinterest(rootPart, item.part, 1)
                     end)
+
+                    -- Some drops only register from an actual overlapping frame.
+                    -- Keep this tiny so it does not recreate the old loot lag.
+                    task.wait(0.012)
                 else
                     rootPart.AssemblyLinearVelocity = Vector3.new(0, -28, 0)
+                    task.wait(0.018)
                 end
 
                 collected = collected + 1
                 loot.count = loot.count + 1
+
+                if item.chestDrop then
+                    loot.groundDrops[item.part] = nil
+                end
             end
         end
 
         if collected > 0 then
-            loot.message = "Looting chest drops: " .. collected .. " item(s)"
-            loot.destination = loot.center + Vector3.new(0, 2, 0)
+            loot.message = "Picking up ground rewards: " .. collected .. " item(s)"
+            loot.destination = (loot.dropCenter or loot.center) + Vector3.new(0, 2, 0)
             return true
         end
 
@@ -2001,7 +2085,8 @@ do
 
         if loot.touchUntil then
             if os.clock() < loot.touchUntil then return true end
-            loot.touchUntil = nil; loot.destination = loot.center + Vector3.new(0,2,0)
+            loot.touchUntil = nil
+            loot.destination = (loot.dropCenter or loot.center) + Vector3.new(0, 2, 0)
         end
         if loot.destination then
             character:PivotTo(character:GetPivot() + (loot.destination - rootPart.Position))
@@ -2075,10 +2160,14 @@ do
                 local key = item.object.KeyboardKeyCode
 
                 if item.chest then
-                    loot.opened[item.entity] = os.clock()
+                    local openedNow = os.clock()
+                    loot.opened[item.entity] = openedNow
+                    if item.worldEventChest then
+                        loot.chestOpenedAt = openedNow
+                    end
                     loot.deadline = math.max(
                         loot.deadline,
-                        os.clock() + (item.worldEventChest and 12 or 7)
+                        os.clock() + (item.worldEventChest and 18 or 7)
                     )
 
                     -- Once opened, all drop detection follows the chest instead
@@ -2140,11 +2229,15 @@ do
                 fireclickdetector(item.object)
 
                 if item.chest then
-                    loot.opened[item.entity] = os.clock()
+                    local openedNow = os.clock()
+                    loot.opened[item.entity] = openedNow
+                    if item.worldEventChest then
+                        loot.chestOpenedAt = openedNow
+                    end
                     loot.dropCenter = item.part.Position
                     loot.deadline = math.max(
                         loot.deadline,
-                        os.clock() + (item.worldEventChest and 12 or 7)
+                        os.clock() + (item.worldEventChest and 18 or 7)
                     )
                     loot.nextScan = os.clock() + 0.15
                 end

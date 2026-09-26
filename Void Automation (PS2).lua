@@ -6090,7 +6090,7 @@ Title.Font = Enum.Font.GothamBold
 Title.TextSize = 11
 Title.TextColor3 = Color3.fromRGB(235, 249, 255)
 Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Text = "SLAYERS 2 • AUTO JOIN V8"
+Title.Text = "SLAYERS 2 • AUTO JOIN V9"
 Title.Parent = Card
 
 local Status = Instance.new("TextLabel")
@@ -6276,8 +6276,11 @@ local function findMap()
     return findText({"Ouwland", "Ouwigahara"})
 end
 
+-- Forward declaration is required because findFriendNameBox uses this helper.
+local findFriendJoinLabel
+
 local function findFriendNameBox()
-    local friendLabel = findFriendJoinLabel()
+    local friendLabel = findFriendJoinLabel and findFriendJoinLabel() or nil
     local boxes = {}
 
     for _, object in ipairs(PlayerGui:GetDescendants()) do
@@ -6332,7 +6335,7 @@ local function findOwnerBox()
     return findFriendNameBox()
 end
 
-local function findFriendJoinLabel()
+findFriendJoinLabel = function()
     return findText({"Friend Join"})
 end
 
@@ -6709,117 +6712,125 @@ if not (vimOK and VIM)
     return
 end
 
-setStatus("LOBBY DETECTED • 1920x1080 • owner: " .. Owner)
+setStatus("LOBBY DETECTED • watcher started • owner: " .. Owner)
 
 -- ------------------------------------------------------------
 -- Time-assisted stage machine.
 -- It uses GUI detection when available, but does NOT depend on internal UI names.
 -- ------------------------------------------------------------
 task.spawn(function()
-    local stage = "play"
-    local stageAt = os.clock()
-    local lastAction = 0
-    local ownerAttempts = 0
+    local ok, err = pcall(function()
+            local stage = "play"
+            local stageAt = os.clock()
+            local lastAction = 0
+            local ownerAttempts = 0
 
-    while Screen.Parent and tonumber(game.PlaceId) == LOBBY_PLACE_ID
-        and tostring(game.PrivateServerId or "") == "" do
+            while Screen.Parent and tonumber(game.PlaceId) == LOBBY_PLACE_ID
+                and tostring(game.PrivateServerId or "") == "" do
 
-        local play = findPlay()
-        local map = findMap()
-        local friendLabel = findFriendJoinLabel()
-        local friendBox = findFriendNameBox()
-        local privateJoin = findJoin()
+                local play = findPlay()
+                local map = findMap()
+                local friendLabel = findFriendJoinLabel()
+                local friendBox = findFriendNameBox()
+                local privateJoin = findJoin()
 
-        if privateJoin then
-            stage = "join"
-        elseif map and (friendLabel or friendBox) then
-            if stage == "play" or stage == "map" then
-                stage = "owner"
-                stageAt = os.clock()
-                lastAction = 0
-                ownerAttempts = 0
-            end
-        elseif play and stage ~= "play" then
-            stage = "play"
-            stageAt = os.clock()
-            lastAction = 0
-        end
+                if privateJoin then
+                    stage = "join"
+                elseif map and (friendLabel or friendBox) then
+                    if stage == "play" or stage == "map" then
+                        stage = "owner"
+                        stageAt = os.clock()
+                        lastAction = 0
+                        ownerAttempts = 0
+                    end
+                elseif play and stage ~= "play" then
+                    stage = "play"
+                    stageAt = os.clock()
+                    lastAction = 0
+                end
 
-        if stage == "play" then
-            if os.clock() - lastAction >= 0.90 then
-                lastAction = os.clock()
-                doPlay()
-            end
+                if stage == "play" then
+                    if os.clock() - lastAction >= 0.90 then
+                        lastAction = os.clock()
+                        doPlay()
+                    end
 
-            if findMap() and (findFriendJoinLabel() or findFriendNameBox()) then
-                stage = "owner"
-                stageAt = os.clock()
-                lastAction = 0
-                ownerAttempts = 0
-            end
+                    if findMap() and (findFriendJoinLabel() or findFriendNameBox()) then
+                        stage = "owner"
+                        stageAt = os.clock()
+                        lastAction = 0
+                        ownerAttempts = 0
+                    end
 
-        elseif stage == "map" then
-            doMap()
+                elseif stage == "map" then
+                    doMap()
 
-            if findFriendJoinLabel() or findFriendNameBox() then
-                stage = "owner"
-                stageAt = os.clock()
-                lastAction = 0
-                ownerAttempts = 0
-            end
+                    if findFriendJoinLabel() or findFriendNameBox() then
+                        stage = "owner"
+                        stageAt = os.clock()
+                        lastAction = 0
+                        ownerAttempts = 0
+                    end
 
-        elseif stage == "owner" then
-            privateJoin = findJoin()
-
-            if privateJoin then
-                stage = "join"
-                stageAt = os.clock()
-                lastAction = 0
-            elseif os.clock() - lastAction >= 1.20 then
-                lastAction = os.clock()
-                ownerAttempts = ownerAttempts + 1
-
-                setStatus("OWNER • input attempt " .. tostring(ownerAttempts))
-                local filled = doOwner()
-
-                if filled then
-                    -- Wait for the game's button to change from generic Join
-                    -- into JOIN PRIVATE. Never click the generic Join.
-                    local waitUntil = os.clock() + 3.0
-
-                    repeat
-                        privateJoin = findJoin()
-                        if privateJoin then break end
-                        task.wait(0.10)
-                    until os.clock() >= waitUntil
+                elseif stage == "owner" then
+                    privateJoin = findJoin()
 
                     if privateJoin then
                         stage = "join"
                         stageAt = os.clock()
                         lastAction = 0
+                    elseif os.clock() - lastAction >= 1.20 then
+                        lastAction = os.clock()
+                        ownerAttempts = ownerAttempts + 1
+
+                        setStatus("OWNER • input attempt " .. tostring(ownerAttempts))
+                        local filled = doOwner()
+
+                        if filled then
+                            -- Wait for the game's button to change from generic Join
+                            -- into JOIN PRIVATE. Never click the generic Join.
+                            local waitUntil = os.clock() + 3.0
+
+                            repeat
+                                privateJoin = findJoin()
+                                if privateJoin then break end
+                                task.wait(0.10)
+                            until os.clock() >= waitUntil
+
+                            if privateJoin then
+                                stage = "join"
+                                stageAt = os.clock()
+                                lastAction = 0
+                            else
+                                setStatus("OWNER CONFIRMED • waiting for JOIN PRIVATE")
+                            end
+                        end
+                    end
+
+                elseif stage == "join" then
+                    privateJoin = findJoin()
+
+                    if privateJoin then
+                        if os.clock() - lastAction >= 1.50 then
+                            lastAction = os.clock()
+                            doJoin()
+                        end
                     else
-                        setStatus("OWNER CONFIRMED • waiting for JOIN PRIVATE")
+                        -- Never fall back to generic blue Join/public join.
+                        stage = "owner"
+                        stageAt = os.clock()
+                        lastAction = 0
                     end
                 end
+
+                task.wait(0.10)
             end
+    end)
 
-        elseif stage == "join" then
-            privateJoin = findJoin()
-
-            if privateJoin then
-                if os.clock() - lastAction >= 1.50 then
-                    lastAction = os.clock()
-                    doJoin()
-                end
-            else
-                -- Never fall back to generic blue Join/public join.
-                stage = "owner"
-                stageAt = os.clock()
-                lastAction = 0
-            end
-        end
-
-        task.wait(0.10)
+    if not ok then
+        Dot.BackgroundColor3 = Color3.fromRGB(255, 100, 125)
+        setStatus("AUTO JOIN ERROR • " .. tostring(err))
+        warn("AutoSkills Lobby V9: " .. tostring(err))
     end
 end)
 

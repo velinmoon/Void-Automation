@@ -4024,10 +4024,19 @@ local function updateTabVisuals()
     end
 end
 
+-- Resize state must be declared BEFORE the grip callback is created.
+-- Lua lexical scoping otherwise makes the callback see a different/global variable,
+-- which was the reason the previous resize grip silently failed.
+local resizeGrip
+local windowPlaced = false
+local windowWidth = W
+local MIN_WINDOW_WIDTH = W
+
 -- Resize grip, matching the HTML bottom-right handle.
 resizeGrip = button(panel, "ResizeGrip", "", W - 28, H - 28, 28, 28, C.panel, 1)
 resizeGrip.BackgroundTransparency = 1
 resizeGrip.ZIndex = 30
+resizeGrip.Active = true
 for i = 1, 3 do
     local line = frame(resizeGrip, "Line" .. i, 26 - i * 6, 26 - i * 6, i * 6, 1, C.violet2, 1)
     line.Rotation = -45
@@ -4038,11 +4047,6 @@ connect(resizeGrip.InputBegan, function(input)
         State.gesture = {kind = "resize", input = input, start = input.Position, width = windowWidth}
     end
 end)
-
-local resizeGrip
-local windowPlaced = false
-local windowWidth = W
-local MIN_WINDOW_WIDTH = W
 
 local function setObjectWidth(obj, width)
     if obj and obj.Parent then
@@ -4276,15 +4280,23 @@ render()
 -- Global controls: F6 toggles skills, F7 fully unloads, Right Shift only
 -- hides/shows the panel while every automation task continues running.
 connect(Input.InputBegan, function(input, gameProcessed)
-    if gameProcessed or not State.alive then return end
+    if not State.alive then return end
+
+    -- F7 and Right Shift are UI/global controls, so they intentionally work
+    -- even when Roblox marks the input as game-processed.
     if input.KeyCode == Settings.StopKey then
         controller.Stop()
         return
     elseif input.KeyCode == Settings.VisibilityKey then
         State.minimized = not State.minimized
-        if root then root.Enabled = not State.minimized end
+        if root then
+            root.Enabled = not State.minimized
+        end
         return
-    elseif input.KeyCode == Settings.ToggleKey then
+    end
+
+    if gameProcessed then return end
+    if input.KeyCode == Settings.ToggleKey then
         setEnabled(not State.enabled)
         render()
     end

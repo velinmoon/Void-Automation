@@ -6090,7 +6090,7 @@ Title.Font = Enum.Font.GothamBold
 Title.TextSize = 11
 Title.TextColor3 = Color3.fromRGB(235, 249, 255)
 Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Text = "SLAYERS 2 • AUTO JOIN V12"
+Title.Text = "SLAYERS 2 • AUTO JOIN V13"
 Title.Parent = Card
 
 local Status = Instance.new("TextLabel")
@@ -6699,6 +6699,43 @@ local function doPlay()
     end
 end
 
+local function singleMapClick(point)
+    -- Exactly ONE input backend. Never send the same map click through
+    -- both VirtualInputManager and executor mouse APIs.
+    if type(mouseMoveAbs) == "function"
+        and type(mouse1Press) == "function"
+        and type(mouse1Release) == "function" then
+
+        return pcall(function()
+            mouseMoveAbs(point.X, point.Y)
+            task.wait(0.04)
+            mouse1Press()
+            task.wait(0.11)
+            mouse1Release()
+        end)
+    end
+
+    if vimOK and VIM then
+        return pcall(function()
+            VIM:SendMouseMoveEvent(point.X, point.Y, game)
+            task.wait(0.04)
+            VIM:SendMouseButtonEvent(point.X, point.Y, 0, true, game, 0)
+            task.wait(0.11)
+            VIM:SendMouseButtonEvent(point.X, point.Y, 0, false, game, 0)
+        end)
+    end
+
+    if type(mouseMoveAbs) == "function" and type(mouse1Click) == "function" then
+        return pcall(function()
+            mouseMoveAbs(point.X, point.Y)
+            task.wait(0.04)
+            mouse1Click()
+        end)
+    end
+
+    return false
+end
+
 local function doMap()
     local map = findMap()
 
@@ -6707,13 +6744,11 @@ local function doMap()
         return false
     end
 
-    setStatus("OUWLAND • selecting map")
+    -- Determine ONE safe click point.
+    local point
 
-    -- First click the actual Ouwland text / parent controls.
-    clickObject(map, 0.10)
-
-    -- Then click a parent whose proportions match the tall map card.
-    local node = map.Parent
+    -- Prefer a tall/narrow ancestor matching the visible Ouwland card.
+    local node = map
     for _ = 1, 10 do
         if not node or node == PlayerGui then break end
 
@@ -6722,7 +6757,7 @@ local function doMap()
 
             if size.X >= 180 and size.X <= 560
                 and size.Y >= 280 and size.Y <= 850 then
-                clickPoint(node.AbsolutePosition + size / 2, 0.12)
+                point = node.AbsolutePosition + size / 2
                 break
             end
         end
@@ -6730,16 +6765,15 @@ local function doMap()
         node = node.Parent
     end
 
-    -- 1920x1080 screenshot fallback: center of Ouwland artwork/card.
-    -- This point is safely inside the card and far away from Friend Join.
-    local v = viewport()
-    local exact = Vector2.new(
-        345 * (v.X / 1920),
-        465 * (v.Y / 1080)
-    )
-    clickPoint(exact, 0.12)
+    -- Fallback based on the user's actual 1920x1080 / 1912x948 viewport.
+    -- Approximate card interior: x=18.0%, y=43.0% of Roblox viewport.
+    if not point then
+        local v = viewport()
+        point = Vector2.new(v.X * 0.180, v.Y * 0.430)
+    end
 
-    return true
+    setStatus("OUWLAND • ONE click")
+    return singleMapClick(point)
 end
 
 local function doOwner()
@@ -6824,7 +6858,7 @@ task.spawn(function()
     local ok, err = pcall(function()
         local stage = "play"
         local lastAction = 0
-        local mapAttempts = 0
+        local mapClicksTotal = 0
         local ownerAttempts = 0
 
         while Screen.Parent and tonumber(game.PlaceId) == LOBBY_PLACE_ID
@@ -6845,52 +6879,57 @@ task.spawn(function()
                 if map then
                     stage = "map"
                     lastAction = 0
-                    mapAttempts = 0
                     setStatus("PLAY complete • Ouwland detected")
                 end
 
             elseif stage == "map" then
-                -- CRITICAL: select Ouwland BEFORE entering any username.
+                -- Lifetime HARD CAP: at most 3 actual physical Ouwland clicks.
                 if privateContext then
                     stage = "owner"
                     lastAction = 0
                     ownerAttempts = 0
                     setStatus("OUWLAND selected • private panel detected")
-                elseif mapAttempts < 3 and os.clock() - lastAction >= 1.35 then
+
+                elseif mapClicksTotal < 3 and os.clock() - lastAction >= 2.40 then
                     lastAction = os.clock()
-                    mapAttempts = mapAttempts + 1
+                    mapClicksTotal = mapClicksTotal + 1
 
                     setStatus(
-                        "OUWLAND • click "
-                        .. tostring(mapAttempts)
+                        "OUWLAND • physical click "
+                        .. tostring(mapClicksTotal)
                         .. "/3"
                     )
 
+                    -- doMap() now generates exactly ONE physical click.
                     doMap()
 
-                    -- Give the game enough time to reveal the private panel
-                    -- before another toggle-click is allowed.
-                    task.wait(1.10)
+                    -- Wait long enough for the UI transition before allowing
+                    -- another toggle click.
+                    local detectUntil = os.clock() + 2.20
+                    repeat
+                        if privateJoinContextVisible() then
+                            stage = "owner"
+                            lastAction = 0
+                            ownerAttempts = 0
+                            setStatus("OUWLAND selected • private panel detected")
+                            break
+                        end
+                        task.wait(0.10)
+                    until os.clock() >= detectUntil
 
-                    if privateJoinContextVisible() then
-                        stage = "owner"
-                        lastAction = 0
-                        ownerAttempts = 0
-                        setStatus("OUWLAND selected • private panel detected")
-                    elseif mapAttempts >= 3 then
-                        -- Ouwland toggles selection on each click:
-                        -- 1 = selected, 2 = deselected, 3 = selected.
-                        -- Never click it a fourth time, because that would
-                        -- deselect the map again.
-                        setStatus("OUWLAND • 3/3 clicks sent • waiting for private panel")
+                    if stage == "map" and mapClicksTotal >= 3 then
+                        setStatus("OUWLAND • 3/3 TOTAL • map clicks permanently locked")
                     end
-                elseif mapAttempts >= 3 then
-                    -- Hard cap: absolutely no more Ouwland clicks.
+
+                elseif mapClicksTotal >= 3 then
+                    -- NEVER click the map again during this script execution.
                     if privateJoinContextVisible() then
                         stage = "owner"
                         lastAction = 0
                         ownerAttempts = 0
                         setStatus("OUWLAND selected • private panel detected")
+                    else
+                        setStatus("OUWLAND • map click lock active (3/3)")
                     end
                 end
 
@@ -6901,8 +6940,7 @@ task.spawn(function()
                 if not privateJoinContextVisible() then
                     stage = "map"
                     lastAction = 0
-                    mapAttempts = 0
-                    setStatus("PRIVATE panel lost • reselecting Ouwland")
+                    setStatus("PRIVATE panel lost • map clicks remain capped at " .. tostring(mapClicksTotal) .. "/3")
                 elseif privateJoin and findOwnerBox() then
                     if os.clock() - lastAction >= 1.10 then
                         lastAction = os.clock()
@@ -6936,8 +6974,7 @@ task.spawn(function()
                 if not privateJoinContextVisible() then
                     stage = "map"
                     lastAction = 0
-                    mapAttempts = 0
-                    setStatus("PRIVATE panel lost • reselecting Ouwland")
+                    setStatus("PRIVATE panel lost • map clicks remain capped at " .. tostring(mapClicksTotal) .. "/3")
                 elseif os.clock() - lastAction >= 1.50 then
                     -- Retry the exact private-button click until teleport.
                     lastAction = os.clock()

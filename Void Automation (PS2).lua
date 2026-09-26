@@ -547,6 +547,7 @@ local Farm = {catalog = {}, remembered = {}, pinned = nil, records = {}, selecte
     detail = "Select a target, then enable Auto farm.", count = 0, aliveCount = 0,
     autoVisited = {}, autoCurrent = nil, autoLastPath = nil, autoArrivedAt = 0,
     autoCombatAt = 0, autoLastProgressAt = 0, autoLastHP = nil, autoDefeated = false,
+    autoRespawnResume = false, autoResumePath = nil,
     autoCycles = 0, autoSkipped = 0}
 local function attackHealthAllowed(maximum)
     return type(maximum) == "number"
@@ -1676,6 +1677,8 @@ do
         Farm.autoLastHP = nil
         Farm.autoEngaged = false
         Farm.autoDefeated = false
+        Farm.autoRespawnResume = false
+        Farm.autoResumePath = nil
         if clearLast then Farm.autoLastPath = nil end
     end
     local function autoBossLocation(entry)
@@ -1884,7 +1887,22 @@ do
             pause("WAITING", "Waiting for your living, unseated character."); return
         end
         if Settings.AutoBoss then
-            local entry = Farm.autoCurrent and Farm.catalog[Farm.autoCurrent] or nil
+            local entry
+
+            if Farm.autoRespawnResume and Farm.autoResumePath then
+                entry = Farm.catalog[Farm.autoResumePath]
+                if entry and autoBossEligible(entry) then
+                    Farm.autoCurrent = entry.path
+                    Farm.pinned = entry.path
+                else
+                    Farm.autoRespawnResume = false
+                    Farm.autoResumePath = nil
+                    entry = nil
+                end
+            else
+                entry = Farm.autoCurrent and Farm.catalog[Farm.autoCurrent] or nil
+            end
+
             if not entry or not autoBossEligible(entry) then entry = pickAutoBoss(rootPart) end
             if not entry then
                 Farm.stopM1(); Farm.restoreHitbox()
@@ -1954,18 +1972,34 @@ do
                 character:PivotTo(character:GetPivot() + (Farm.travelDestination - rootPart.Position))
                 rootPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
                 rootPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
-                if Settings.AutoBoss and os.clock() - Farm.autoArrivedAt >= Settings.BossNoAttackTimeout then
+                if Settings.AutoBoss and not Farm.autoRespawnResume
+                    and os.clock() - Farm.autoArrivedAt >= Settings.BossNoAttackTimeout then
                     advanceAutoBoss("No live attack target after 5s; skipped", rootPart, true)
                     return
                 end
-                Farm.status = Settings.AutoBoss and "AUTO BOSS LOADING" or (hp and hp <= 0 and "WAITING FOR RESPAWN" or "LOADING BOSS")
+                Farm.status = Settings.AutoBoss
+                    and (Farm.autoRespawnResume and "AUTO BOSS RESUME" or "AUTO BOSS LOADING")
+                    or (hp and hp <= 0 and "WAITING FOR RESPAWN" or "LOADING BOSS")
                 Farm.detail = Settings.AutoBoss
-                    and string.format("At %s | scanning %.0f studs for a live boss", entry.name, Settings.BossLocalScanRadius)
+                    and (Farm.autoRespawnResume
+                        and string.format("Waiting for SAME boss %s after respawn | %.0f-stud scan", entry.name, Settings.BossLocalScanRadius)
+                        or string.format("At %s | scanning %.0f studs for a live boss", entry.name, Settings.BossLocalScanRadius))
                     or (os.clock() - Farm.travelAt > 15
                         and "Not loaded yet; waiting at saved location. OFF returns you."
                         or ("At saved location: " .. entry.name .. ". Waiting for a live rig."))
                     return
                 end
+            end
+            if Settings.AutoBoss and Farm.autoRespawnResume and hp and hp > 0 and targetRoot then
+                Farm.autoRespawnResume = false
+                Farm.autoResumePath = nil
+                Farm.autoCombatAt = 0
+                Farm.autoLastProgressAt = 0
+                Farm.autoLastHP = nil
+                Farm.autoEngaged = false
+                Farm.autoDefeated = false
+                Farm.status = "AUTO BOSS RESUMED"
+                Farm.detail = "Same boss reacquired after respawn."
             end
             if Settings.AutoBoss and Farm.autoCombatAt == 0 then
                 Farm.autoCombatAt = os.clock()
@@ -1988,8 +2022,12 @@ do
                 Farm.restoreHitbox()
                 Farm.status = "AUTO BOSS ENGAGED"
                 Farm.detail = "Boss already took damage; skip timer disabled until it dies."
-            elseif os.clock() - Farm.autoArrivedAt >= Settings.BossNoAttackTimeout then
+            elseif not Farm.autoRespawnResume
+                and os.clock() - Farm.autoArrivedAt >= Settings.BossNoAttackTimeout then
                 advanceAutoBoss("Target unavailable before first damage; skipped", rootPart, true)
+            elseif Farm.autoRespawnResume then
+                Farm.status = "AUTO BOSS RESUME"
+                Farm.detail = "Waiting for the same boss to respawn. Auto Boss remains enabled."
             end
             return
         end
@@ -3198,7 +3236,7 @@ local C = {
     amber = Color3.fromRGB(255, 201, 96),
     red = Color3.fromRGB(255, 103, 127),
 }
-local W, H = 900, 720
+local W, H = 1080, 800
 local function make(className, parent, properties)
     local object = Instance.new(className)
     for name, value in pairs(properties or {}) do object[name] = value end
@@ -3396,7 +3434,7 @@ local canvas = make("Frame", root, {
     Name = "Canvas", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
     BorderSizePixel = 0, Active = false,
 })
-local holder = frame(canvas, "Window", 24, 58, W, H)
+local holder = frame(canvas, "Window", 20, 40, W, H)
 holder.BackgroundTransparency = 1
 local uiScale = make("UIScale", holder, {Scale = 1})
 local shadow = frame(holder, "Shadow", -7, 9, W + 14, H + 14, Color3.new(0, 0, 0), 18)
@@ -3441,16 +3479,16 @@ local minimize = button(panel, "Minimize", "-", W - 140, 15, 32, 28, C.surface, 
 local close = button(panel, "Unload", "x", W - 94, 15, 32, 28, C.surface, 15)
 hover(minimize, C.muted, C.text)
 hover(close, C.muted, C.red)
-local tabs = frame(panel, "Tabs", 14, 74, 166, 348, C.surface, 12)
+local tabs = frame(panel, "Tabs", 14, 76, 172, 402, C.surface, 12)
 stroke(tabs, C.line, 0.34)
 label(tabs, "MenuTitle", "NAVIGATION", 14, 8, 138, 16, 9, C.dim, Enum.Font.GothamBold)
 
-UI.skillsTab = button(tabs, "SkillsTab", "   Skills", 12, 32, 142, 43, C.raised, 11)
-UI.espTab = button(tabs, "ESPTab", "   ESP", 12, 84, 142, 43, C.surface, 11)
-UI.healthTab = button(tabs, "HealthTab", "   Health", 12, 136, 142, 43, C.surface, 11)
-UI.farmTab = button(tabs, "FarmTab", "   Farm", 12, 188, 142, 43, C.surface, 11)
-UI.moveTab = button(tabs, "MoveTab", "   Move", 12, 240, 142, 43, C.surface, 11)
-UI.systemTab = button(tabs, "SystemTab", "   System", 12, 292, 142, 43, C.surface, 11)
+UI.skillsTab = button(tabs, "SkillsTab", "   ⚔   Skills", 10, 32, 152, 52, C.raised, 12)
+UI.espTab = button(tabs, "ESPTab", "   ◉   ESP", 10, 92, 152, 52, C.surface, 12)
+UI.healthTab = button(tabs, "HealthTab", "   ✚   Health", 10, 152, 152, 52, C.surface, 12)
+UI.farmTab = button(tabs, "FarmTab", "   ♨   Farm", 10, 212, 152, 52, C.surface, 12)
+UI.moveTab = button(tabs, "MoveTab", "   ➜   Move", 10, 272, 152, 52, C.surface, 12)
+UI.systemTab = button(tabs, "SystemTab", "   ⚙   System", 10, 332, 152, 52, C.surface, 12)
 
 UI.navStrokes, UI.navBars = {}, {}
 for _, entry in ipairs({
@@ -3461,10 +3499,26 @@ for _, entry in ipairs({
     tab.TextXAlignment = Enum.TextXAlignment.Left
     tab.UICorner.CornerRadius = UDim.new(0, 9)
     UI.navStrokes[key] = stroke(tab, C.accent, 0.86, 1)
-    UI.navBars[key] = frame(tab, "ActiveBar", 0, 7, 3, 29, C.accent, 2)
+    UI.navBars[key] = frame(tab, "ActiveBar", 0, 6, 4, 40, C.accent, 2)
 end
 
-local sidebarInfo = frame(panel, "SidebarInfo", 14, 438, 166, 212, C.surface, 12)
+for key, tab in pairs({
+    Skills = UI.skillsTab, ESP = UI.espTab, Health = UI.healthTab,
+    Farm = UI.farmTab, Move = UI.moveTab, System = UI.systemTab,
+}) do
+    connect(tab.MouseEnter, function()
+        if State.tab ~= key then
+            animate(tab, {BackgroundColor3 = Color3.fromRGB(12, 31, 45), TextColor3 = C.bright})
+        end
+    end)
+    connect(tab.MouseLeave, function()
+        if State.tab ~= key then
+            animate(tab, {BackgroundColor3 = C.surface, TextColor3 = C.dim})
+        end
+    end)
+end
+
+local sidebarInfo = frame(panel, "SidebarInfo", 14, 492, 172, 230, C.surface, 12)
 stroke(sidebarInfo, C.line, 0.45)
 label(sidebarInfo, "Label", "SESSION", 14, 12, 138, 15, 9, C.dim, Enum.Font.GothamBold)
 UI.sidebarState = label(sidebarInfo, "State", "CONNECTED", 14, 36, 138, 18, 11, C.green, Enum.Font.GothamBold)
@@ -3472,7 +3526,7 @@ label(sidebarInfo, "Hint1", "F7  Unload", 14, 70, 138, 18, 10, C.muted, Enum.Fon
 label(sidebarInfo, "Hint2", "R-Shift  Hide UI", 14, 94, 138, 18, 10, C.muted, Enum.Font.GothamMedium)
 label(sidebarInfo, "Hint3", "F6  Skills", 14, 118, 138, 18, 10, C.muted, Enum.Font.GothamMedium)
 label(sidebarInfo, "Version", "VOID  v1.5", 14, 173, 138, 18, 9, C.dim, Enum.Font.GothamBold)
-local body = frame(panel, "Controls", 192, 74, W - 206, H - 102)
+local body = frame(panel, "Controls", 200, 76, W - 214, H - 116)
 body.BackgroundTransparency = 1
 local master = frame(body, "MasterCard", 24, 0, 392, 80, C.raised, 13)
 UI.masterStroke = stroke(master, C.accent, 0.65)
@@ -3591,7 +3645,7 @@ UI.status = label(status, "Status", "STANDBY", 26, 5, 354, 16, 9, C.muted, Enum.
 UI.detail = label(status, "Detail", "", 13, 22, 366, 12, 9, C.muted)
 label(body, "Hotkeys", "F6  TOGGLE    /    F7  UNLOAD    /    R-SHIFT  HIDE", 26, 536, 390, 15, 9, C.dim, Enum.Font.GothamMedium)
 
-local espBody = frame(panel, "ESPControls", 192, 74, W - 206, H - 102)
+local espBody = frame(panel, "ESPControls", 200, 76, W - 214, H - 116)
 espBody.BackgroundTransparency, espBody.Visible = 1, false
 local espMaster = frame(espBody, "ESPMasterCard", 24, 0, 392, 80, C.raised, 13)
 UI.espMasterStroke = stroke(espMaster, C.accent, 0.65)
@@ -3632,7 +3686,7 @@ UI.espStatus = label(espStatusCard, "ESPStatus", "ESP OFF", 26, 5, 354, 16, 9, C
 UI.espDetail = label(espStatusCard, "Detail", "", 13, 22, 366, 12, 9, C.muted)
 label(espBody, "ESPHotkeys", "F8  ESP    /    F7  UNLOAD    /    R-SHIFT  HIDE", 26, 536, 390, 15, 9, C.dim, Enum.Font.GothamMedium)
 
-local healthBody = frame(panel, "HealthControls", 192, 74, W - 206, H - 102)
+local healthBody = frame(panel, "HealthControls", 200, 76, W - 214, H - 116)
 healthBody.BackgroundTransparency, healthBody.Visible = 1, false
 do
     local master = frame(healthBody, "HealthMasterCard", 24, 0, 392, 80, C.raised, 13)
@@ -3687,7 +3741,7 @@ do
         26, 536, 390, 15, 9, C.dim, Enum.Font.GothamMedium)
 end
 
-local farmBody = frame(panel, "FarmControls", 192, 74, W - 206, H - 102)
+local farmBody = frame(panel, "FarmControls", 200, 76, W - 214, H - 116)
 farmBody.BackgroundTransparency, farmBody.Visible = 1, false
 do
     local master = frame(farmBody, "FarmMasterCard", 24, 0, 392, 80, C.raised, 13)
@@ -3867,10 +3921,333 @@ do
     UI.farmStatus = label(status, "FarmStatus", "OFF", 13, 5, 366, 16, 9, C.muted, Enum.Font.GothamBold)
     UI.farmDetail = label(status, "FarmDetail", "", 13, 22, 366, 12, 9, C.muted)
     UI.farmDetail.TextTruncate = Enum.TextTruncate.AtEnd
-    label(farmBody, "FarmFooter", "OFF returns to the farming start point. F7 unloads all.", 26, 604, 390, 14, 9, C.dim)
+    local oldFarmFooter = label(farmBody, "FarmFooter", "OFF returns to the farming start point. F7 unloads all.", 26, 604, 390, 14, 9, C.dim)
+
+    master.Visible = false
+    targets.Visible = false
+    options.Visible = false
+    status.Visible = false
+    UI.farmHint.Visible = false
+    oldFarmFooter.Visible = false
+
+    local pageWidth = W - 214
+    local ref = make("ScrollingFrame", farmBody, {
+        Name = "ReferenceFarmUI",
+        Position = UDim2.fromOffset(0, 0),
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ScrollBarThickness = 3,
+        ScrollBarImageColor3 = C.accent,
+        CanvasSize = UDim2.fromOffset(0, 684),
+        Active = true,
+    })
+
+    local function refCard(name, x, y, w, h, color, radius)
+        local card = frame(ref, name, x, y, w, h, color or C.surface, radius or 11)
+        stroke(card, C.line, 0.22, 1)
+        return card
+    end
+
+    -- Farm title banner.
+    local pageHeader = refCard("FarmPageHeader", 10, 0, pageWidth - 20, 82, C.surface, 12)
+    make("UIGradient", pageHeader, {
+        Rotation = 0,
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(12, 37, 52)),
+            ColorSequenceKeypoint.new(0.58, Color3.fromRGB(8, 27, 41)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(6, 20, 32)),
+        }),
+    })
+    local farmIcon = label(pageHeader, "Icon", "♨", 20, 16, 48, 48, 30, C.accent, Enum.Font.GothamBold)
+    farmIcon.TextXAlignment = Enum.TextXAlignment.Center
+    label(pageHeader, "Title", "Farm", 76, 13, 260, 34, 27, C.text, Enum.Font.GothamBold)
+    UI.farmHint = label(pageHeader, "Subtitle", "Automate farming, bosses and loot collection.", 78, 45, 560, 22, 12, C.muted, Enum.Font.GothamMedium)
+    UI.farmHeaderGlow = frame(pageHeader, "PortalGlow", pageWidth - 224, 0, 212, 82, C.accent, 12)
+    UI.farmHeaderGlow.BackgroundTransparency = 0.94
+    make("UIGradient", UI.farmHeaderGlow, {
+        Rotation = 20,
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.55, 0.72),
+            NumberSequenceKeypoint.new(1, 0.92),
+        }),
+    })
+
+    -- General Farming.
+    local general = refCard("GeneralFarming", 14, 96, pageWidth - 28, 236, C.surface, 11)
+    local generalTop = frame(general, "Top", 0, 0, pageWidth - 28, 44, C.raised, 11)
+    label(generalTop, "Icon", "⚙", 18, 6, 28, 30, 18, C.accent, Enum.Font.GothamBold)
+    label(generalTop, "Title", "General Farming", 54, 7, 280, 28, 15, C.text, Enum.Font.GothamBold)
+    label(generalTop, "Arrow", "⌃", pageWidth - 78, 5, 32, 30, 18, C.bright, Enum.Font.GothamBold)
+
+    local splitX = math.floor((pageWidth - 28) * 0.48)
+    local divider = frame(general, "Divider", splitX, 58, 1, 160, C.line)
+    divider.BackgroundTransparency = 0.3
+
+    local function optionRow(y, titleText, hintText, toggleName, getter, setter)
+        label(general, toggleName .. "Title", titleText, 22, y, 240, 24, 13, C.text, Enum.Font.GothamBold)
+        label(general, toggleName .. "Hint", hintText, 22, y + 23, 300, 20, 10, C.muted, Enum.Font.GothamMedium)
+        return toggle(general, toggleName, splitX - 76, y + 5, 54, 28, getter, setter)
+    end
+
+    optionRow(58, "Auto Farm", "Automatically attack and farm nearby enemies.",
+        "RefAutoFarm", function() return Settings.FarmEnabled end, Farm.setEnabled)
+    optionRow(116, "Auto Boss", "Automatically find and farm bosses.",
+        "RefAutoBoss", function() return Settings.AutoBoss end, Farm.setAutoBoss)
+    optionRow(174, "Auto Loot", "Automatically collect drops and items.",
+        "RefAutoLoot", function() return Settings.FarmAutoLoot end, Farm.setLoot)
+
+    local rightX = splitX + 26
+    local rightW = (pageWidth - 28) - rightX - 18
+
+    label(general, "RangeTitle", "Farm Range", rightX, 57, 190, 22, 12, C.text, Enum.Font.GothamBold)
+    label(general, "RangeHint", "Detection range for farming (studs).", rightX, 78, 260, 18, 9, C.muted)
+    local rangeTrack = frame(general, "RangeTrack", rightX, 106, rightW - 108, 6, C.line, 4)
+    frame(rangeTrack, "Fill", 0, 0, math.floor((rightW - 108) * 0.68), 6, C.accent, 4)
+    local rangeKnob = frame(rangeTrack, "Knob", math.floor((rightW - 108) * 0.68) - 5, -4, 14, 14, C.text, 8)
+    stroke(rangeKnob, C.accent, 0.05, 2)
+    label(general, "RangeMin", "10K", rightX, 116, 70, 18, 9, C.muted)
+    local rangeMax = label(general, "RangeMax", "2M", rightX + rightW - 150, 116, 42, 18, 9, C.muted)
+    rangeMax.TextXAlignment = Enum.TextXAlignment.Right
+    local rangeBox = button(general, "RangeBox", "500K", rightX + rightW - 92, 88, 82, 32, C.panel, 11)
+    rangeBox.TextColor3 = C.text
+    stroke(rangeBox, C.line, 0.15)
+
+    label(general, "DelayTitle", "Boss Delay", rightX, 142, 180, 22, 12, C.text, Enum.Font.GothamBold)
+    label(general, "DelayHint", "Delay before skipping an untouched boss.", rightX, 163, 260, 18, 9, C.muted)
+    UI.refBossDelay = button(general, "BossDelay", string.format("%.1f", Settings.BossNoAttackTimeout),
+        rightX + rightW - 112, 145, 102, 32, C.panel, 11)
+    UI.refBossDelay.TextColor3 = C.text
+    stroke(UI.refBossDelay, C.line, 0.15)
+
+    connect(UI.refBossDelay.Activated, function()
+        local values = {3, 5, 7, 10}
+        local nextValue = 5
+        for i, value in ipairs(values) do
+            if math.abs(Settings.BossNoAttackTimeout - value) < 0.01 then
+                nextValue = values[i % #values + 1]
+                break
+            end
+        end
+        Settings.BossNoAttackTimeout = nextValue
+        render()
+    end)
+
+    label(general, "MethodTitle", "Farm Method", rightX, 194, 180, 22, 12, C.text, Enum.Font.GothamBold)
+    local method = button(general, "Method", "Nearest                             ⌄",
+        rightX + 164, 191, rightW - 174, 34, C.panel, 11)
+    method.TextColor3 = C.text
+    method.TextXAlignment = Enum.TextXAlignment.Left
+    stroke(method, C.line, 0.15)
+
+    -- Target Settings.
+    local targetCard = refCard("TargetSettings", 14, 344, pageWidth - 28, 104, C.surface, 11)
+    local targetTop = frame(targetCard, "Top", 0, 0, pageWidth - 28, 40, C.raised, 11)
+    label(targetTop, "Icon", "◎", 18, 5, 30, 28, 18, C.accent, Enum.Font.GothamBold)
+    label(targetTop, "Title", "Target Settings", 54, 5, 260, 28, 14, C.text, Enum.Font.GothamBold)
+    label(targetTop, "Arrow", "⌃", pageWidth - 78, 5, 32, 28, 18, C.bright, Enum.Font.GothamBold)
+
+    label(targetCard, "SelectTitle", "Select Enemies", 22, 49, 180, 20, 11, C.text, Enum.Font.GothamBold)
+    label(targetCard, "SelectHint", "Choose which enemies to farm.", 22, 68, 210, 18, 9, C.muted)
+
+    UI.farmName = button(targetCard, "FarmTargetName", "All Enemies", 235, 53, 208, 34, C.panel, 11)
+    UI.farmName.TextColor3 = C.text
+    UI.farmName.TextXAlignment = Enum.TextXAlignment.Left
+    stroke(UI.farmName, C.line, 0.15)
+
+    local targetDivider = frame(targetCard, "Divider", 472, 51, 1, 34, C.line)
+    targetDivider.BackgroundTransparency = 0.3
+    label(targetCard, "PriorityTitle", "Priority", 496, 49, 140, 20, 11, C.text, Enum.Font.GothamBold)
+    label(targetCard, "PriorityHint", "Target priority type.", 496, 68, 160, 18, 9, C.muted)
+    local priority = button(targetCard, "Priority", "Nearest                    ⌄",
+        pageWidth - 250, 53, 208, 34, C.panel, 11)
+    priority.TextColor3 = C.text
+    priority.TextXAlignment = Enum.TextXAlignment.Left
+    stroke(priority, C.line, 0.15)
+
+    UI.farmID = label(targetCard, "HiddenID", "--", 0, 0, 1, 1, 1, C.dim)
+    UI.farmPath = label(targetCard, "HiddenPath", "--", 0, 0, 1, 1, 1, C.dim)
+    UI.farmParts = label(targetCard, "HiddenParts", "--", 0, 0, 1, 1, 1, C.dim)
+    UI.farmID.Visible, UI.farmPath.Visible, UI.farmParts.Visible = false, false, false
+
+    -- Advanced accordion.
+    local advancedBar = button(ref, "AdvancedBar", "", 14, 460, pageWidth - 28, 44, C.surface, 11)
+    stroke(advancedBar, C.line, 0.22)
+    label(advancedBar, "Icon", "◇", 18, 6, 28, 28, 18, C.muted, Enum.Font.GothamBold)
+    label(advancedBar, "Title", "Advanced Options", 54, 6, 260, 28, 13, C.text, Enum.Font.GothamBold)
+    UI.advancedArrow = label(advancedBar, "Arrow", "⌄", pageWidth - 76, 5, 30, 30, 18, C.bright, Enum.Font.GothamBold)
+
+    local advancedContent = refCard("AdvancedContent", 14, 510, pageWidth - 28, 0, C.surface, 11)
+    advancedContent.Visible = false
+    advancedContent.ClipsDescendants = true
+
+    label(advancedContent, "SkillsTitle", "Use selected Z / X / C / V skills", 20, 14, 330, 22, 11, C.text)
+    toggle(advancedContent, "RefFarmSkills", pageWidth - 104, 14, 50, 24,
+        function() return Settings.FarmUseSkills end, function(value)
+            Settings.FarmUseSkills = value
+            releaseOrPause()
+        end)
+
+    label(advancedContent, "M1Title", "Auto M1 (inventory bypass)", 20, 48, 330, 22, 11, C.text)
+    toggle(advancedContent, "RefFarmM1", pageWidth - 104, 48, 50, 24,
+        function() return Settings.FarmM1 end, Farm.setM1)
+
+    label(advancedContent, "HitboxTitle", "Expand target hitbox (local)", 20, 82, 330, 22, 11, C.text)
+    toggle(advancedContent, "RefHitbox", pageWidth - 104, 82, 50, 24,
+        function() return Settings.FarmExpandHitbox end, function(value)
+            Settings.FarmExpandHitbox = value
+            if not value then Farm.restoreHitbox() end
+        end)
+
+    local configButton = button(advancedContent, "ConfigButton", "Boss Locations / Config", 20, 118, 190, 30, C.raised, 10)
+    configButton.TextColor3 = C.bright
+    local rescanButton = button(advancedContent, "RescanButton", "Rescan", 224, 118, 90, 30, C.raised, 10)
+    local depthButton = button(advancedContent, "DepthButton", "Depth: 7.0", 328, 118, 100, 30, C.raised, 10)
+
+    connect(configButton.Activated, function()
+        picker.Visible = false
+        share.Visible = false
+        config.Visible = not config.Visible
+    end)
+    connect(rescanButton.Activated, function()
+        Farm.scan(true)
+        Farm.step()
+        render()
+    end)
+    connect(depthButton.Activated, function()
+        Settings.FarmDepth = 7
+        render()
+    end)
+
+    -- Filters accordion.
+    local filterBar = button(ref, "FilterBar", "", 14, 516, pageWidth - 28, 44, C.surface, 11)
+    stroke(filterBar, C.line, 0.22)
+    label(filterBar, "Icon", "☷", 18, 6, 28, 28, 18, C.muted, Enum.Font.GothamBold)
+    label(filterBar, "Title", "Filters", 54, 6, 260, 28, 13, C.text, Enum.Font.GothamBold)
+    UI.filterArrow = label(filterBar, "Arrow", "⌄", pageWidth - 76, 5, 30, 30, 18, C.bright, Enum.Font.GothamBold)
+
+    local filterContent = refCard("FilterContent", 14, 566, pageWidth - 28, 0, C.surface, 11)
+    filterContent.Visible = false
+    filterContent.ClipsDescendants = true
+    label(filterContent, "HPFilter", "Target MaxHP", 20, 12, 150, 22, 11, C.text, Enum.Font.GothamBold)
+    label(filterContent, "HPValue", "3,000 - 3,200  (locked)", 176, 12, 220, 22, 11, C.bright)
+    label(filterContent, "RangeFilter", "Boss route range", 20, 42, 150, 22, 11, C.text, Enum.Font.GothamBold)
+    label(filterContent, "RangeValue", "500,000 studs", 176, 42, 220, 22, 11, C.bright)
+
+    -- Status card.
+    local statusCard = refCard("ReferenceStatus", 14, 572, pageWidth - 28, 96, C.surface, 11)
+    local statusTop = frame(statusCard, "Top", 0, 0, pageWidth - 28, 38, C.raised, 11)
+    label(statusTop, "Icon", "▥", 18, 4, 28, 28, 16, C.muted, Enum.Font.GothamBold)
+    label(statusTop, "Title", "Status", 54, 4, 160, 28, 13, C.text, Enum.Font.GothamBold)
+    UI.refRunDot = frame(statusTop, "Dot", pageWidth - 155, 14, 7, 7, C.green, 4)
+    UI.farmStatus = label(statusTop, "FarmStatus", "Running", pageWidth - 138, 5, 112, 26, 10, C.green, Enum.Font.GothamBold)
+
+    local statWidth = math.floor((pageWidth - 64) / 4)
+    label(statusCard, "TargetCaption", "Current Target", 20, 48, statWidth, 18, 9, C.muted)
+    UI.refTargetName = label(statusCard, "TargetName", "None", 20, 66, statWidth, 20, 11, C.accent, Enum.Font.GothamBold)
+    UI.farmHP = label(statusCard, "TargetHP", "--", 20, 84, statWidth, 1, 1, C.green)
+    UI.farmHP.Visible = false
+
+    local x2 = 20 + statWidth
+    frame(statusCard, "D1", x2 - 8, 48, 1, 34, C.line).BackgroundTransparency = 0.25
+    label(statusCard, "NearbyCaption", "Enemies Nearby", x2 + 10, 48, statWidth - 10, 18, 9, C.muted)
+    UI.farmCount = label(statusCard, "NearbyValue", "0", x2 + 10, 66, statWidth - 10, 20, 11, C.accent, Enum.Font.GothamBold)
+
+    local x3 = 20 + statWidth * 2
+    frame(statusCard, "D2", x3 - 8, 48, 1, 34, C.line).BackgroundTransparency = 0.25
+    label(statusCard, "ElapsedCaption", "Time Elapsed", x3 + 10, 48, statWidth - 10, 18, 9, C.muted)
+    UI.refElapsed = label(statusCard, "Elapsed", "00:00:00", x3 + 10, 66, statWidth - 10, 20, 11, C.accent, Enum.Font.GothamBold)
+
+    local x4 = 20 + statWidth * 3
+    frame(statusCard, "D3", x4 - 8, 48, 1, 34, C.line).BackgroundTransparency = 0.25
+    label(statusCard, "ItemsCaption", "Items Collected", x4 + 10, 48, statWidth - 10, 18, 9, C.muted)
+    UI.refItems = label(statusCard, "Items", "--", x4 + 10, 66, statWidth - 10, 20, 11, C.accent, Enum.Font.GothamBold)
+
+    UI.farmDetail = label(statusCard, "FarmDetail", "", 0, 0, 1, 1, 1, C.muted)
+    UI.farmDetail.Visible = false
+
+    -- New target dropdown uses the original remembered-boss data.
+    connect(UI.farmName.Activated, function()
+        Farm.scan(true)
+        for _, child in ipairs(list:GetChildren()) do child:Destroy() end
+
+        local function row(textValue, key, index)
+            local item = button(list, "RefBossOption" .. index, textValue, 0, index * 38, 356, 34, C.raised, 11)
+            item.ZIndex = 22
+            item.TextTruncate = Enum.TextTruncate.AtEnd
+            item.Activated:Connect(function()
+                picker.Visible = false
+                Farm.choose(key)
+            end)
+        end
+
+        row("Auto nearest — loaded NPCs", nil, 0)
+        for i, entry in ipairs(Farm.remembered) do
+            local hp, _, _, rootPart = Farm.read(entry.live)
+            local stateText = hp and (hp <= 0 and "dead" or (rootPart and "loaded" or "partial")) or "unloaded"
+            row(entry.name .. "  [" .. stateText .. "]", entry.path, i)
+        end
+
+        list.CanvasSize = UDim2.fromOffset(0, (#Farm.remembered + 1) * 38)
+        picker.Visible = true
+    end)
+
+    for _, popup in ipairs({picker, config, share}) do
+        popup.Position = UDim2.fromOffset(math.floor((pageWidth - popup.Size.X.Offset) / 2), 112)
+    end
+
+    local advancedOpen, filterOpen = false, false
+    local advancedHeight, filterHeight = 162, 76
+
+    local function layoutAccordions(animated)
+        local advH = advancedOpen and advancedHeight or 0
+        local filterY = 516 + advH
+        local filterContentY = filterY + 50
+        local filterH = filterOpen and filterHeight or 0
+        local statusY = filterContentY + filterH + 6
+        local canvasH = statusY + 108
+
+        advancedContent.Visible = advancedOpen
+        filterContent.Visible = filterOpen
+        UI.advancedArrow.Text = advancedOpen and "⌃" or "⌄"
+        UI.filterArrow.Text = filterOpen and "⌃" or "⌄"
+
+        animate(advancedContent, {Size = UDim2.fromOffset(pageWidth - 28, advH)}, not animated)
+        animate(filterBar, {Position = UDim2.fromOffset(14, filterY)}, not animated)
+        animate(filterContent, {
+            Position = UDim2.fromOffset(14, filterContentY),
+            Size = UDim2.fromOffset(pageWidth - 28, filterH),
+        }, not animated)
+        animate(statusCard, {Position = UDim2.fromOffset(14, statusY)}, not animated)
+
+        if animated then
+            TweenService:Create(ref,
+                TweenInfo.new(0.20, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                {CanvasSize = UDim2.fromOffset(0, canvasH)}):Play()
+        else
+            ref.CanvasSize = UDim2.fromOffset(0, canvasH)
+        end
+    end
+
+    connect(advancedBar.Activated, function()
+        advancedOpen = not advancedOpen
+        layoutAccordions(true)
+    end)
+    connect(filterBar.Activated, function()
+        filterOpen = not filterOpen
+        layoutAccordions(true)
+    end)
+
+    for _, bar in ipairs({advancedBar, filterBar}) do
+        connect(bar.MouseEnter, function() animate(bar, {BackgroundColor3 = C.raised}) end)
+        connect(bar.MouseLeave, function() animate(bar, {BackgroundColor3 = C.surface}) end)
+    end
+
+    layoutAccordions(false)
 end
 
-local moveBody = frame(panel, "MovementControls", 192, 74, W - 206, H - 102)
+local moveBody = frame(panel, "MovementControls", 200, 76, W - 214, H - 116)
 moveBody.BackgroundTransparency, moveBody.Visible = 1, false
 
 local moveMaster = frame(moveBody, "MovementMasterCard", 24, 0, 392, 80, C.raised, 13)
@@ -3920,7 +4297,7 @@ label(moveBody, "MovementFooter",
     26, 548, 390, 32, 9, C.dim, Enum.Font.GothamMedium)
 
 
-local systemBody = frame(panel, "SystemControls", 192, 74, W - 206, H - 102)
+local systemBody = frame(panel, "SystemControls", 200, 76, W - 214, H - 116)
 systemBody.BackgroundTransparency, systemBody.Visible = 1, false
 
 local systemMaster = frame(systemBody, "SystemMasterCard", 24, 0, 392, 80, C.raised, 13)
@@ -4010,7 +4387,7 @@ local function skinPage(page)
         end
     end
 
-    local inner = frame(page, "PageContent", math.floor(((W - 206) - 440) / 2), 0, 440, H - 102)
+    local inner = frame(page, "PageContent", math.floor(((W - 214) - 440) / 2), 0, 440, H - 116)
     inner.BackgroundTransparency = 1
 
     for _, child in ipairs(oldChildren) do
@@ -4033,11 +4410,17 @@ local function skinPage(page)
     end
 end
 
-for _, page in ipairs({body, espBody, healthBody, farmBody, moveBody, systemBody}) do
+for _, page in ipairs({body, espBody, healthBody, moveBody, systemBody}) do
     skinPage(page)
 end
 
-local footerBar = frame(panel, "FooterBar", 0, H - 30, W, 30, Color3.fromRGB(4, 13, 21))
+farmBody.BackgroundColor3 = Color3.fromRGB(5, 16, 26)
+farmBody.BackgroundTransparency = 0.05
+farmBody.ClipsDescendants = true
+corner(farmBody, 12)
+stroke(farmBody, C.line, 0.42)
+
+local footerBar = frame(panel, "FooterBar", 0, H - 32, W, 32, Color3.fromRGB(4, 13, 21))
 stroke(footerBar, C.line, 0.45)
 local footerDot = frame(footerBar, "ConnectedDot", 16, 11, 7, 7, C.green, 4)
 UI.footerConnected = label(footerBar, "Connected", "CONNECTED", 30, 5, 110, 20, 9, C.green, Enum.Font.GothamBold)
@@ -4047,16 +4430,50 @@ local footerVersion = label(footerBar, "FooterVersion", "v1.5.0", W - 90, 5, 72,
 footerVersion.TextXAlignment = Enum.TextXAlignment.Right
 UI.footerBar = footerBar
 
+-- Animated entrance + ambient cyan edge glow.
+local introScale = make("UIScale", panel, {Scale = 0.965})
+panel.BackgroundTransparency = 0.08
+
+task.defer(function()
+    if not State.alive or not panel.Parent then return end
+
+    TweenService:Create(introScale,
+        TweenInfo.new(0.32, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+        {Scale = 1}):Play()
+
+    TweenService:Create(panel,
+        TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        {BackgroundTransparency = 0}):Play()
+
+    TweenService:Create(halo,
+        TweenInfo.new(1.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+        {BackgroundTransparency = 0.94}):Play()
+end)
+
+local headerSweep = frame(panel, "HeaderSweep", -180, 58, 180, 1, C.bright)
+headerSweep.BackgroundTransparency = 0.18
+task.spawn(function()
+    while State.alive and headerSweep.Parent do
+        headerSweep.Position = UDim2.fromOffset(-180, 58)
+        local sweep = TweenService:Create(headerSweep,
+            TweenInfo.new(2.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+            {Position = UDim2.fromOffset(W, 58)})
+        sweep:Play()
+        sweep.Completed:Wait()
+        task.wait(1.4)
+    end
+end)
+
 local function fitWindow(centerIfNeeded)
     if not State.alive then return end
     local viewport = canvas.AbsoluteSize
     if viewport.X <= 0 or viewport.Y <= 0 then return end
-    uiScale.Scale = math.clamp(math.min((viewport.X - 28) / W, (viewport.Y - 48) / H), 0.32, 1)
+    uiScale.Scale = math.clamp(math.min((viewport.X - 24) / W, (viewport.Y - 36) / H), 0.28, 1)
     local width = W * uiScale.Scale
     local height = (State.minimized and 78 or H) * uiScale.Scale
     local maxX, maxY = math.max(12, viewport.X - width - 12), math.max(44, viewport.Y - height - 12)
     local x, y = holder.Position.X.Offset, holder.Position.Y.Offset
-    if centerIfNeeded then x, y = 24, 58 end
+    if centerIfNeeded then x, y = 20, 40 end
     holder.Position = UDim2.fromOffset(math.clamp(x, 12, maxX), math.clamp(y, 44, maxY))
 end
 local function setMinimized(value)
@@ -4152,12 +4569,9 @@ render = function()
     UI.bossSaveStatus.Text=Farm.configStatus
     UI.bossDiscoveryStatus.Text=Farm.pendingDiscovery and "First-run discovery starts shortly..." or Farm.discoveryStatus
     UI.farmHint.Text = Settings.AutoBoss
-        and string.format("Auto Boss: %.0f-stud route | %.0f-stud local target scan | %d static/saved locations.", Settings.BossAutoRange, Settings.BossLocalScanRadius, Farm.staticScanCount or #Farm.remembered)
-        or (Farm.count == 0 and string.format("%d NPC rigs loaded. Move near a target, then Rescan.", Farm.scanned or 0)
-            or "Click the boss name to choose a remembered target.")
-    UI.farmCount.Text = Settings.AutoBoss
-        and string.format("%d ALIVE / %d SAVED / AUTO", Farm.aliveCount, #Farm.remembered)
-        or string.format("%d ALIVE / %d REMEMBERED", Farm.aliveCount, #Farm.remembered)
+        and string.format("Auto Boss active • %d saved locations • same-boss respawn resume enabled.", #Farm.remembered)
+        or "Automate farming, bosses and loot collection."
+    UI.farmCount.Text = tostring(Farm.aliveCount or 0)
     local remembered = Farm.pinned and Farm.catalog[Farm.pinned]
     UI.farmName.Text = remembered and remembered.name or (Farm.selected and Farm.selected.name or (Settings.AutoBoss and "Auto Boss: finding next" or "Choose boss / Auto nearest"))
     UI.farmID.Text = Farm.selected and Farm.selected.id or "--"
@@ -4170,7 +4584,31 @@ render = function()
         UI.farmParts.Text="Observed timer: "..remembered.timerText
     end
     UI.farmStatus.Text, UI.farmDetail.Text = Farm.status, Farm.detail
-    UI.farmStatus.TextColor3 = Farm.fault and C.red or (State.farming and C.green or C.muted)
+    UI.farmStatus.TextColor3 = Farm.fault and C.red or ((State.farming or Settings.AutoBoss) and C.green or C.muted)
+
+    if UI.refTargetName then
+        UI.refTargetName.Text = remembered and remembered.name
+            or (Farm.selected and Farm.selected.name)
+            or (Settings.AutoBoss and "Finding boss..." or "None")
+        UI.refTargetName.TextColor3 = (remembered or Farm.selected) and C.accent or C.dim
+    end
+
+    if UI.refBossDelay then
+        UI.refBossDelay.Text = string.format("%.1f", Settings.BossNoAttackTimeout)
+    end
+
+    if UI.refRunDot then
+        local running = Settings.FarmEnabled or Settings.AutoBoss
+        UI.refRunDot.BackgroundColor3 = Farm.fault and C.red or (running and C.green or C.dim)
+    end
+
+    if UI.refElapsed then
+        local elapsed = math.max(0, math.floor(os.clock()))
+        local hours = math.floor(elapsed / 3600) % 100
+        local minutes = math.floor(elapsed / 60) % 60
+        local seconds = elapsed % 60
+        UI.refElapsed.Text = string.format("%02d:%02d:%02d", hours, minutes, seconds)
+    end
     if State.tab == "Farm" then
         UI.badge.Text = Farm.fault and "ERROR" or (Settings.AutoBoss and "BOSS AUTO" or (Settings.FarmEnabled and "FARM ON" or "OFF"))
         UI.badge.TextColor3 = State.farming and C.green or C.dim
@@ -4248,12 +4686,31 @@ render = function()
         preset.button.TextColor3 = selected and C.bright or C.dim
     end
 end
-connect(UI.skillsTab.Activated, function() State.tab = "Skills"; State.gesture = nil; render() end)
-connect(UI.espTab.Activated, function() State.tab = "ESP"; State.gesture = nil; render() end)
-connect(UI.farmTab.Activated, function() State.tab = "Farm"; State.gesture = nil; Farm.scan(true); Farm.step(); render() end)
-connect(UI.healthTab.Activated, function() State.tab = "Health"; State.gesture = nil; Guard.step() end)
-connect(UI.moveTab.Activated, function() State.tab = "Move"; State.gesture = nil; Movement.step(0); render() end)
-connect(UI.systemTab.Activated, function() State.tab = "System"; State.gesture = nil; render() end)
+local pageBasePosition = UDim2.fromOffset(200, 76)
+local function animatePageIn(page)
+    if not page or not page.Visible then return end
+    page.Position = UDim2.fromOffset(214, 76)
+    animate(page, {Position = pageBasePosition})
+end
+
+connect(UI.skillsTab.Activated, function()
+    State.tab = "Skills"; State.gesture = nil; render(); animatePageIn(body)
+end)
+connect(UI.espTab.Activated, function()
+    State.tab = "ESP"; State.gesture = nil; render(); animatePageIn(espBody)
+end)
+connect(UI.farmTab.Activated, function()
+    State.tab = "Farm"; State.gesture = nil; Farm.scan(true); Farm.step(); render(); animatePageIn(farmBody)
+end)
+connect(UI.healthTab.Activated, function()
+    State.tab = "Health"; State.gesture = nil; Guard.step(); render(); animatePageIn(healthBody)
+end)
+connect(UI.moveTab.Activated, function()
+    State.tab = "Move"; State.gesture = nil; Movement.step(0); render(); animatePageIn(moveBody)
+end)
+connect(UI.systemTab.Activated, function()
+    State.tab = "System"; State.gesture = nil; render(); animatePageIn(systemBody)
+end)
 connect(UI.badge.Activated, function()
     if State.tab == "ESP" then setESPEnabled(not Settings.ESPEnabled)
     elseif State.tab == "Farm" then Farm.setEnabled(not Settings.FarmEnabled)
@@ -4325,13 +4782,61 @@ connect(Input.WindowFocusReleased, function()
 end)
 connect(Input.WindowFocused, function() State.focused = true; render() end)
 connect(Player.CharacterRemoving, function()
-    stopFarm()
+    if Settings.AutoBoss then
+        Farm.autoResumePath = Farm.autoCurrent or Farm.pinned or Farm.autoLastPath
+        Farm.autoRespawnResume = Farm.autoResumePath ~= nil
+
+        Farm.autoCombatAt = 0
+        Farm.autoLastProgressAt = 0
+        Farm.autoLastHP = nil
+        Farm.autoEngaged = false
+        Farm.autoDefeated = false
+
+        Farm.stopM1()
+        Farm.clearLoot()
+        Farm.restoreHitbox()
+        Farm.release(false)
+
+        -- IMPORTANT: death does not change either of these switches.
+        Settings.AutoBoss = true
+        Settings.FarmEnabled = true
+
+        Farm.status = "AUTO BOSS RESPAWN"
+        Farm.detail = Farm.autoRespawnResume
+            and "Player died. Auto Boss stayed ON; same boss retained."
+            or "Player died. Auto Boss stayed ON."
+    else
+        stopFarm()
+    end
+
     Guard.release()
     Movement.restoreFly()
     Movement.restoreSpeed()
     Movement.restoreNoClip(true)
     Movement.character, Movement.humanoid, Movement.rootPart = nil, nil, nil
     releaseOrPause()
+end)
+
+connect(Player.CharacterAdded, function(character)
+    if not Settings.AutoBoss then return end
+
+    Settings.AutoBoss = true
+    Settings.FarmEnabled = true
+    Farm.nextScan = 0
+
+    task.spawn(function()
+        local humanoid = character:WaitForChild("Humanoid", 12)
+        local rootPart = character:WaitForChild("HumanoidRootPart", 12)
+        if not State.alive or not Settings.AutoBoss or not humanoid or not rootPart then return end
+
+        task.wait(0.35)
+        Farm.status = "AUTO BOSS RESPAWN"
+        Farm.detail = Farm.autoRespawnResume
+            and "Respawn complete. Returning to the SAME boss."
+            or "Respawn complete. Continuing Auto Boss."
+        Farm.step()
+        render()
+    end)
 end)
 
 -- Cancellable waits release held skills promptly on OFF, pause or unload.

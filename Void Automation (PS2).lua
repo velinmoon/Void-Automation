@@ -496,8 +496,7 @@ local Farm = {catalog = {}, remembered = {}, pinned = nil, records = {}, selecte
     autoVisited = {}, autoCurrent = nil, autoLastPath = nil, autoArrivedAt = 0,
     autoCombatAt = 0, autoLastProgressAt = 0, autoLastHP = nil, autoDefeated = false,
     autoRespawnResume = false, autoResumePath = nil,
-    autoCycles = 0, autoSkipped = 0, travelHealth = nil, hazardSkipped = {},
-    hazardWatchHealth = nil, hazardWatchSince = 0,
+    autoCycles = 0, autoSkipped = 0, travelHealth = nil, autoUnsafe = {}, autoSafeCFrame = nil,
     guardian = {lastHealth = nil, damageSince = 0, damageBase = nil, lastPosition = nil,
         lastPositionAt = 0, stuckSince = 0, lostSince = 0, verifyAt = 0, recoveries = 0,
         lastAction = "STANDBY", lastActionAt = 0}
@@ -1688,6 +1687,7 @@ do
     end
     local function resetAutoBossRoute(clearLast)
         Farm.autoVisited = {}
+        Farm.autoUnsafe = {}
         Farm.autoCurrent = nil
         Farm.autoArrivedAt = 0
         Farm.autoCombatAt = 0
@@ -1697,13 +1697,14 @@ do
         Farm.autoDefeated = false
         Farm.autoRespawnResume = false
         Farm.autoResumePath = nil
-        Farm.hazardSkipped = {}
-        Farm.hazardWatchHealth, Farm.hazardWatchSince = nil, 0
         local g = Farm.guardian
         g.lastHealth, g.damageSince, g.damageBase = nil, 0, nil
         g.lastPosition, g.lastPositionAt, g.stuckSince, g.lostSince = nil, 0, 0, 0
         g.verifyAt, g.recoveries, g.lastAction, g.lastActionAt = 0, 0, "STANDBY", 0
-        if clearLast then Farm.autoLastPath = nil end
+        if clearLast then
+            Farm.autoLastPath = nil
+            Farm.autoSafeCFrame = nil
+        end
     end
     local function autoBossLocation(entry)
         return entry and (entry.spawn or entry.position) or nil
@@ -1744,6 +1745,12 @@ do
 
         return bestSame or bestAny
     end
+    local function markAutoBossUnsafe(entry, reason)
+        if entry and entry.path then
+            Farm.autoUnsafe[entry.path] = {reason = reason or "ENVIRONMENTAL DAMAGE", at = os.clock()}
+        end
+    end
+
     local function pickAutoBoss(rootPart)
         Farm.scan(true)
         local position = rootPart and rootPart.Position
@@ -1753,7 +1760,7 @@ do
             for _, entry in ipairs(Farm.remembered) do
                 local location = autoBossLocation(entry)
                 if autoBossEligible(entry) and not Farm.autoVisited[entry.path]
-                    and not Farm.hazardSkipped[entry.path]
+                    and not Farm.autoUnsafe[entry.path]
                     and (not excludeLast or entry.path ~= Farm.autoLastPath) then
                     local distance = (location - position).Magnitude
                     if distance <= Settings.BossAutoRange and (not bestDistance or distance < bestDistance) then
@@ -1785,7 +1792,6 @@ do
         Farm.selected = entry.live
         Farm.travelKey, Farm.travelAt = nil, nil
         local g = Farm.guardian
-        Farm.hazardWatchHealth, Farm.hazardWatchSince = nil, 0
         g.lastHealth, g.damageSince, g.damageBase = nil, 0, nil
         g.lastPosition, g.lastPositionAt, g.stuckSince = rootPart.Position, os.clock(), 0
         g.verifyAt, g.recoveries, g.lastAction, g.lastActionAt = 0, 0, "TARGET SELECTED", os.clock()
@@ -1812,7 +1818,6 @@ do
         Farm.travelHealth = nil
         local g = Farm.guardian
         g.lastHealth, g.damageSince, g.damageBase = nil, 0, nil
-        Farm.hazardWatchHealth, Farm.hazardWatchSince = nil, 0
         g.lastPosition, g.lastPositionAt, g.stuckSince, g.lostSince = rootPart and rootPart.Position or nil, os.clock(), 0, 0
         g.verifyAt, g.recoveries, g.lastAction, g.lastActionAt = 0, 0, reason or "MOVING", os.clock()
         Farm.nextScan = 0
@@ -1946,7 +1951,9 @@ do
         Farm.fault = nil
         Farm.nextScan = 0
         if Settings.AutoBoss then
-
+            local startCharacter = Player.Character
+            local startRoot = startCharacter and (startCharacter:FindFirstChild("HumanoidRootPart") or startCharacter.PrimaryPart)
+            Farm.autoSafeCFrame = startCharacter and startCharacter.Parent and startCharacter:GetPivot() or (startRoot and startRoot.CFrame) or nil
             Settings.BossAutoSave = true
             Settings.FarmEnabled = true
             Farm.markDirty(); Farm.saveConfig(true)
@@ -2041,49 +2048,13 @@ do
             or not rootPart or not rootPart:IsA("BasePart") or rootPart.Anchored or humanoid.Sit or humanoid.SeatPart then
             pause("WAITING", "Waiting for your living, unseated character."); return
         end
-
-        -- Global pre-combat hazard watchdog. This runs before the pinned-boss travel
-        -- branch can return, so environmental damage such as snow/acid/lava cannot
-        -- trap Auto Boss at an empty saved location.
-        if Settings.AutoBoss then
-            if not Farm.autoEngaged then
-                local now = os.clock()
-                local liveBossPresent = false
-                if Farm.selected then
-                    local checkHP, checkMax, _, checkRoot = Farm.read(Farm.selected)
-                    liveBossPresent = checkHP and checkHP > 0 and checkRoot and attackHealthAllowed(checkMax)
-                end
-                if liveBossPresent then
-                    -- Damage from the actual boss before the first confirmed hit is combat,
-                    -- not an environmental hazard. Let the normal first-hit logic handle it.
-                    Farm.hazardWatchHealth, Farm.hazardWatchSince = nil, 0
-                elseif Farm.hazardWatchHealth == nil then
-                    Farm.hazardWatchHealth, Farm.hazardWatchSince = humanoid.Health, now
-                elseif humanoid.Health < Farm.hazardWatchHealth - 0.25 then
-                    local entry = Farm.autoCurrent and Farm.catalog[Farm.autoCurrent] or (Farm.pinned and Farm.catalog[Farm.pinned])
-                    if entry and entry.path then Farm.hazardSkipped[entry.path] = true end
-                    Farm.hazardWatchHealth, Farm.hazardWatchSince = nil, 0
-                    local nextEntry = advanceAutoBoss("Environmental damage before boss contact; skipping unsafe location", rootPart, true)
-                    if not nextEntry then
-                        Settings.AutoBoss = false
-                        resetAutoBossRoute(false)
-                        Farm.release(false)
-                        Farm.status = "DANGER STOP"
-                        Farm.detail = "Auto Boss stopped because no safe saved boss location remained."
-                    end
-                    return
-                elseif now - Farm.hazardWatchSince >= 1.25 then
-                    -- Rebase periodically so one old HP value cannot trigger a false hazard
-                    -- after a harmless small hit or regeneration cycle.
-                    Farm.hazardWatchHealth, Farm.hazardWatchSince = humanoid.Health, now
-                end
-            else
-                Farm.hazardWatchHealth, Farm.hazardWatchSince = nil, 0
-            end
-        else
-            Farm.hazardWatchHealth, Farm.hazardWatchSince = nil, 0
+        if Settings.AutoBoss and not Farm.autoEngaged and guardianObservePlayer(humanoid, rootPart, false) then
+            local unsafeEntry = Farm.autoCurrent and Farm.catalog[Farm.autoCurrent] or nil
+            markAutoBossUnsafe(unsafeEntry, "DAMAGE BEFORE BOSS COMBAT")
+            Farm.guardian.lastAction, Farm.guardian.lastActionAt = "UNSAFE LOCATION", os.clock()
+            advanceAutoBoss("Guardian: damage detected before boss combat; skipping location", rootPart, true)
+            return
         end
-
         if Settings.AutoBoss then
             local entry
 
@@ -2104,8 +2075,19 @@ do
             if not entry or not autoBossEligible(entry) then entry = pickAutoBoss(rootPart) end
             if not entry then
                 Farm.stopM1(); Farm.restoreHitbox()
-                Farm.status = "AUTO BOSS WAITING"
-                Farm.detail = string.format("No saved boss location within %.0f studs. Discover or import locations first.", Settings.BossAutoRange)
+                local unsafeCount = 0
+                for _ in pairs(Farm.autoUnsafe) do unsafeCount = unsafeCount + 1 end
+                if unsafeCount > 0 and Farm.autoSafeCFrame and character and character.Parent then
+                    pcall(function() character:PivotTo(Farm.autoSafeCFrame) end)
+                    rootPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                    rootPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
+                    Farm.status = "AUTO BOSS SAFE RETURN"
+                    Farm.detail = string.format("Environmental hazard detected. Returned to the last safe position; %d unsafe location%s skipped.", unsafeCount, unsafeCount == 1 and "" or "s")
+                else
+                    Farm.status = "AUTO BOSS WAITING"
+                    Farm.detail = unsafeCount > 0 and string.format("No safe saved boss location available (%d unsafe location%s skipped).", unsafeCount, unsafeCount == 1 and "" or "s")
+                        or string.format("No saved boss location within %.0f studs. Discover or import locations first.", Settings.BossAutoRange)
+                end
                 return
             end
             Farm.pinned = entry.path
@@ -2170,24 +2152,11 @@ do
 
                 if Farm.travelHealth and humanoid.Health < Farm.travelHealth - 0.01 then
                     local damagedHealth = humanoid.Health
-                    local currentEntry = Farm.catalog[Farm.pinned]
                     Farm.travelHealth = nil
                     if Settings.AutoBoss then
-                        -- Environmental damage while travelling means this saved location is unsafe
-                        -- (snow/acid/lava/etc.). Mark it hazardous for the current route so the picker
-                        -- cannot immediately send the character back to the same damaging location.
-                        if currentEntry and currentEntry.path then
-                            Farm.hazardSkipped[currentEntry.path] = true
-                        end
-                        Farm.autoVisited[currentEntry and currentEntry.path or "__hazard__"] = true
-                        local nextEntry = advanceAutoBoss("No boss loaded; environmental damage detected, skipping unsafe location", rootPart, true)
-                        if not nextEntry then
-                            Settings.AutoBoss = false
-                            resetAutoBossRoute(false)
-                            Farm.release(false)
-                            Farm.status = "DANGER STOP"
-                            Farm.detail = string.format("Unsafe saved location caused damage (%.0f HP). Auto Boss stopped safely.", damagedHealth)
-                        end
+                        markAutoBossUnsafe(entry, "ENVIRONMENTAL DAMAGE")
+                        Farm.guardian.lastAction, Farm.guardian.lastActionAt = "UNSAFE LOCATION", os.clock()
+                        advanceAutoBoss("Environmental damage detected; skipping unsafe location", rootPart, true)
                     else
                         pause("DANGER", string.format("No boss loaded; damage detected (%.0f HP). Returning to safety.", damagedHealth))
                     end
@@ -2210,7 +2179,8 @@ do
                 rootPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
                 if Settings.AutoBoss and not Farm.autoRespawnResume
                     and os.clock() - Farm.autoArrivedAt >= Settings.BossNoAttackTimeout then
-                    advanceAutoBoss("No live attack target after 5s; skipped", rootPart, true)
+                    markAutoBossUnsafe(entry, "NO BOSS AT SAVED LOCATION")
+                    advanceAutoBoss("No live attack target after 5s; skipping location", rootPart, true)
                     return
                 end
                 Farm.status = Settings.AutoBoss
@@ -2247,15 +2217,11 @@ do
 
         if Settings.AutoBoss then
             local engaged = Farm.autoEngaged == true
-            if not engaged and humanoid.Health <= 0 then
-                local entry = Farm.autoCurrent and Farm.catalog[Farm.autoCurrent] or Farm.catalog[Farm.pinned]
-                if entry and entry.path then Farm.hazardSkipped[entry.path] = true end
-                advanceAutoBoss("Guardian: environmental hazard killed the player before a boss was damaged", rootPart, true)
-                return
-            end
             if guardianObservePlayer(humanoid, rootPart, engaged) then
-                Farm.guardian.lastAction, Farm.guardian.lastActionAt = "DAMAGE WITHOUT COMBAT", os.clock()
-                advanceAutoBoss("Guardian: player taking damage with no boss being damaged", rootPart, true)
+                local unsafeEntry = Farm.autoCurrent and Farm.catalog[Farm.autoCurrent] or nil
+                markAutoBossUnsafe(unsafeEntry, "DAMAGE WITHOUT COMBAT")
+                Farm.guardian.lastAction, Farm.guardian.lastActionAt = "UNSAFE LOCATION", os.clock()
+                advanceAutoBoss("Guardian: environmental damage with no boss; skipping location", rootPart, true)
                 return
             end
 
@@ -2357,6 +2323,11 @@ do
 
                     Farm.autoEngaged = true
                     Farm.autoLastProgressAt = now
+                    if Farm.autoCurrent then Farm.autoUnsafe[Farm.autoCurrent] = nil end
+                    local safeCharacter = Player.Character
+                    if safeCharacter and safeCharacter.Parent then
+                        Farm.autoSafeCFrame = safeCharacter:GetPivot()
+                    end
                     Farm.guardian.recoveries = 0
                     Farm.guardian.lastAction, Farm.guardian.lastActionAt = "BOSS DAMAGED", now
                 end
@@ -2371,9 +2342,10 @@ do
         stepM1()
         Farm.status = Settings.AutoBoss and "AUTO BOSS FARMING" or "FARMING"
         Farm.detail = Settings.AutoBoss
-            and string.format("%s | %s | Guardian: %s | route %d visited, %d skipped", Farm.m1Status, Farm.selected.name,
+            and string.format("%s | %s | Guardian: %s | route %d visited, %d skipped, %d unsafe", Farm.m1Status, Farm.selected.name,
                 Farm.guardianStatus(),
-                (function() local n=0 for _ in pairs(Farm.autoVisited) do n=n+1 end return n end)(), Farm.autoSkipped)
+                (function() local n=0 for _ in pairs(Farm.autoVisited) do n=n+1 end return n end)(), Farm.autoSkipped,
+                (function() local n=0 for _ in pairs(Farm.autoUnsafe) do n=n+1 end return n end)())
             or (Farm.m1Status .. " | " .. Farm.selected.name)
     end
     function Farm.step()
@@ -4340,18 +4312,13 @@ BH.front.AnchorPoint = Vector2.new(0.5, 0.5)
 BH.front.Position = UDim2.fromOffset(W * 0.5, 76)
 BH.front.ZIndex = 7
 
--- Responsive orbit geometry: the HTML uses a 300x152 hero. Roblox keeps the hero
--- height compact, so the orbit radii/segments are recalculated from the live width
--- instead of stretching the old 420px geometry into long straight bars.
-function BH.makeOrbit(group, rxRatio, ry, count, width, z, palette, phaseOffset, lengthRatio, maxLength)
-    local data = {group = group, rxRatio = rxRatio, ry = ry, count = count, segments = {},
-        lengthRatio = lengthRatio or 0.105, maxLength = maxLength or 72}
+function BH.makeOrbit(group, rx, ry, count, width, z, palette, phaseOffset)
+    local data = {group = group, rx = rx, ry = ry, segments = {}}
     for i = 1, count do
         local angle = ((i - 1) / count) * math.pi * 2 + (phaseOffset or 0)
-        local seed = 0.82 + ((i * 17) % 23) / 100
-        local segmentLength = math.floor(math.max(18, math.min(data.maxLength, W * data.lengthRatio * seed)))
+        local segmentLength = math.floor(math.max(20, rx * (0.20 + ((i % 3) * 0.035))))
         local color = palette[((i - 1) % #palette) + 1]
-        local glow = frame(group, "Glow" .. i, 0, 0, segmentLength + 10, width + 7, color, math.floor((width + 7) / 2))
+        local glow = frame(group, "Glow" .. i, 0, 0, segmentLength + 8, width + 6, color, math.floor((width + 6) / 2))
         glow.AnchorPoint = Vector2.new(0.5, 0.5)
         glow.BackgroundTransparency = 0.90
         glow.ZIndex = z
@@ -4359,22 +4326,22 @@ function BH.makeOrbit(group, rxRatio, ry, count, width, z, palette, phaseOffset,
         seg.AnchorPoint = Vector2.new(0.5, 0.5)
         seg.BackgroundTransparency = 0.08
         seg.ZIndex = z + 1
-        data.segments[#data.segments + 1] = {seg = seg, glow = glow, angle = angle, width = width, seed = seed}
+        data.segments[#data.segments + 1] = {seg = seg, glow = glow, angle = angle, length = segmentLength, width = width}
     end
     return data
 end
 
 BH.backRing1 = BH.makeOrbit(
-    BH.backA, 0.50, 28, 11, 5, 3,
-    {Color3.fromRGB(238,241,251), Color3.fromRGB(160,140,205), Color3.fromRGB(122,63,242), Color3.fromRGB(72,38,130)}, 0.18, 0.095, 68
+    BH.backA, 216, 28, 9, 5, 3,
+    {Color3.fromRGB(238,241,251), Color3.fromRGB(160,140,205), Color3.fromRGB(122,63,242), Color3.fromRGB(72,38,130)}, 0.18
 )
 BH.backRing2 = BH.makeOrbit(
-    BH.backB, 0.39, 20, 9, 3, 3,
-    {Color3.fromRGB(122,63,242), Color3.fromRGB(155,130,215), Color3.fromRGB(238,241,251)}, -0.35, 0.080, 58
+    BH.backB, 166, 20, 7, 3, 3,
+    {Color3.fromRGB(122,63,242), Color3.fromRGB(155,130,215), Color3.fromRGB(238,241,251)}, -0.35
 )
 BH.frontRing = BH.makeOrbit(
-    BH.front, 0.535, 34, 10, 4, 7,
-    {Color3.fromRGB(42,20,88), Color3.fromRGB(238,241,251), Color3.fromRGB(190,176,230), Color3.fromRGB(122,63,242)}, 0.55, 0.105, 74
+    BH.front, 226, 34, 8, 4, 7,
+    {Color3.fromRGB(42,20,88), Color3.fromRGB(238,241,251), Color3.fromRGB(190,176,230), Color3.fromRGB(122,63,242)}, 0.55
 )
 
 BH.scan = frame(BH.hero, "Scan", 0, -58, W, 54, Color3.fromRGB(238,241,251), 0)
@@ -4392,25 +4359,72 @@ BH.scanGradient = make("UIGradient", BH.scan, {
 
 BH.clock = os.clock()
 BH.last = BH.clock
+BH.lastWidth = W
+
+function BH.updateLayout(force)
+    if not BH.hero or not BH.hero.Parent then return end
+    local heroWidth = math.max(W, math.floor((windowWidth or W) + 0.5))
+    local scale = heroWidth / W
+    if not force and math.abs(heroWidth - (BH.lastWidth or W)) < 1 then return end
+    BH.lastWidth = heroWidth
+
+    local cx, cy = heroWidth * 0.5, 76
+    local coreScale = math.clamp(1 + (scale - 1) * 0.55, 1, 1.85)
+    local glowSize = math.floor((82 + 18 * coreScale) * coreScale)
+    local horizonSize = math.floor(58 * coreScale)
+    local coreSize = math.floor(56 * coreScale)
+
+    BH.core.Position = UDim2.fromOffset(cx, cy)
+    BH.coreGlow.Position = UDim2.fromOffset(cx, cy)
+    BH.horizonSilver.Position = UDim2.fromOffset(cx, cy)
+    BH.horizonPurple.Position = UDim2.fromOffset(cx, cy)
+    BH.coreGlow.Size = UDim2.fromOffset(glowSize, glowSize)
+    BH.core.Size = UDim2.fromOffset(coreSize, coreSize)
+    BH.horizonSilver.Size = UDim2.fromOffset(horizonSize, horizonSize)
+    BH.horizonPurple.Size = UDim2.fromOffset(horizonSize, horizonSize)
+
+    local orbitScale = math.clamp(0.95 + (scale - 1) * 0.42, 0.95, 1.72)
+    local verticalScale = math.clamp(0.98 + (scale - 1) * 0.12, 0.98, 1.20)
+    for _, orbit in ipairs({BH.backA, BH.backB, BH.front}) do
+        orbit.Size = UDim2.fromOffset(heroWidth, 152)
+        orbit.Position = UDim2.fromOffset(cx, cy)
+    end
+
+    for _, ring in ipairs({BH.backRing1, BH.backRing2, BH.frontRing}) do
+        for _, seg in ipairs(ring.segments) do
+            local angle = seg.angle
+            local rx = ring.rx * orbitScale
+            local ry = ring.ry * verticalScale
+            local x = cx + math.cos(angle) * rx
+            local y = cy + math.sin(angle) * ry
+            local tx, ty = -rx * math.sin(angle), ry * math.cos(angle)
+            local rotation = math.deg(math.atan2(ty, tx))
+            -- Expand the orbit field with the panel, but keep individual dashes compact
+            -- so they remain segmented instead of becoming giant bars on wide windows.
+            local dashScale = math.clamp(0.92 + (scale - 1) * 0.18, 0.92, 1.35)
+            local dashLength = math.clamp(math.floor(seg.length * dashScale), 18, 82)
+            seg.seg.Size = UDim2.fromOffset(dashLength, seg.width)
+            seg.glow.Size = UDim2.fromOffset(dashLength + 8, seg.width + 6)
+            seg.seg.Position = UDim2.fromOffset(x, y)
+            seg.seg.Rotation = rotation
+            seg.glow.Position = UDim2.fromOffset(x, y)
+            seg.glow.Rotation = rotation
+        end
+    end
+
+    BH.scan.Size = UDim2.fromOffset(heroWidth, 54)
+end
+
 connect(RunService.RenderStepped, function()
     if not State.alive or not BH.hero.Parent or not BH.hero.Visible then return end
     local now = os.clock()
     local dt = math.min(now - BH.last, 0.05)
     BH.last = now
     local t = now - BH.clock
-    local heroWidth = math.max(420, BH.hero.AbsoluteSize.X)
-    -- Keep the 152px hero height usable while making the artwork genuinely
-    -- responsive. The core stays physically stable; the orbit field expands
-    -- horizontally and gains a little vertical curvature as the panel grows.
-    local widthScale = heroWidth / 420
-    local curveScale = math.clamp(widthScale, 1, 1.70)
-    local cx = heroWidth * 0.5
-    local cy = 76
-    local coreScale = math.clamp(0.96 + math.min(widthScale - 1, 0.8) * 0.08, 0.96, 1.03)
-    BH.core.Position = UDim2.fromOffset(cx, cy)
-    BH.coreGlow.Position = UDim2.fromOffset(cx, cy)
-    BH.horizonSilver.Position = UDim2.fromOffset(cx, cy)
-    BH.horizonPurple.Position = UDim2.fromOffset(cx, cy)
+    local heroWidth = math.max(W, math.floor((windowWidth or W) + 0.5))
+    local cx, cy = heroWidth * 0.5, 76
+
+    BH.updateLayout(false)
 
     for _, star in ipairs(BH.stars) do
         star.y = star.y + dt * 1.5
@@ -4424,34 +4438,24 @@ connect(RunService.RenderStepped, function()
     BH.front.Rotation = (-t * 7.5) % 360
 
     local pulse = (math.sin(t * 1.25) + 1) * 0.5
-    local glowSize = (82 + math.floor(pulse * 18)) * coreScale
-    BH.coreGlow.Size = UDim2.fromOffset(math.floor(glowSize), math.floor(glowSize))
+    local coreScale = math.clamp(1 + ((heroWidth / W) - 1) * 0.55, 1, 1.85)
+    local glowSize = math.floor((82 + 18 * coreScale) * coreScale)
+    BH.coreGlow.Size = UDim2.fromOffset(glowSize, glowSize)
     BH.coreGlow.BackgroundTransparency = 0.94 - pulse * 0.08
-    local horizonSize = math.floor(58 * coreScale)
-    local coreSize = math.floor(56 * coreScale)
-    BH.core.Size = UDim2.fromOffset(coreSize, coreSize)
-    BH.horizonSilver.Size = UDim2.fromOffset(horizonSize, horizonSize)
-    BH.horizonPurple.Size = UDim2.fromOffset(horizonSize, horizonSize)
     BH.silverStroke.Transparency = 0.16 + pulse * 0.18
     BH.purpleStroke.Transparency = 0.28 + (1 - pulse) * 0.20
 
-    for _, orbit in ipairs({BH.backA, BH.backB, BH.front}) do
-        orbit.Size = UDim2.fromOffset(heroWidth, 152)
-        orbit.Position = UDim2.fromOffset(cx, cy)
-    end
-
     for _, ring in ipairs({BH.backRing1, BH.backRing2, BH.frontRing}) do
-        local rx = math.max(120, heroWidth * ring.rxRatio)
-        local ry = math.min(56, ring.ry * curveScale)
         for _, seg in ipairs(ring.segments) do
             local angle = seg.angle
+            local scale = heroWidth / W
+            local orbitScale = math.clamp(0.95 + (scale - 1) * 0.42, 0.95, 1.72)
+            local verticalScale = math.clamp(0.98 + (scale - 1) * 0.12, 0.98, 1.20)
+            local rx, ry = ring.rx * orbitScale, ring.ry * verticalScale
             local x = cx + math.cos(angle) * rx
             local y = cy + math.sin(angle) * ry
             local tx, ty = -rx * math.sin(angle), ry * math.cos(angle)
             local rotation = math.deg(math.atan2(ty, tx))
-            local liveLength = math.floor(math.max(18, math.min(ring.maxLength, heroWidth * ring.lengthRatio * seg.seed)))
-            seg.seg.Size = UDim2.fromOffset(liveLength, seg.width)
-            seg.glow.Size = UDim2.fromOffset(liveLength + 10, seg.width + 7)
             seg.seg.Position = UDim2.fromOffset(x, y)
             seg.seg.Rotation = rotation
             seg.glow.Position = UDim2.fromOffset(x, y)
@@ -4460,7 +4464,6 @@ connect(RunService.RenderStepped, function()
         end
     end
 
-    BH.scan.Size = UDim2.fromOffset(heroWidth, 54)
     BH.scan.Position = UDim2.fromOffset(0, -58 + ((t * 34) % 268))
     BH.scanGradient.Offset = Vector2.new(0, ((t * 0.14) % 2) - 1)
 end)
@@ -4900,6 +4903,7 @@ local function applyWindowWidth(width)
             star.x = (star.baseX or star.x) * (windowWidth / W)
             star.object.Position = UDim2.fromOffset(math.floor(star.x), math.floor(star.y))
         end
+        if BH.updateLayout then BH.updateLayout(true) end
         tabs.Position = UDim2.fromOffset(0, 216)
         content.Position = UDim2.fromOffset(0, 280)
         content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)

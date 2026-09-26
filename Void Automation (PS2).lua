@@ -1943,7 +1943,10 @@ do
         Farm.fault = nil
         Farm.nextScan = 0
         if Settings.AutoBoss then
-            -- Auto Boss owns the automatic NoClip state.
+            -- Auto Boss owns the automatic NoClip state. A new Auto Boss run gets
+            -- exactly one safe landing when it is later disabled.
+            Movement.stopLandingActive = false
+            Movement.stopLandingDone = false
             Settings.NoClip = true
             Movement.updateTBlock()
 
@@ -2806,6 +2809,8 @@ Movement = {
     speedHumanoid = nil, speedOriginal = nil,
     flyHumanoid = nil, flyAutoRotate = nil,
     stopLiftToken = 0,
+    stopLandingActive = false,
+    stopLandingDone = false,
     tBlocked = false,
     status = "MOVEMENT",
     detail = "No Clip activates automatically only while Auto Boss is active.",
@@ -3015,6 +3020,11 @@ end
 function Movement.prepareStopLanding(character, rootPart)
     if not character or not rootPart or not rootPart.Parent then return end
     if not Settings.NoClip then return end
+    -- This is a one-shot transition for an Auto Boss disable. Prevent any other
+    -- stop path or repeated callback from lifting the character again.
+    if Movement.stopLandingDone or Movement.stopLandingActive then return end
+    Movement.stopLandingActive = true
+    Movement.stopLandingDone = true
 
     Movement.stopLiftToken = Movement.stopLiftToken + 1
     local token = Movement.stopLiftToken
@@ -3049,7 +3059,7 @@ function Movement.prepareStopLanding(character, rootPart)
         -- Extremely defensive fallback: keep the character suspended until a valid
         -- surface can be found rather than allowing a lethal fall.
         local pivot = character:GetPivot()
-        safePosition = pivot.Position + Vector3.new(0, Settings.NoClipStopLift + 10, 0)
+        safePosition = pivot.Position + Vector3.new(0, Settings.NoClipStopLift, 0)
         pcall(function()
             character:PivotTo(CFrame.new(safePosition))
             rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
@@ -3080,7 +3090,10 @@ function Movement.prepareStopLanding(character, rootPart)
             task.wait(0.05)
         end
 
-        if token ~= Movement.stopLiftToken or not character.Parent or not rootPart.Parent then return end
+        if token ~= Movement.stopLiftToken or not character.Parent or not rootPart.Parent then
+            Movement.stopLandingActive = false
+            return
+        end
 
         -- Keep the selected landing surface collidable. If it was temporarily made
         -- collidable because NoClip had disabled it, restoring it to false here would
@@ -3089,6 +3102,7 @@ function Movement.prepareStopLanding(character, rootPart)
         pcall(function() rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
         pcall(function() rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0) end)
         if not anchoredBefore then pcall(function() rootPart.Anchored = false end) end
+        Movement.stopLandingActive = false
     end)
 end
 
@@ -3274,11 +3288,9 @@ do
     end
 end
 
--- Emergency floor guard. It is completely dormant while Auto Boss/NoClip are active.
+-- One-time startup floor recovery only. Do NOT run this every frame: doing so
+-- would repeatedly teleport a falling character after Auto Boss is disabled.
 pcall(startupGroundRecovery)
-connect(RunService.Stepped, function()
-    if State.alive then startupGroundRecovery() end
-end)
 
 System = {
     configPath = "AutoSkills_System_v1.json",

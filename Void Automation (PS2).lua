@@ -113,7 +113,7 @@ local State = {
     alive = true, enabled = false, focused = true, minimized = false,
     heldKey = nil, lastKey = nil, fault = nil, gesture = nil,
     tab = "Skills", espCount = 0, espFault = nil,
-    uiScaleTarget = 0.82,
+    uiScaleTarget = 1.0,
 }
 local connections, tweens = {}, setmetatable({}, {__mode = "k"})
 local controller, UI = {}, {}
@@ -3499,1066 +3499,454 @@ local canvas = make("Frame", root, {
     BorderSizePixel = 0, Active = false,
 })
 
--- Lightweight VOID backdrop: static rings/cores reproduce the HTML atmosphere
--- without a per-frame starfield, keeping UI overhead low during farming.
-local voidBack = make("Frame", canvas, {
-    Name = "VoidBackdrop", Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.voidDeep,
-    BackgroundTransparency = 0.05, BorderSizePixel = 0, Active = false, ZIndex = 0,
+-- The supplied VOID NEXUS HTML is a 420x560 glass panel.  Roblox cannot use
+-- the HTML/SVG directly, so this recreates the same geometry, spacing, palette,
+-- typography hierarchy, toggles, sliders, navigation and resize behavior.
+local W, H = 420, 560
+local C = {
+    black = Color3.fromRGB(2, 1, 5),
+    deep = Color3.fromRGB(11, 6, 22),
+    panel = Color3.fromRGB(14, 8, 26),
+    panel2 = Color3.fromRGB(20, 10, 36),
+    violet = Color3.fromRGB(123, 47, 247),
+    violet2 = Color3.fromRGB(168, 85, 247),
+    magenta = Color3.fromRGB(217, 70, 199),
+    cyan = Color3.fromRGB(143, 227, 255),
+    ink = Color3.fromRGB(233, 226, 247),
+    dim = Color3.fromRGB(155, 143, 184),
+    faint = Color3.fromRGB(92, 82, 122),
+    line = Color3.fromRGB(82, 55, 122),
+    green = Color3.fromRGB(125, 255, 176),
+    amber = Color3.fromRGB(255, 199, 96),
+    red = Color3.fromRGB(255, 103, 127),
+}
+local uiScale = make("UIScale", canvas, {Scale = 1})
+local holder = make("Frame", canvas, {
+    Name = "Window", Size = UDim2.fromOffset(W, H), Position = UDim2.fromOffset(0, 0),
+    BackgroundTransparency = 1, BorderSizePixel = 0, Active = true,
 })
-local voidGlow = make("Frame", voidBack, {
-    Name = "Glow", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.44),
-    Size = UDim2.fromOffset(760, 760), BackgroundColor3 = Color3.fromRGB(27, 8, 49),
-    BackgroundTransparency = 0.72, BorderSizePixel = 0, ZIndex = 0,
-})
-corner(voidGlow, 380)
-local voidRingA = make("Frame", voidBack, {
-    Name = "RingA", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.44),
-    Size = UDim2.fromOffset(470, 470), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 0,
-})
-corner(voidRingA, 235); stroke(voidRingA, Color3.fromRGB(123, 47, 247), 0.68, 1)
-local voidRingB = make("Frame", voidBack, {
-    Name = "RingB", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.44),
-    Size = UDim2.fromOffset(620, 620), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 0,
-})
-corner(voidRingB, 310); stroke(voidRingB, Color3.fromRGB(217, 70, 199), 0.84, 1)
-local voidCore = make("Frame", voidBack, {
-    Name = "Core", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.44),
-    Size = UDim2.fromOffset(92, 92), BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-    BackgroundTransparency = 0.12, BorderSizePixel = 0, ZIndex = 0,
-})
-corner(voidCore, 46); stroke(voidCore, Color3.fromRGB(168, 85, 247), 0.34, 1)
-local holder = frame(canvas, "Window", 20, 40, W, H)
-holder.ZIndex = 10
-holder.BackgroundTransparency = 1
-local uiScale = make("UIScale", holder, {Scale = 1})
-local shadow = frame(holder, "Shadow", -7, 9, W + 14, H + 14, Color3.new(0, 0, 0), 18)
-shadow.BackgroundTransparency = 0.48
-local halo = frame(holder, "EdgeGlow", -2, -2, W + 4, H + 4, C.accent, 16)
-halo.BackgroundTransparency = 0.88
+local shadow = frame(holder, "Shadow", -6, 8, W + 12, H + 12, Color3.new(0, 0, 0), 15)
+shadow.BackgroundTransparency = 0.58
+shadow.ZIndex = 0
 local panel = frame(holder, "Panel", 0, 0, W, H, C.panel, 14)
-panel.Active, panel.ClipsDescendants = true, true
-stroke(panel, C.accent, 0.16, 1)
+panel.ZIndex = 2
+panel.Active = true
+panel.ClipsDescendants = true
+stroke(panel, Color3.fromRGB(168, 120, 255), 0.28, 1)
 make("UIGradient", panel, {
     Rotation = 90,
     Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(24, 11, 40)),
-        ColorSequenceKeypoint.new(0.42, Color3.fromRGB(13, 7, 25)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(3, 2, 8)),
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(23, 12, 39)),
+        ColorSequenceKeypoint.new(0.45, Color3.fromRGB(14, 7, 26)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(5, 2, 12)),
     }),
 })
-local accentLine = frame(panel, "AccentLine", 0, 58, W, 1, C.accent)
-make("UIGradient", accentLine, {
-    Color = ColorSequence.new(C.magenta, C.bright),
+
+local function safeText(parent, name, text, x, y, w, h, size, color, font)
+    return label(parent, name, text, x, y, w, h, size, color, font)
+end
+
+-- Small vector-like Roblox UI glyphs. These avoid Unicode symbols/SVG text so
+-- the panel does not turn into broken squares on different Roblox fonts.
+local function navIcon(parent, kind, x, y, color)
+    local box = frame(parent, "Icon", x, y, 19, 19, Color3.new(1, 1, 1), 0)
+    box.BackgroundTransparency = 1
+    local function bar(name, bx, by, bw, bh, rot, col, rad)
+        local b = frame(box, name, bx, by, bw, bh, col or color, rad or 1)
+        b.Rotation = rot or 0
+        return b
+    end
+    if kind == "skills" then
+        bar("A", 2, 2, 10, 2, 45); bar("B", 7, 2, 10, 2, -45)
+        bar("C", 2, 15, 10, 2, -45); bar("D", 7, 15, 10, 2, 45)
+        frame(box, "Core", 8, 8, 3, 3, color, 3)
+    elseif kind == "esp" then
+        local eye = frame(box, "Eye", 1, 6, 17, 7, Color3.new(1,1,1), 7)
+        eye.BackgroundTransparency = 1; stroke(eye, color, 0, 1)
+        frame(box, "Pupil", 8, 8, 3, 3, color, 3)
+    elseif kind == "health" then
+        bar("H", 8, 2, 3, 15, 0); bar("V", 2, 8, 15, 3, 0)
+    elseif kind == "farm" then
+        local diamond = frame(box, "Diamond", 4, 4, 11, 11, Color3.new(1,1,1), 1)
+        diamond.BackgroundTransparency = 1; diamond.Rotation = 45; stroke(diamond, color, 0, 1)
+        local core = frame(box, "Core", 8, 8, 3, 3, color, 3)
+    elseif kind == "move" then
+        bar("Stem", 9, 3, 2, 12, 0)
+        bar("Left", 5, 4, 7, 2, 45); bar("Right", 8, 4, 7, 2, -45)
+        bar("Base", 3, 16, 13, 2, 0)
+    else
+        local shell = frame(box, "Shell", 3, 3, 13, 13, Color3.new(1,1,1), 2)
+        shell.BackgroundTransparency = 1; stroke(shell, color, 0, 1)
+        frame(box, "Center", 8, 8, 3, 3, color, 3)
+    end
+    return box
+end
+
+-- Header ---------------------------------------------------------------
+local header = make("Frame", panel, {
+    Name = "Header", Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(W, 64),
+    BackgroundColor3 = C.panel, BackgroundTransparency = 0.08, BorderSizePixel = 0,
+    Active = true, ZIndex = 5,
+})
+make("UIGradient", header, {
+    Rotation = 90,
+    Color = ColorSequence.new(C.violet, C.panel),
     Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0.8), NumberSequenceKeypoint.new(0.35, 0),
-        NumberSequenceKeypoint.new(0.7, 0), NumberSequenceKeypoint.new(1, 0.8),
+        NumberSequenceKeypoint.new(0, 0.82), NumberSequenceKeypoint.new(1, 1),
     }),
 })
-local header = button(panel, "HeaderDrag", "", 0, 0, W - 170, 58, C.panel)
-header.BackgroundTransparency = 1
-local logo = frame(header, "Logo", 18, 13, 32, 32, C.surface, 7)
-stroke(logo, C.accent, 0.08, 1)
-make("UIGradient", logo, {
-    Rotation = 45,
-    Color = ColorSequence.new(Color3.fromRGB(49, 20, 82), Color3.fromRGB(168, 85, 247)),
+local headerLine = frame(header, "Line", 0, 63, W, 1, C.violet, 0)
+headerLine.BackgroundTransparency = 0.48
+local brandmark = frame(header, "BrandMark", 18, 18, 26, 26, C.panel2, 13)
+stroke(brandmark, C.violet2, 0.12, 1)
+local markCore = frame(brandmark, "Core", 9, 9, 8, 8, C.violet2, 8)
+local markH = frame(brandmark, "H", 3, 12, 20, 1, C.violet2, 1)
+local markV = frame(brandmark, "V", 12, 3, 1, 20, C.cyan, 1)
+local brandTitle = safeText(header, "Title", "VOID NEXUS", 55, 14, 210, 20, 15, C.ink, Enum.Font.GothamBlack)
+brandTitle.TextStrokeTransparency = 0.85
+safeText(header, "Sub", "CORE LINK STABLE", 55, 35, 190, 13, 9, C.faint, Enum.Font.GothamBold)
+local statusDot = frame(header, "StatusDot", W - 84, 27, 6, 6, C.green, 6)
+local statusGlow = stroke(statusDot, C.green, 0.45, 1)
+UI.badge = make("TextButton", header, {
+    Name = "Status", Text = "SYNCED", Position = UDim2.fromOffset(W - 72, 18),
+    Size = UDim2.fromOffset(58, 24), BackgroundTransparency = 1, BorderSizePixel = 0,
+    TextColor3 = C.dim, TextSize = 10, Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Right, AutoButtonColor = false, Active = true,
 })
-local logoText = label(logo, "Mark", "V", 0, 0, 32, 32, 17, C.bright, Enum.Font.GothamBold)
-logoText.TextXAlignment = Enum.TextXAlignment.Center
-local brand = label(header, "Title", "V O I D   N E X U S", 68, 9, 300, 22, 14, C.text, Enum.Font.GothamBold)
-label(header, "Edition", "CORE LINK", 390, 9, 130, 22, 10, C.magenta, Enum.Font.GothamBold)
-label(header, "SubTitle", "CORE LINK STABLE", 68, 31, 280, 15, 8, C.dim, Enum.Font.GothamMedium)
-UI.badge = button(panel, "HeaderToggle", "OFF", W - 190, 17, 72, 25, C.surface, 10)
-stroke(UI.badge, C.line, 0.3)
-local minimize = button(panel, "Minimize", "-", W - 108, 15, 32, 28, C.surface, 19)
-local close = button(panel, "Unload", "x", W - 66, 15, 32, 28, C.surface, 15)
-hover(minimize, C.muted, C.text)
-hover(close, C.muted, C.red)
-local tabs = frame(panel, "Tabs", 14, 70, W - 28, 50, C.surface, 10)
-stroke(tabs, C.line, 0.28)
-label(tabs, "MenuTitle", "VOID CHANNELS", 10, 4, 110, 12, 8, C.dim, Enum.Font.GothamBold)
 
--- Text-only tab labels intentionally avoid emoji/icon glyphs: the previous glyphs
--- could render as broken squares on some Roblox fonts.
-local tabW, tabGap = 100, 6
-UI.skillsTab = button(tabs, "SkillsTab", "SKILLS", 8, 17, tabW, 28, C.raised, 10)
-UI.espTab = button(tabs, "ESPTab", "ESP", 8 + (tabW + tabGap) * 1, 17, tabW, 28, C.surface, 10)
-UI.healthTab = button(tabs, "HealthTab", "HEALTH", 8 + (tabW + tabGap) * 2, 17, tabW, 28, C.surface, 10)
-UI.farmTab = button(tabs, "FarmTab", "FARM", 8 + (tabW + tabGap) * 3, 17, tabW, 28, C.surface, 10)
-UI.moveTab = button(tabs, "MoveTab", "MOVE", 8 + (tabW + tabGap) * 4, 17, tabW, 28, C.surface, 10)
-UI.systemTab = button(tabs, "SystemTab", "SYSTEM", 8 + (tabW + tabGap) * 5, 17, tabW, 28, C.surface, 10)
-
+-- Navigation -----------------------------------------------------------
+local tabs = frame(panel, "Nav", 0, 64, W, 64, C.black, 0)
+tabs.BackgroundTransparency = 0.35
+tabs.ZIndex = 5
+stroke(tabs, C.line, 0.55, 1)
+local navNames = {"Skills", "ESP", "Health", "Farm", "Move", "System"}
+local navKinds = {"skills", "esp", "health", "farm", "move", "system"}
+local navButtons = {}
 UI.navStrokes, UI.navBars = {}, {}
-for _, entry in ipairs({
-    {"Skills", UI.skillsTab}, {"ESP", UI.espTab}, {"Health", UI.healthTab},
-    {"Farm", UI.farmTab}, {"Move", UI.moveTab}, {"System", UI.systemTab},
-}) do
-    local key, tab = entry[1], entry[2]
-    tab.TextXAlignment = Enum.TextXAlignment.Left
-    tab.UICorner.CornerRadius = UDim.new(0, 9)
-    UI.navStrokes[key] = stroke(tab, C.accent, 0.86, 1)
-    UI.navBars[key] = frame(tab, "ActiveBar", 8, 26, 84, 2, C.accent, 2)
+local navX, navW, navGap = 12, 59, 5
+for i, key in ipairs(navNames) do
+    local b = button(tabs, key .. "Tab", string.upper(key), navX + (i - 1) * (navW + navGap), 10, navW, 44, Color3.fromRGB(8, 4, 16), 9)
+    b.ZIndex = 6
+    b.TextTransparency = 0
+    b.TextColor3 = C.faint
+    b.TextSize = 8.6
+    b.Font = Enum.Font.GothamBold
+    b.TextYAlignment = Enum.TextYAlignment.Bottom
+    b.TextXAlignment = Enum.TextXAlignment.Center
+    b.Text = string.upper(key)
+    navIcon(b, navKinds[i], 20, 5, C.faint)
+    UI.navStrokes[key] = stroke(b, C.line, 0.88, 1)
+    UI.navBars[key] = frame(b, "ActiveBar", 8, 40, 43, 2, C.violet2, 2)
+    UI.navBars[key].Visible = false
+    navButtons[key] = b
 end
+UI.skillsTab = navButtons.Skills
+UI.espTab = navButtons.ESP
+UI.healthTab = navButtons.Health
+UI.farmTab = navButtons.Farm
+UI.moveTab = navButtons.Move
+UI.systemTab = navButtons.System
 
-for key, tab in pairs({
-    Skills = UI.skillsTab, ESP = UI.espTab, Health = UI.healthTab,
-    Farm = UI.farmTab, Move = UI.moveTab, System = UI.systemTab,
-}) do
-    connect(tab.MouseEnter, function()
-        if State.tab ~= key then
-            animate(tab, {BackgroundColor3 = Color3.fromRGB(33, 16, 52), TextColor3 = C.bright})
-        end
-    end)
-    connect(tab.MouseLeave, function()
-        if State.tab ~= key then
-            animate(tab, {BackgroundColor3 = C.surface, TextColor3 = C.dim})
-        end
-    end)
+-- Content --------------------------------------------------------------
+local content = make("Frame", panel, {
+    Name = "Content", Position = UDim2.fromOffset(0, 128), Size = UDim2.fromOffset(W, H - 128),
+    BackgroundTransparency = 1, BorderSizePixel = 0, Active = false, ZIndex = 3,
+})
+
+local function newPage(name)
+    local page = make("ScrollingFrame", content, {
+        Name = name .. "Page", Position = UDim2.fromOffset(0, 0), Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3,
+        ScrollBarImageColor3 = C.violet2, ScrollBarImageTransparency = 0.55,
+        CanvasSize = UDim2.fromOffset(0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        Visible = false, Active = true, ZIndex = 4,
+    })
+    return page
 end
-
-local sidebarInfo = frame(panel, "SidebarInfo", 14, 130, 1, 1, C.surface, 12)
-sidebarInfo.Visible = false
-stroke(sidebarInfo, C.line, 0.45)
-label(sidebarInfo, "Label", "SESSION", 14, 12, 138, 15, 9, C.dim, Enum.Font.GothamBold)
-UI.sidebarState = label(sidebarInfo, "State", "CONNECTED", 14, 36, 138, 18, 11, C.green, Enum.Font.GothamBold)
-label(sidebarInfo, "Hint1", "F7  Unload", 14, 70, 138, 18, 10, C.muted, Enum.Font.GothamMedium)
-label(sidebarInfo, "Hint2", "R-Shift  Hide UI", 14, 94, 138, 18, 10, C.muted, Enum.Font.GothamMedium)
-label(sidebarInfo, "Hint3", "F6  Skills", 14, 118, 138, 18, 10, C.muted, Enum.Font.GothamMedium)
-label(sidebarInfo, "Version", "VOID NEXUS", 14, 173, 138, 18, 9, C.dim, Enum.Font.GothamBold)
-local body = frame(panel, "Controls", 14, 130, W - 28, H - 130)
-body.BackgroundTransparency = 1
-local master = frame(body, "MasterCard", 24, 0, 392, 80, C.raised, 13)
-UI.masterStroke = stroke(master, C.accent, 0.65)
-label(master, "Eyebrow", "AUTOMATION", 18, 10, 220, 14, 9, C.bright, Enum.Font.GothamBold)
-label(master, "Title", "Auto skills", 18, 27, 260, 24, 19, C.text, Enum.Font.GothamBold)
-label(master, "Hint", "One switch. Your selected skills on repeat.", 18, 53, 278, 15, 10, C.muted)
-
+local function pageHead(parent, iconKind, title, moduleText)
+    local head = frame(parent, "PaneHead", 16, 14, W - 32, 28, Color3.new(1,1,1), 0)
+    head.BackgroundTransparency = 1
+    navIcon(head, iconKind, 0, 4, C.violet2)
+    safeText(head, "Title", title, 27, 1, 220, 20, 12, C.ink, Enum.Font.GothamBold)
+    local m = safeText(head, "Modules", moduleText, 230, 1, 160, 20, 9, C.faint, Enum.Font.GothamBold)
+    m.TextXAlignment = Enum.TextXAlignment.Right
+    return head
+end
 local toggleViews = {}
-local function toggle(parent, name, x, y, width, height, getter, setter)
-    local track = button(parent, name, "", x, y, width, height, C.line)
-    track.UICorner.CornerRadius = UDim.new(1, 0)
-    local knob = frame(track, "Knob", 4, 4, height - 8, height - 8, C.muted, height)
-    toggleViews[#toggleViews + 1] = {
-        track = track, knob = knob, getter = getter, last = nil, width = width, height = height,
-    }
-    connect(track.Activated, function() setter(not getter()); render() end)
-    return track
-end
-toggle(master, "MasterToggle", 318, 26, 54, 28, function() return State.enabled end, setEnabled)
-label(body, "KeysLabel", "SKILL KEYS", 24, 103, 220, 15, 10, C.muted, Enum.Font.GothamBold)
-UI.count = label(body, "SelectedCount", "4 / 4 ENABLED", 266, 103, 150, 15, 10, C.accent, Enum.Font.GothamMedium)
-UI.count.TextXAlignment = Enum.TextXAlignment.Right
-UI.keys = {}
-for index, skill in ipairs(Skills) do
-    local current = skill
-    local keyButton = button(body, "Skill_" .. current.name, "", 24 + (index - 1) * 100, 126, 92, 76, C.raised)
-    keyButton.UICorner.CornerRadius = UDim.new(0, 12)
-    local border = stroke(keyButton, C.accent, 0.58)
-    local keyText = label(keyButton, "Key", current.name, 14, 9, 42, 32, 26, C.bright, Enum.Font.GothamBold)
-    local dot = frame(keyButton, "EnabledDot", 72, 17, 6, 6, C.accent, 6)
-    local hint = label(keyButton, "State", "ENABLED", 14, 48, 72, 14, 9, C.muted, Enum.Font.GothamMedium)
-    local flash = frame(keyButton, "InputFlash", 14, 69, 64, 2, C.bright, 2)
-    flash.BackgroundTransparency = 1
-    UI.keys[index] = {button = keyButton, border = border, keyText = keyText, dot = dot,
-        hint = hint, flash = flash, selected = nil, pressed = nil}
-    connect(keyButton.Activated, function()
-        current.enabled = not current.enabled
-        if not current.enabled and State.heldKey == current.key then releaseOrPause() end
+local sliders = {}
+
+local function makeRow(parent, y, name, desc, getter, setter)
+    local row = frame(parent, "Row_" .. tostring(y), 16, y, W - 32, 52, Color3.fromRGB(18, 10, 30), 10)
+    stroke(row, C.line, 0.72, 1)
+    safeText(row, "Name", name, 12, 7, 270, 18, 13, C.ink, Enum.Font.GothamMedium)
+    safeText(row, "Desc", desc, 12, 27, 270, 15, 10, C.faint, Enum.Font.GothamMedium)
+    local track = button(row, "Toggle", "", W - 32 - 54, 14, 42, 23, Color3.fromRGB(32, 24, 43), 12)
+    track.ZIndex = 7
+    local knob = frame(track, "Knob", 3, 3, 17, 17, C.faint, 17)
+    knob.ZIndex = 8
+    local view = {track = track, knob = knob, getter = getter, last = nil}
+    toggleViews[#toggleViews + 1] = view
+    connect(track.Activated, function()
+        setter(not getter())
         render()
     end)
+    return row, view
 end
-
-local timing = frame(body, "TimingCard", 24, 222, 392, 168, C.surface, 13)
-stroke(timing, C.line, 0.45)
-label(timing, "Heading", "TIMING", 16, 11, 100, 16, 10, C.muted, Enum.Font.GothamBold)
-UI.cycle = label(timing, "CycleTime", "", 152, 11, 224, 16, 10, C.dim, Enum.Font.GothamMedium)
-UI.cycle.TextXAlignment = Enum.TextXAlignment.Right
-local sliders = {}
-local function slider(name, title, property, y, minimum, maximum, options)
-    options = options or {}
-    local parent = options.parent or timing
-    label(parent, name .. "Label", title, 16, y, 180, 18, 12, C.text, Enum.Font.GothamMedium)
-    local valueLabel = label(parent, name .. "Value", "", 272, y, 104, 18, 12, C.bright, Enum.Font.Code)
-    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
-    local hit = button(parent, name .. "Slider", "", 16, y + 19, 360, 22, C.surface)
+local function makeSlider(parent, y, name, getter, setter, min, max, format)
+    local row = frame(parent, "Slider_" .. tostring(y), 16, y, W - 32, 72, Color3.fromRGB(18, 10, 30), 10)
+    stroke(row, C.line, 0.72, 1)
+    safeText(row, "Name", name, 12, 8, 240, 18, 13, C.ink, Enum.Font.GothamMedium)
+    local val = safeText(row, "Value", "", W - 120, 8, 104, 18, 11, C.cyan, Enum.Font.GothamBold)
+    val.TextXAlignment = Enum.TextXAlignment.Right
+    local hit = button(row, "Slider", "", 12, 35, W - 56, 24, Color3.new(1,1,1), 1)
     hit.BackgroundTransparency = 1
-    local rail = frame(hit, "Rail", 0, 9, 360, 4, C.line, 3)
-    local fill = frame(rail, "Fill", 0, 0, 0, 4, C.accent, 3)
-    local knob = frame(hit, "Handle", 0, 11, 12, 12, C.bright, 7)
-    knob.AnchorPoint = Vector2.new(0.5, 0.5)
-    stroke(knob, C.accent, 0.6, 2)
-    local view = {property = property, hit = hit, fill = fill, knob = knob,
-        valueLabel = valueLabel, minimum = minimum, maximum = maximum,
-        format = options.format or "%.2f s"}
+    local rail = frame(hit, "Rail", 0, 10, W - 56, 4, Color3.fromRGB(47, 32, 65), 3)
+    local fill = frame(rail, "Fill", 0, 0, 0, 4, C.violet2, 3)
+    local knob = frame(hit, "Knob", 0, 6, 14, 14, C.cyan, 14)
+    stroke(knob, C.deep, 0.15, 2)
+    local view = {property = name, hit = hit, fill = fill, knob = knob, valueLabel = val,
+        minimum = min, maximum = max, getter = getter, setter = setter, format = format or "%.0f"}
     sliders[#sliders + 1] = view
     local function updateFromX(x)
-        if hit.AbsoluteSize.X <= 0 then return end
-        local fraction = math.clamp((x - hit.AbsolutePosition.X) / hit.AbsoluteSize.X, 0, 1)
-        local step = options.step or 0.01
-        Settings[property] = math.clamp(math.floor((minimum + fraction * (maximum - minimum)) / step + 0.5) * step,
-            minimum, maximum)
-        if options.onChange then options.onChange() end
+        local width = hit.AbsoluteSize.X
+        if width <= 0 then return end
+        local f = math.clamp((x - hit.AbsolutePosition.X) / width, 0, 1)
+        local value = min + (max - min) * f
+        setter(value)
         render()
     end
     view.updateFromX = updateFromX
     connect(hit.InputBegan, function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             State.gesture = {kind = "slider", input = input, view = view}
-            releaseOrPause()
             updateFromX(input.Position.X)
         end
     end)
-end
-slider("KeyGap", "Key gap", "KeyGap", 36, 0.03, 1.00)
-slider("HoldTime", "Key hold", "HoldTime", 82, 0.03, 2.00)
-local presets = {
-    {name = "Fast", gap = 0.06, hold = 0.04},
-    {name = "Balanced", gap = 0.15, hold = 0.05},
-    {name = "Relaxed", gap = 0.35, hold = 0.10},
-}
-for index, preset in ipairs(presets) do
-    local current = preset
-    current.button = button(timing, "Preset_" .. current.name, current.name, 16 + (index - 1) * 122, 134, 116, 24, C.panel, 10)
-    connect(current.button.Activated, function()
-        Settings.KeyGap, Settings.HoldTime = current.gap, current.hold
-        render()
-    end)
-end
-label(body, "TypingLabel", "Pause while typing in chat", 26, 408, 305, 24, 12, C.muted, Enum.Font.GothamMedium)
-toggle(body, "PauseTypingToggle", 376, 409, 40, 22,
-    function() return Settings.PauseWhileTyping end,
-    function(value)
-        Settings.PauseWhileTyping = value
-        if value and Input:GetFocusedTextBox() then releaseOrPause() end
-    end)
-label(body, "FocusLabel", "Pause when tabbed out", 26, 442, 305, 24, 12, C.muted, Enum.Font.GothamMedium)
-toggle(body, "PauseFocusToggle", 376, 443, 40, 22,
-    function() return Settings.PauseWhenUnfocused end,
-    function(value)
-        Settings.PauseWhenUnfocused = value
-        if value and not State.focused then releaseOrPause() end
-    end)
-local status = frame(body, "StatusCard", 24, 484, 392, 40, C.surface, 10)
-UI.statusDot = frame(status, "Dot", 13, 12, 6, 6, C.dim, 4)
-UI.status = label(status, "Status", "STANDBY", 26, 5, 354, 16, 9, C.muted, Enum.Font.GothamBold)
-UI.detail = label(status, "Detail", "", 13, 22, 366, 12, 9, C.muted)
-label(body, "Hotkeys", "F6  TOGGLE    /    F7  UNLOAD    /    R-SHIFT  HIDE", 26, 536, 390, 15, 9, C.dim, Enum.Font.GothamMedium)
-
-local espBody = frame(panel, "ESPControls", 14, 130, W - 28, H - 130)
-espBody.BackgroundTransparency, espBody.Visible = 1, false
-local espMaster = frame(espBody, "ESPMasterCard", 24, 0, 392, 80, C.raised, 13)
-UI.espMasterStroke = stroke(espMaster, C.accent, 0.65)
-label(espMaster, "Eyebrow", "PLAYER VISUALS", 18, 10, 220, 14, 9, C.bright, Enum.Font.GothamBold)
-label(espMaster, "Title", "Player ESP", 18, 27, 260, 24, 19, C.text, Enum.Font.GothamBold)
-label(espMaster, "Hint", "Outlines and live player information.", 18, 53, 278, 15, 10, C.muted)
-toggle(espMaster, "ESPMasterToggle", 318, 26, 54, 28,
-    function() return Settings.ESPEnabled end, setESPEnabled)
-label(espBody, "ESPOptionsLabel", "DISPLAY OPTIONS", 24, 103, 230, 15, 10, C.muted, Enum.Font.GothamBold)
-UI.espCount = label(espBody, "ESPCount", "0 TRACKED", 276, 103, 140, 15, 10, C.accent, Enum.Font.GothamMedium)
-UI.espCount.TextXAlignment = Enum.TextXAlignment.Right
-local espOptionsCard = frame(espBody, "ESPOptionsCard", 24, 126, 392, 206, C.surface, 13)
-stroke(espOptionsCard, C.line, 0.45)
-local espOptions = {
-    {property = "ESPShowNames", title = "Player names"},
-    {property = "ESPShowDistance", title = "Distance labels"},
-    {property = "ESPShowHealth", title = "Health bars"},
-    {property = "ESPThroughWalls", title = "Show through walls"},
-    {property = "ESPHideTeammates", title = "Hide teammates"},
-}
-for index, option in ipairs(espOptions) do
-    local current, y = option, 15 + (index - 1) * 36
-    label(espOptionsCard, current.property .. "Label", current.title, 16, y, 285, 24, 12, C.muted, Enum.Font.GothamMedium)
-    toggle(espOptionsCard, current.property .. "Toggle", 336, y + 1, 40, 22,
-        function() return Settings[current.property] end,
-        function(value) Settings[current.property] = value; refreshESP() end)
-end
-local espRange = frame(espBody, "ESPRangeCard", 24, 354, 392, 106, C.surface, 13)
-stroke(espRange, C.line, 0.45)
-label(espRange, "Heading", "RANGE", 16, 11, 220, 16, 10, C.muted, Enum.Font.GothamBold)
-slider("ESPRange", "Maximum distance", "ESPMaxDistance", 34, 100, 10000, {
-    parent = espRange, step = 50, format = "%.0f studs", onChange = refreshESP,
-})
-label(espRange, "Hint", "Players outside this range are hidden.", 16, 80, 360, 14, 9, C.dim)
-local espStatusCard = frame(espBody, "ESPStatusCard", 24, 484, 392, 40, C.surface, 10)
-UI.espStatusDot = frame(espStatusCard, "Dot", 13, 12, 6, 6, C.dim, 4)
-UI.espStatus = label(espStatusCard, "ESPStatus", "ESP OFF", 26, 5, 354, 16, 9, C.muted, Enum.Font.GothamBold)
-UI.espDetail = label(espStatusCard, "Detail", "", 13, 22, 366, 12, 9, C.muted)
-label(espBody, "ESPHotkeys", "F8  ESP    /    F7  UNLOAD    /    R-SHIFT  HIDE", 26, 536, 390, 15, 9, C.dim, Enum.Font.GothamMedium)
-
-local healthBody = frame(panel, "HealthControls", 14, 130, W - 28, H - 130)
-healthBody.BackgroundTransparency, healthBody.Visible = 1, false
-do
-    local master = frame(healthBody, "HealthMasterCard", 24, 0, 392, 80, C.raised, 13)
-    UI.healthMasterStroke = stroke(master, C.accent, 0.65)
-    label(master, "Eyebrow", "LOW HEALTH RESPONSE", 18, 10, 250, 14, 9, C.bright, Enum.Font.GothamBold)
-    label(master, "Title", "Health escape", 18, 27, 260, 24, 19, C.text, Enum.Font.GothamBold)
-    label(master, "Hint", "Teleport 70 studs above your current position.", 18, 53, 285, 15, 10, C.muted)
-    toggle(master, "HealthMasterToggle", 318, 26, 54, 28,
-        function() return Settings.HealthEscapeEnabled end, Guard.setEnabled)
-    local live = frame(healthBody, "HealthLiveCard", 24, 96, 392, 98, C.surface, 13)
-    stroke(live, C.line, 0.45)
-    label(live, "Heading", "LIVE HEALTH", 16, 10, 220, 16, 10, C.muted, Enum.Font.GothamBold)
-    UI.healthNumbers = label(live, "HealthNumbers", "-- / -- HP", 16, 32, 260, 28, 18, C.text, Enum.Font.GothamBold)
-    UI.healthNumbers.TextTruncate = Enum.TextTruncate.AtEnd
-    UI.healthPercent = label(live, "HealthPercent", "--%", 278, 29, 98, 32, 23, C.bright, Enum.Font.GothamBold)
-    UI.healthPercent.TextXAlignment = Enum.TextXAlignment.Right
-    local track = frame(live, "HealthTrack", 16, 75, 360, 6, C.line, 4)
-    UI.healthFill = frame(track, "HealthFill", 0, 0, 0, 6, C.green, 4)
-    UI.healthMarker = frame(track, "ThresholdMarker", 0, -3, 2, 12, C.red, 1)
-    UI.healthMarker.AnchorPoint = Vector2.new(0.5, 0)
-    local threshold = frame(healthBody, "HealthThresholdCard", 24, 210, 392, 112, C.surface, 13)
-    stroke(threshold, C.line, 0.45)
-    label(threshold, "Heading", "TRIGGER THRESHOLD", 16, 10, 260, 16, 10, C.muted, Enum.Font.GothamBold)
-    slider("HealthThreshold", "Teleport at or below", "HealthThreshold", 34, 1, 95, {
-        parent = threshold, step = 1, format = "%.0f%%",
-    })
-    UI.healthRearm = label(threshold, "RearmHint", "", 16, 82, 360, 16, 9, C.dim)
-    local sources = frame(healthBody, "HealthSourceCard", 24, 338, 392, 100, C.surface, 13)
-    stroke(sources, C.line, 0.45)
-    label(sources, "Heading", "HEALTH SOURCE", 16, 10, 240, 16, 10, C.muted, Enum.Font.GothamBold)
-    local rescan = button(sources, "HealthRescan", "Rescan", 314, 8, 62, 22, C.raised, 10)
-    local previousSource = button(sources, "HealthSourcePrevious", "<", 16, 36, 28, 28, C.raised, 13)
-    local nextSource = button(sources, "HealthSourceNext", ">", 348, 36, 28, 28, C.raised, 13)
-    UI.healthSource = label(sources, "HealthSourceName", "Auto", 52, 36, 288, 28, 11, C.bright, Enum.Font.GothamMedium)
-    UI.healthSource.TextTruncate = Enum.TextTruncate.AtEnd
-    UI.healthSourceDetail = label(sources, "HealthSourceDetail", "", 16, 73, 360, 16, 9, C.muted)
-    UI.healthSourceDetail.TextTruncate = Enum.TextTruncate.AtEnd
-    connect(previousSource.Activated, function() Guard.cycleSource(-1) end)
-    connect(nextSource.Activated, function() Guard.cycleSource(1) end)
-    connect(rescan.Activated, function() Guard.nextScan = 0; Guard.step() end)
-    label(healthBody, "HealthLockLabel", "Lock after teleport", 26, 451, 200, 22, 11, C.text)
-    UI.healthRelease = button(healthBody, "HealthRelease", "Release", 278, 450, 72, 26, C.raised, 10)
-    toggle(healthBody, "HealthLockToggle", 364, 451, 50, 24,
-        function() return Settings.HealthLock end, Guard.setLock)
-    connect(UI.healthRelease.Activated, function() Guard.release(); Guard.step() end)
-    local status = frame(healthBody, "HealthStatusCard", 24, 484, 392, 40, C.surface, 10)
-    UI.healthStatusDot = frame(status, "Dot", 13, 12, 6, 6, C.dim, 4)
-    UI.healthStatus = label(status, "HealthStatus", "OFF", 26, 5, 354, 16, 9, C.muted, Enum.Font.GothamBold)
-    UI.healthDetail = label(status, "HealthDetail", "", 13, 22, 366, 12, 9, C.muted)
-    UI.healthDetail.TextTruncate = Enum.TextTruncate.AtEnd
-    label(healthBody, "HealthHotkeys", "F9  HEALTH    /    F7  UNLOAD    /    R-SHIFT  HIDE",
-        26, 536, 390, 15, 9, C.dim, Enum.Font.GothamMedium)
+    return row
 end
 
-local farmBody = frame(panel, "FarmControls", 14, 130, W - 28, H - 130)
-farmBody.BackgroundTransparency, farmBody.Visible = 1, false
-do
-    local master = frame(farmBody, "FarmMasterCard", 24, 0, 392, 80, C.raised, 13)
-    stroke(master, C.accent, 0.65)
-    label(master, "Eyebrow", "BOSS TRACKING", 18, 10, 250, 14, 9, C.bright, Enum.Font.GothamBold)
-    label(master, "Title", "Auto farm", 18, 27, 260, 24, 19, C.text, Enum.Font.GothamBold)
-    label(master, "Hint", "Auto-target NPCs and attack upward from below.", 18, 53, 285, 15, 10, C.muted)
-    toggle(master, "FarmMasterToggle", 318, 26, 54, 28,
-        function() return Settings.FarmEnabled end, Farm.setEnabled)
-    local targets = frame(farmBody, "FarmTargetCard", 24, 96, 392, 172, C.surface, 13)
-    stroke(targets, C.line, 0.45)
-    UI.farmCount = label(targets, "FarmCount", "DETECTED TARGETS", 16, 10, 275, 16, 10, C.muted, Enum.Font.GothamBold)
-    local rescan = button(targets, "FarmRescan", "Rescan", 314, 8, 62, 22, C.raised, 10)
-    local previous = button(targets, "FarmPrevious", "<", 16, 38, 28, 28, C.raised, 13)
-    local nextTarget = button(targets, "FarmNext", ">", 348, 38, 28, 28, C.raised, 13)
-    UI.farmName = button(targets, "FarmTargetName", "Choose boss", 52, 38, 288, 28, C.raised, 14)
-    UI.farmID = label(targets, "FarmTargetID", "--", 16, 72, 360, 16, 11, C.muted)
-    UI.farmHP = label(targets, "FarmTargetHealth", "--", 16, 94, 360, 18, 12, C.green)
-    UI.farmParts = label(targets, "FarmTargetParts", "--", 16, 118, 360, 16, 10, C.muted)
-    UI.farmPath = label(targets, "FarmTargetPath", "--", 16, 142, 188, 16, 9, C.dim)
-    label(targets, "AutoBossLabel", "Auto Boss", 216, 141, 100, 18, 10, C.bright, Enum.Font.GothamBold)
-    toggle(targets, "AutoBossToggle", 326, 138, 50, 24,
-        function() return Settings.AutoBoss end, Farm.setAutoBoss)
-    for _, view in ipairs({UI.farmName, UI.farmID, UI.farmHP, UI.farmParts, UI.farmPath}) do
-        view.TextTruncate = Enum.TextTruncate.AtEnd
-    end
-    connect(rescan.Activated, function() Farm.scan(true); Farm.step(); render() end)
-    connect(previous.Activated, function() Farm.cycle(-1) end)
-    connect(nextTarget.Activated, function() Farm.cycle(1) end)
-    local picker = frame(farmBody, "BossPicker", 24, 96, 392, 432, C.panel, 13)
-    picker.Visible, picker.ZIndex, picker.Active = false, 20, true
-    local title = label(picker,"PickerTitle","REMEMBERED BOSSES",16,10,300,24,14,C.bright)
-    title.ZIndex = 21
-    local close = button(picker,"CloseBossPicker","X",348,10,28,26,C.raised,12); close.ZIndex=21
-    connect(close.Activated,function() picker.Visible=false end)
-    local configOpen = button(picker,"OpenBossConfig","Boss config",240,46,128,28,C.raised,11);configOpen.ZIndex=21
-    local list = make("ScrollingFrame",picker,{Name="BossList",Position=UDim2.fromOffset(12,82),
-        Size=UDim2.fromOffset(368,310),BackgroundTransparency=1,BorderSizePixel=0,
-        ScrollBarThickness=4,ZIndex=21,Active=true,CanvasSize=UDim2.fromOffset(0,0)})
-    local note=label(picker,"PickerNote","Boss config: autosave, first-run discovery and route controls.",12,400,368,20,10,C.muted)
-    note.ZIndex=21
-    local config = frame(farmBody,"BossConfig",24,96,392,432,C.panel,13)
-    config.Visible,config.ZIndex,config.Active=false,25,true
-    local function top(object) object.ZIndex=26;return object end
-    top(label(config,"ConfigTitle","BOSS LOCATIONS / CONFIG",16,12,300,24,14,C.bright))
-    local configClose=top(button(config,"CloseBossConfig","X",348,10,28,26,C.raised,12))
-    connect(configClose.Activated,function() config.Visible=false end)
-    connect(configOpen.Activated,function() picker.Visible=false;config.Visible=true end)
-    -- Available without opening the picker, including during first-run travel.
-    local quickConfig=button(master,"QuickBossConfig","Config",246,8,60,22,C.surface,10)
-    connect(quickConfig.Activated,function() picker.Visible=false;config.Visible=not config.Visible end)
-    local function configToggle(name,text,y,key)
-        top(label(config,name.."Label",text,16,y,288,24,11,C.text))
-        toggle(config,name,326,y,50,24,function() return Settings[key] end,
-            function(value) Farm.setConfig(key,value) end)
-    end
-    configToggle("BossSaveToggle","Autosave boss locations",50,"BossAutoSave")
-    configToggle("BossFirstRunToggle","Legacy moving discovery on first run",86,"BossFirstDiscovery")
-    configToggle("BossGridToggle","Grid search beyond timer markers",122,"BossGridSearch")
-    UI.bossDwell=top(button(config,"BossDwell","",16,160,174,30,C.raised,11))
-    UI.bossRadius=top(button(config,"BossRadius","",202,160,174,30,C.raised,11))
-    connect(UI.bossDwell.Activated,function()
-        local values={1,1.5,2.5,4};local nextValue=1
-        for i,v in ipairs(values) do if v==Settings.BossDwell then nextValue=values[i%#values+1];break end end
-        Farm.setConfig("BossDwell",nextValue)
-    end)
-    connect(UI.bossRadius.Activated,function()
-        local values={1024,2048,4096,8192};local nextValue=1024
-        for i,v in ipairs(values) do if v==Settings.BossGridRadius then nextValue=values[i%#values+1];break end end
-        Farm.setConfig("BossGridRadius",nextValue)
-    end)
-    UI.bossDiscover=top(button(config,"BossDiscovery","Start discovery",16,202,222,32,C.raised,12))
-    connect(UI.bossDiscover.Activated,function()
-        if State.discovering or Farm.pendingDiscovery then Farm.stopDiscovery() else Farm.startDiscovery() end
-    end)
-    local saveNow=top(button(config,"BossSaveNow","Save now",250,202,126,32,C.raised,12))
-    connect(saveNow.Activated,function() Farm.markDirty();Farm.saveConfig(true,false,true) end)
-    UI.bossSaveStatus=top(label(config,"BossSaveStatus","",16,246,360,36,11,C.muted))
-    UI.bossDiscoveryStatus=top(label(config,"BossDiscoveryStatus","",16,286,360,44,11,C.bright))
-    UI.bossSaveStatus.TextWrapped,UI.bossDiscoveryStatus.TextWrapped=true,true
-    local help=top(label(config,"BossConfigHelp",
-        "Static scan is primary and never moves you. This legacy grid route is only a fallback for content Roblox will not replicate from spawn.",
-        16,372,360,46,9,C.muted));help.TextWrapped=true
-    local shareOpen=top(button(config,"BossShareOpen","Export / import location code",16,334,360,30,C.raised,12))
-    local share=frame(farmBody,"BossSharePanel",24,96,392,432,C.panel,13)
-    share.Visible,share.ZIndex,share.Active=false,30,true
-    local title=label(share,"ShareTitle","SHARE BOSS LOCATIONS",16,12,315,24,14,C.bright);title.ZIndex=31
-    local back=button(share,"BossShareBack","X",348,10,28,26,C.raised,12);back.ZIndex=31
-    local hint=label(share,"ShareHint","Export yours, or paste another player's complete code.",16,42,360,24,10,C.muted);hint.ZIndex=31
-    local codeBox=make("TextBox",share,{Name="BossShareCode",Position=UDim2.fromOffset(16,74),
-        Size=UDim2.fromOffset(360,200),BackgroundColor3=C.surface,TextColor3=C.text,TextSize=11,
-        Font=Enum.Font.Code,Text="",PlaceholderText="ASLOC1:...",ClearTextOnFocus=false,MultiLine=true,
-        TextWrapped=true,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Top,
-        BorderSizePixel=0,ZIndex=31})
-    local export=button(share,"BossExportCode","Export",16,286,112,32,C.raised,12);export.ZIndex=31
-    local copy=button(share,"BossCopyCode","Copy",140,286,112,32,C.raised,12);copy.ZIndex=31
-    local import=button(share,"BossImportCode","Import",264,286,112,32,C.raised,12);import.ZIndex=31
-    local status=label(share,"BossShareStatus","Same Roblox place only. Existing locations are kept.",16,328,360,44,11,C.bright)
-    status.TextWrapped,status.ZIndex=true,31
-    local note=label(share,"ShareNote","Import loads the location list; bosses load when you travel there. Autosave keeps imported locations if file support is available.",16,378,360,42,10,C.muted)
-    note.TextWrapped,note.ZIndex=true,31
-    connect(shareOpen.Activated,function()
-        Farm.stopDiscovery("Paused for location-code import/export")
-        config.Visible=false;share.Visible=true
-    end)
-    connect(back.Activated,function() share.Visible=false;config.Visible=true end)
-    connect(export.Activated,function()
-        local code,message=Farm.exportCode()
-        if code then codeBox.Text=code end
-        status.Text=message
-    end)
-    connect(copy.Activated,function()
-        if codeBox.Text=="" then status.Text="Export a code first.";return end
-        local clipboard=type(setclipboard)=="function" and setclipboard or environment.setclipboard
-        if type(clipboard)=="function" then
-            local ok=pcall(clipboard,codeBox.Text)
-            if ok then status.Text="Copied. Send the complete code to the other player.";return end
-        end
-        pcall(function() codeBox:CaptureFocus();codeBox.SelectionStart=1;codeBox.CursorPosition=#codeBox.Text+1 end)
-        status.Text="Clipboard unavailable. Select the text and press Ctrl+C."
-    end)
-    connect(import.Activated,function()
-        local ok,message=Farm.importCode(codeBox.Text)
-        status.Text=message
-        if ok then pcall(function() codeBox:ReleaseFocus() end) end
-    end)
-    for _,object in ipairs(config:GetDescendants()) do
-        if object:IsA("GuiObject") then object.ZIndex=26 end
-    end
-    connect(UI.farmName.Activated,function()
-        Farm.scan(true)
-        for _, child in ipairs(list:GetChildren()) do child:Destroy() end
-        local function row(text,key,index)
-            local item=button(list,"BossOption"..index,text,0,index*38,356,34,C.raised,11)
-            item.ZIndex=22; item.TextTruncate=Enum.TextTruncate.AtEnd
-            item.Activated:Connect(function() picker.Visible=false; Farm.choose(key) end)
-        end
-        row("Auto nearest - loaded NPCs",nil,0)
-        for i,entry in ipairs(Farm.remembered) do
-            local hp,_,_,root=Farm.read(entry.live)
-            local state=hp and (hp<=0 and "dead" or (root and "loaded" or "partial")) or "unloaded"
-            row(entry.name.."  ["..state.."]",entry.path,i)
-        end
-        list.CanvasSize=UDim2.fromOffset(0,(#Farm.remembered+1)*38)
-        picker.Visible=true
-    end)
-    local options = frame(farmBody, "FarmOptionsCard", 24, 284, 392, 244, C.surface, 13)
-    stroke(options, C.line, 0.45)
-    label(options, "FilterLabel", "Target MaxHP: 3,000 - 3,200 (locked)", 16, 10, 280, 24, 11, C.text)
-    toggle(options, "FarmHealthOnlyToggle", 326, 10, 50, 24,
-        function() return true end, function()
-            Settings.FarmHealthOnly = true
-            Farm.selected, Farm.pinned = nil, nil; Farm.scan(true); render()
+local function addKeyLoadout(parent, y)
+    local box = frame(parent, "KeyLoadout", 16, y, W - 32, 56, Color3.fromRGB(18, 10, 30), 10)
+    stroke(box, C.line, 0.72, 1)
+    safeText(box, "Label", "SKILL LOADOUT", 12, 6, 120, 15, 9, C.faint, Enum.Font.GothamBold)
+    for i, skill in ipairs(Skills) do
+        local s = skill
+        local b = button(box, "Key" .. s.name, s.name, 132 + (i - 1) * 54, 9, 46, 34, C.panel2, 8)
+        b.TextSize = 14; b.Font = Enum.Font.GothamBold
+        connect(b.Activated, function()
+            s.enabled = not s.enabled
+            if not s.enabled and State.heldKey == s.key then releaseOrPause() end
+            render()
         end)
-    label(options, "SkillsLabel", "Use selected Z / X / C / V skills", 16, 45, 280, 24, 11, C.text)
-    toggle(options, "FarmSkillsToggle", 326, 45, 50, 24,
-        function() return Settings.FarmUseSkills end, function(value)
-            Settings.FarmUseSkills = value; releaseOrPause()
-        end)
-    label(options, "HitboxLabel", "Expand target hitbox (local)", 16, 79, 280, 24, 11, C.text)
-    toggle(options, "FarmHitboxToggle", 326, 79, 50, 24,
-        function() return Settings.FarmExpandHitbox end, function(value)
-            Settings.FarmExpandHitbox = value
-            if not value then Farm.restoreHitbox() end
-        end)
-    label(options, "M1Label", "Auto M1 (inventory pulse bypass)", 16, 113, 280, 24, 11, C.text)
-    toggle(options, "FarmM1Toggle", 326, 113, 50, 24,
-        function() return Settings.FarmM1 end, Farm.setM1)
-    label(options, "LootLabel", "Auto chest + ground loot", 16, 147, 280, 24, 11, C.text)
-    toggle(options, "FarmLootToggle", 326, 147, 50, 24,
-        function() return Settings.FarmAutoLoot end, Farm.setLoot)
-    slider("FarmDepth", "Below target root (default 7)", "FarmDepth", 183, 6, 7, {
-        parent = options, step = 0.1, format = "%.1f studs",
-    })
-    UI.farmHint = label(farmBody, "FarmHint", "Targets qualify by maximum HP, even after taking damage.", 26, 532, 390, 14, 9, C.dim)
-    local status = frame(farmBody, "FarmStatusCard", 24, 554, 392, 40, C.surface, 10)
-    UI.farmStatus = label(status, "FarmStatus", "OFF", 13, 5, 366, 16, 9, C.muted, Enum.Font.GothamBold)
-    UI.farmDetail = label(status, "FarmDetail", "", 13, 22, 366, 12, 9, C.muted)
-    UI.farmDetail.TextTruncate = Enum.TextTruncate.AtEnd
-    local oldFarmFooter = label(farmBody, "FarmFooter", "OFF returns to the farming start point. F7 unloads all.", 26, 604, 390, 14, 9, C.dim)
-
-    master.Visible = false
-    targets.Visible = false
-    options.Visible = false
-    status.Visible = false
-    UI.farmHint.Visible = false
-    oldFarmFooter.Visible = false
-
-    local pageWidth = W - 214
-    local ref = make("ScrollingFrame", farmBody, {
-        Name = "ReferenceFarmUI",
-        Position = UDim2.fromOffset(0, 0),
-        Size = UDim2.fromScale(1, 1),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        ScrollBarThickness = 3,
-        ScrollBarImageColor3 = C.accent,
-        CanvasSize = UDim2.fromOffset(0, 684),
-        Active = true,
-    })
-
-    local function refCard(name, x, y, w, h, color, radius)
-        local card = frame(ref, name, x, y, w, h, color or C.surface, radius or 11)
-        stroke(card, C.line, 0.22, 1)
-        return card
     end
-
-    -- Farm title banner.
-    local pageHeader = refCard("FarmPageHeader", 10, 0, pageWidth - 20, 82, C.surface, 12)
-    make("UIGradient", pageHeader, {
-        Rotation = 0,
-        Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(32, 14, 54)),
-            ColorSequenceKeypoint.new(0.58, Color3.fromRGB(17, 8, 31)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(7, 3, 13)),
-        }),
-    })
-    local farmIcon = label(pageHeader, "Icon", "F", 20, 16, 48, 48, 24, C.accent, Enum.Font.GothamBold)
-    farmIcon.TextXAlignment = Enum.TextXAlignment.Center
-    label(pageHeader, "Title", "Farm", 76, 13, 260, 34, 27, C.text, Enum.Font.GothamBold)
-    UI.farmHint = label(pageHeader, "Subtitle", "Automate farming, bosses and loot collection.", 78, 45, 560, 22, 12, C.muted, Enum.Font.GothamMedium)
-    UI.farmHeaderGlow = frame(pageHeader, "PortalGlow", pageWidth - 224, 0, 212, 82, C.accent, 12)
-    UI.farmHeaderGlow.BackgroundTransparency = 0.94
-    make("UIGradient", UI.farmHeaderGlow, {
-        Rotation = 20,
-        Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 1),
-            NumberSequenceKeypoint.new(0.55, 0.72),
-            NumberSequenceKeypoint.new(1, 0.92),
-        }),
-    })
-
-    -- General Farming.
-    local general = refCard("GeneralFarming", 14, 96, pageWidth - 28, 236, C.surface, 11)
-    local generalTop = frame(general, "Top", 0, 0, pageWidth - 28, 44, C.raised, 11)
-    label(generalTop, "Icon", "S", 18, 6, 28, 30, 18, C.accent, Enum.Font.GothamBold)
-    label(generalTop, "Title", "General Farming", 54, 7, 280, 28, 15, C.text, Enum.Font.GothamBold)
-    label(generalTop, "Arrow", "^", pageWidth - 78, 5, 32, 30, 18, C.bright, Enum.Font.GothamBold)
-
-    local splitX = math.floor((pageWidth - 28) * 0.48)
-    local divider = frame(general, "Divider", splitX, 58, 1, 160, C.line)
-    divider.BackgroundTransparency = 0.3
-
-    local function optionRow(y, titleText, hintText, toggleName, getter, setter)
-        label(general, toggleName .. "Title", titleText, 22, y, 240, 24, 13, C.text, Enum.Font.GothamBold)
-        label(general, toggleName .. "Hint", hintText, 22, y + 23, 300, 20, 10, C.muted, Enum.Font.GothamMedium)
-        return toggle(general, toggleName, splitX - 76, y + 5, 54, 28, getter, setter)
-    end
-
-    optionRow(58, "Auto Farm", "Automatically attack and farm nearby enemies.",
-        "RefAutoFarm", function() return Settings.FarmEnabled end, Farm.setEnabled)
-    optionRow(116, "Auto Boss", "Automatically find and farm bosses.",
-        "RefAutoBoss", function() return Settings.AutoBoss end, Farm.setAutoBoss)
-    optionRow(174, "Auto Loot", "Automatically collect drops and items.",
-        "RefAutoLoot", function() return Settings.FarmAutoLoot end, Farm.setLoot)
-
-    local rightX = splitX + 26
-    local rightW = (pageWidth - 28) - rightX - 18
-
-    label(general, "RangeTitle", "Farm Range", rightX, 57, 190, 22, 12, C.text, Enum.Font.GothamBold)
-    label(general, "RangeHint", "Detection range for farming (studs).", rightX, 78, 260, 18, 9, C.muted)
-    local rangeTrack = frame(general, "RangeTrack", rightX, 106, rightW - 108, 6, C.line, 4)
-    frame(rangeTrack, "Fill", 0, 0, math.floor((rightW - 108) * 0.68), 6, C.accent, 4)
-    local rangeKnob = frame(rangeTrack, "Knob", math.floor((rightW - 108) * 0.68) - 5, -4, 14, 14, C.text, 8)
-    stroke(rangeKnob, C.accent, 0.05, 2)
-    label(general, "RangeMin", "10K", rightX, 116, 70, 18, 9, C.muted)
-    local rangeMax = label(general, "RangeMax", "2M", rightX + rightW - 150, 116, 42, 18, 9, C.muted)
-    rangeMax.TextXAlignment = Enum.TextXAlignment.Right
-    local rangeBox = button(general, "RangeBox", "500K", rightX + rightW - 92, 88, 82, 32, C.panel, 11)
-    rangeBox.TextColor3 = C.text
-    stroke(rangeBox, C.line, 0.15)
-
-    label(general, "DelayTitle", "Boss Delay", rightX, 142, 180, 22, 12, C.text, Enum.Font.GothamBold)
-    label(general, "DelayHint", "Delay before skipping an untouched boss.", rightX, 163, 260, 18, 9, C.muted)
-    UI.refBossDelay = button(general, "BossDelay", string.format("%.1f", Settings.BossNoAttackTimeout),
-        rightX + rightW - 112, 145, 102, 32, C.panel, 11)
-    UI.refBossDelay.TextColor3 = C.text
-    stroke(UI.refBossDelay, C.line, 0.15)
-
-    connect(UI.refBossDelay.Activated, function()
-        local values = {3, 5, 7, 10}
-        local nextValue = 5
-        for i, value in ipairs(values) do
-            if math.abs(Settings.BossNoAttackTimeout - value) < 0.01 then
-                nextValue = values[i % #values + 1]
-                break
-            end
-        end
-        Settings.BossNoAttackTimeout = nextValue
-        render()
-    end)
-
-    label(general, "MethodTitle", "Farm Method", rightX, 194, 180, 22, 12, C.text, Enum.Font.GothamBold)
-    local method = button(general, "Method", "Nearest                             v",
-        rightX + 164, 191, rightW - 174, 34, C.panel, 11)
-    method.TextColor3 = C.text
-    method.TextXAlignment = Enum.TextXAlignment.Left
-    stroke(method, C.line, 0.15)
-
-    -- Target Settings.
-    local targetCard = refCard("TargetSettings", 14, 344, pageWidth - 28, 104, C.surface, 11)
-    local targetTop = frame(targetCard, "Top", 0, 0, pageWidth - 28, 40, C.raised, 11)
-    label(targetTop, "Icon", "T", 18, 5, 30, 28, 18, C.accent, Enum.Font.GothamBold)
-    label(targetTop, "Title", "Target Settings", 54, 5, 260, 28, 14, C.text, Enum.Font.GothamBold)
-    label(targetTop, "Arrow", "^", pageWidth - 78, 5, 32, 28, 18, C.bright, Enum.Font.GothamBold)
-
-    label(targetCard, "SelectTitle", "Select Enemies", 22, 49, 180, 20, 11, C.text, Enum.Font.GothamBold)
-    label(targetCard, "SelectHint", "Choose which enemies to farm.", 22, 68, 210, 18, 9, C.muted)
-
-    UI.farmName = button(targetCard, "FarmTargetName", "All Enemies", 235, 53, 208, 34, C.panel, 11)
-    UI.farmName.TextColor3 = C.text
-    UI.farmName.TextXAlignment = Enum.TextXAlignment.Left
-    stroke(UI.farmName, C.line, 0.15)
-
-    local targetDivider = frame(targetCard, "Divider", 472, 51, 1, 34, C.line)
-    targetDivider.BackgroundTransparency = 0.3
-    label(targetCard, "PriorityTitle", "Priority", 496, 49, 140, 20, 11, C.text, Enum.Font.GothamBold)
-    label(targetCard, "PriorityHint", "Target priority type.", 496, 68, 160, 18, 9, C.muted)
-    local priority = button(targetCard, "Priority", "Nearest                    v",
-        pageWidth - 250, 53, 208, 34, C.panel, 11)
-    priority.TextColor3 = C.text
-    priority.TextXAlignment = Enum.TextXAlignment.Left
-    stroke(priority, C.line, 0.15)
-
-    UI.farmID = label(targetCard, "HiddenID", "--", 0, 0, 1, 1, 1, C.dim)
-    UI.farmPath = label(targetCard, "HiddenPath", "--", 0, 0, 1, 1, 1, C.dim)
-    UI.farmParts = label(targetCard, "HiddenParts", "--", 0, 0, 1, 1, 1, C.dim)
-    UI.farmID.Visible, UI.farmPath.Visible, UI.farmParts.Visible = false, false, false
-
-    -- Advanced accordion.
-    local advancedBar = button(ref, "AdvancedBar", "", 14, 460, pageWidth - 28, 44, C.surface, 11)
-    stroke(advancedBar, C.line, 0.22)
-    label(advancedBar, "Icon", "A", 18, 6, 28, 28, 18, C.muted, Enum.Font.GothamBold)
-    label(advancedBar, "Title", "Advanced Options", 54, 6, 260, 28, 13, C.text, Enum.Font.GothamBold)
-    UI.advancedArrow = label(advancedBar, "Arrow", "v", pageWidth - 76, 5, 30, 30, 18, C.bright, Enum.Font.GothamBold)
-
-    local advancedContent = refCard("AdvancedContent", 14, 510, pageWidth - 28, 0, C.surface, 11)
-    advancedContent.Visible = false
-    advancedContent.ClipsDescendants = true
-
-    label(advancedContent, "SkillsTitle", "Use selected Z / X / C / V skills", 20, 14, 330, 22, 11, C.text)
-    toggle(advancedContent, "RefFarmSkills", pageWidth - 104, 14, 50, 24,
-        function() return Settings.FarmUseSkills end, function(value)
-            Settings.FarmUseSkills = value
-            releaseOrPause()
-        end)
-
-    label(advancedContent, "M1Title", "Auto M1 (inventory bypass)", 20, 48, 330, 22, 11, C.text)
-    toggle(advancedContent, "RefFarmM1", pageWidth - 104, 48, 50, 24,
-        function() return Settings.FarmM1 end, Farm.setM1)
-
-    label(advancedContent, "HitboxTitle", "Expand target hitbox (local)", 20, 82, 330, 22, 11, C.text)
-    toggle(advancedContent, "RefHitbox", pageWidth - 104, 82, 50, 24,
-        function() return Settings.FarmExpandHitbox end, function(value)
-            Settings.FarmExpandHitbox = value
-            if not value then Farm.restoreHitbox() end
-        end)
-
-    local configButton = button(advancedContent, "ConfigButton", "Boss Locations / Config", 20, 118, 190, 30, C.raised, 10)
-    configButton.TextColor3 = C.bright
-    local rescanButton = button(advancedContent, "RescanButton", "Rescan", 224, 118, 90, 30, C.raised, 10)
-    local depthButton = button(advancedContent, "DepthButton", "Depth: 7.0", 328, 118, 100, 30, C.raised, 10)
-
-    connect(configButton.Activated, function()
-        picker.Visible = false
-        share.Visible = false
-        config.Visible = not config.Visible
-    end)
-    connect(rescanButton.Activated, function()
-        Farm.scan(true)
-        Farm.step()
-        render()
-    end)
-    connect(depthButton.Activated, function()
-        Settings.FarmDepth = 7
-        render()
-    end)
-
-    -- Filters accordion.
-    local filterBar = button(ref, "FilterBar", "", 14, 516, pageWidth - 28, 44, C.surface, 11)
-    stroke(filterBar, C.line, 0.22)
-    label(filterBar, "Icon", "F", 18, 6, 28, 28, 18, C.muted, Enum.Font.GothamBold)
-    label(filterBar, "Title", "Filters", 54, 6, 260, 28, 13, C.text, Enum.Font.GothamBold)
-    UI.filterArrow = label(filterBar, "Arrow", "v", pageWidth - 76, 5, 30, 30, 18, C.bright, Enum.Font.GothamBold)
-
-    local filterContent = refCard("FilterContent", 14, 566, pageWidth - 28, 0, C.surface, 11)
-    filterContent.Visible = false
-    filterContent.ClipsDescendants = true
-    label(filterContent, "HPFilter", "Target MaxHP", 20, 12, 150, 22, 11, C.text, Enum.Font.GothamBold)
-    label(filterContent, "HPValue", "3,000 - 3,200  (locked)", 176, 12, 220, 22, 11, C.bright)
-    label(filterContent, "RangeFilter", "Boss route range", 20, 42, 150, 22, 11, C.text, Enum.Font.GothamBold)
-    label(filterContent, "RangeValue", "500,000 studs", 176, 42, 220, 22, 11, C.bright)
-
-    -- Status card.
-    local statusCard = refCard("ReferenceStatus", 14, 572, pageWidth - 28, 96, C.surface, 11)
-    local statusTop = frame(statusCard, "Top", 0, 0, pageWidth - 28, 38, C.raised, 11)
-    label(statusTop, "Icon", "I", 18, 4, 28, 28, 16, C.muted, Enum.Font.GothamBold)
-    label(statusTop, "Title", "Status", 54, 4, 160, 28, 13, C.text, Enum.Font.GothamBold)
-    UI.refRunDot = frame(statusTop, "Dot", pageWidth - 155, 14, 7, 7, C.green, 4)
-    UI.farmStatus = label(statusTop, "FarmStatus", "Running", pageWidth - 138, 5, 112, 26, 10, C.green, Enum.Font.GothamBold)
-
-    local statWidth = math.floor((pageWidth - 64) / 4)
-    label(statusCard, "TargetCaption", "Current Target", 20, 48, statWidth, 18, 9, C.muted)
-    UI.refTargetName = label(statusCard, "TargetName", "None", 20, 66, statWidth, 20, 11, C.accent, Enum.Font.GothamBold)
-    UI.farmHP = label(statusCard, "TargetHP", "--", 20, 84, statWidth, 1, 1, C.green)
-    UI.farmHP.Visible = false
-
-    local x2 = 20 + statWidth
-    frame(statusCard, "D1", x2 - 8, 48, 1, 34, C.line).BackgroundTransparency = 0.25
-    label(statusCard, "NearbyCaption", "Enemies Nearby", x2 + 10, 48, statWidth - 10, 18, 9, C.muted)
-    UI.farmCount = label(statusCard, "NearbyValue", "0", x2 + 10, 66, statWidth - 10, 20, 11, C.accent, Enum.Font.GothamBold)
-
-    local x3 = 20 + statWidth * 2
-    frame(statusCard, "D2", x3 - 8, 48, 1, 34, C.line).BackgroundTransparency = 0.25
-    label(statusCard, "ElapsedCaption", "Time Elapsed", x3 + 10, 48, statWidth - 10, 18, 9, C.muted)
-    UI.refElapsed = label(statusCard, "Elapsed", "00:00:00", x3 + 10, 66, statWidth - 10, 20, 11, C.accent, Enum.Font.GothamBold)
-
-    local x4 = 20 + statWidth * 3
-    frame(statusCard, "D3", x4 - 8, 48, 1, 34, C.line).BackgroundTransparency = 0.25
-    label(statusCard, "ItemsCaption", "Items Collected", x4 + 10, 48, statWidth - 10, 18, 9, C.muted)
-    UI.refItems = label(statusCard, "Items", "--", x4 + 10, 66, statWidth - 10, 20, 11, C.accent, Enum.Font.GothamBold)
-
-    UI.farmDetail = label(statusCard, "FarmDetail", "", 0, 0, 1, 1, 1, C.muted)
-    UI.farmDetail.Visible = false
-
-    -- New target dropdown uses the original remembered-boss data.
-    connect(UI.farmName.Activated, function()
-        Farm.scan(true)
-        for _, child in ipairs(list:GetChildren()) do child:Destroy() end
-
-        local function row(textValue, key, index)
-            local item = button(list, "RefBossOption" .. index, textValue, 0, index * 38, 356, 34, C.raised, 11)
-            item.ZIndex = 22
-            item.TextTruncate = Enum.TextTruncate.AtEnd
-            item.Activated:Connect(function()
-                picker.Visible = false
-                Farm.choose(key)
-            end)
-        end
-
-        row("Auto nearest - loaded NPCs", nil, 0)
-        for i, entry in ipairs(Farm.remembered) do
-            local hp, _, _, rootPart = Farm.read(entry.live)
-            local stateText = hp and (hp <= 0 and "dead" or (rootPart and "loaded" or "partial")) or "unloaded"
-            row(entry.name .. "  [" .. stateText .. "]", entry.path, i)
-        end
-
-        list.CanvasSize = UDim2.fromOffset(0, (#Farm.remembered + 1) * 38)
-        picker.Visible = true
-    end)
-
-    for _, popup in ipairs({picker, config, share}) do
-        popup.Position = UDim2.fromOffset(math.floor((pageWidth - popup.Size.X.Offset) / 2), 112)
-    end
-
-    local advancedOpen, filterOpen = false, false
-    local advancedHeight, filterHeight = 162, 76
-
-    local function layoutAccordions(animated)
-        local advH = advancedOpen and advancedHeight or 0
-        local filterY = 516 + advH
-        local filterContentY = filterY + 50
-        local filterH = filterOpen and filterHeight or 0
-        local statusY = filterContentY + filterH + 6
-        local canvasH = statusY + 108
-
-        advancedContent.Visible = advancedOpen
-        filterContent.Visible = filterOpen
-        UI.advancedArrow.Text = advancedOpen and "^" or "v"
-        UI.filterArrow.Text = filterOpen and "^" or "v"
-
-        animate(advancedContent, {Size = UDim2.fromOffset(pageWidth - 28, advH)}, not animated)
-        animate(filterBar, {Position = UDim2.fromOffset(14, filterY)}, not animated)
-        animate(filterContent, {
-            Position = UDim2.fromOffset(14, filterContentY),
-            Size = UDim2.fromOffset(pageWidth - 28, filterH),
-        }, not animated)
-        animate(statusCard, {Position = UDim2.fromOffset(14, statusY)}, not animated)
-
-        if animated then
-            TweenService:Create(ref,
-                TweenInfo.new(0.20, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-                {CanvasSize = UDim2.fromOffset(0, canvasH)}):Play()
-        else
-            ref.CanvasSize = UDim2.fromOffset(0, canvasH)
-        end
-    end
-
-    connect(advancedBar.Activated, function()
-        advancedOpen = not advancedOpen
-        layoutAccordions(true)
-    end)
-    connect(filterBar.Activated, function()
-        filterOpen = not filterOpen
-        layoutAccordions(true)
-    end)
-
-    for _, bar in ipairs({advancedBar, filterBar}) do
-        connect(bar.MouseEnter, function() animate(bar, {BackgroundColor3 = C.raised}) end)
-        connect(bar.MouseLeave, function() animate(bar, {BackgroundColor3 = C.surface}) end)
-    end
-
-    layoutAccordions(false)
+    return box
 end
 
-local moveBody = frame(panel, "MovementControls", 14, 130, W - 28, H - 130)
-moveBody.BackgroundTransparency, moveBody.Visible = 1, false
+local skillsPage = newPage("Skills")
+body = skillsPage
+pageHead(skillsPage, "skills", "SKILLS", "4 MODULES")
+makeRow(skillsPage, 48, "Auto Cast", "Queues abilities on repeat", function() return State.enabled end, setEnabled)
+makeRow(skillsPage, 108, "Cooldown Sync", "Keeps the selected key cycle aligned", function() return Settings.FarmUseSkills end, function(v) Settings.FarmUseSkills = v; releaseOrPause() end)
+makeRow(skillsPage, 168, "Combo Assist", "Uses the reliable inventory-safe input path", function() return Settings.FarmM1 end, function(v) Settings.FarmM1 = v; releaseOrPause() end)
+makeSlider(skillsPage, 228, "Cast Priority", function() return Settings.KeyGap end, function(v) Settings.KeyGap = math.clamp(v, 0.03, 1.0) end, 0.03, 1.0, "%.2fs")
+addKeyLoadout(skillsPage, 308)
+local skillHint = safeText(skillsPage, "Hint", "F6 toggles skills  /  F7 unloads  /  R-SHIFT hides the panel", 16, 376, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+skillHint.TextXAlignment = Enum.TextXAlignment.Center
 
-local moveMaster = frame(moveBody, "MovementMasterCard", 24, 0, 392, 80, C.raised, 13)
-UI.moveMasterStroke = stroke(moveMaster, C.accent, 0.18)
-label(moveMaster, "Eyebrow", "LOCAL MOVEMENT", 18, 10, 220, 14, 9, C.bright, Enum.Font.GothamBold)
-label(moveMaster, "Title", "Movement", 18, 27, 260, 24, 19, C.text, Enum.Font.GothamBold)
-label(moveMaster, "Hint", "Fly, no-clip and speed controls.", 18, 53, 278, 15, 10, C.muted)
+local espPage = newPage("ESP")
+espBody = espPage
+pageHead(espPage, "esp", "ESP OVERLAY", "5 LAYERS")
+makeRow(espPage, 48, "Distance Markers", "Shows live range on tracked players", function() return Settings.ESPShowDistance end, function(v) Settings.ESPShowDistance = v; refreshESP() end)
+makeRow(espPage, 108, "Outline Layer", "Highlights players through geometry", function() return Settings.ESPEnabled end, setESPEnabled)
+makeRow(espPage, 168, "Info Tags", "Shows name and health information", function() return Settings.ESPShowNames end, function(v) Settings.ESPShowNames = v; refreshESP() end)
+makeRow(espPage, 228, "Health Bars", "Shows current player health", function() return Settings.ESPShowHealth end, function(v) Settings.ESPShowHealth = v; refreshESP() end)
+makeSlider(espPage, 288, "Render Range", function() return Settings.ESPMaxDistance end, function(v) Settings.ESPMaxDistance = math.floor(v / 50 + 0.5) * 50; refreshESP() end, 100, 10000, "%.0f studs")
 
-local moveOptions = frame(moveBody, "MovementOptionsCard", 24, 103, 392, 344, C.surface, 13)
-stroke(moveOptions, C.line, 0.45)
+local healthPage = newPage("Health")
+healthBody = healthPage
+pageHead(healthPage, "health", "HEALTH CORE", "3 MODULES")
+makeRow(healthPage, 48, "Health Escape", "Moves 70 studs upward at the threshold", function() return Settings.HealthEscapeEnabled end, Guard.setEnabled)
+makeRow(healthPage, 108, "Escape Lock", "Holds position until released", function() return Settings.HealthLock end, function(v) Settings.HealthLock = v; Guard.step() end)
+makeRow(healthPage, 168, "Automatic Source", "Uses the client-visible health reader", function() return Settings.HealthSource == "Auto" end, function(v) Settings.HealthSource = v and "Auto" or "Custom"; Guard.step() end)
+makeSlider(healthPage, 228, "Alert Threshold", function() return Settings.HealthThreshold end, function(v) Settings.HealthThreshold = math.floor(v + 0.5); Guard.step() end, 5, 80, "%.0f%%")
+local healthHint = safeText(healthPage, "Hint", "Re-arms 5 percentage points above the threshold.", 16, 312, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+healthHint.TextXAlignment = Enum.TextXAlignment.Center
+UI.healthStatus = healthHint
+UI.healthDetail = healthHint
 
-label(moveOptions, "FlyLabel", "Fly", 16, 14, 280, 24, 12, C.text, Enum.Font.GothamMedium)
-toggle(moveOptions, "FlyToggle", 326, 14, 50, 24,
-    function() return Settings.FlyEnabled end, Movement.setFly)
+local farmPage = newPage("Farm")
+farmBody = farmPage
+pageHead(farmPage, "farm", "FARM ROUTE", "5 NODES")
+makeRow(farmPage, 48, "Auto Farm", "Selects eligible 3000-3200 HP targets", function() return Settings.FarmEnabled end, Farm.setEnabled)
+makeRow(farmPage, 108, "Auto Boss", "Routes through saved boss locations", function() return Settings.AutoBoss end, function(v) Settings.AutoBoss = v; if Farm.resetAutoBoss then Farm.resetAutoBoss(true) end; Farm.step() end)
+makeRow(farmPage, 168, "Auto Collect", "Loots boss drops and world rewards", function() return Settings.FarmAutoLoot end, Farm.setLoot)
+makeRow(farmPage, 228, "Auto M1", "Uses the inventory-safe M1 path", function() return Settings.FarmM1 end, function(v) Settings.FarmM1 = v; Farm.step() end)
+makeSlider(farmPage, 288, "Boss Delay", function() return Settings.BossNoAttackTimeout end, function(v) Settings.BossNoAttackTimeout = math.max(1, v) end, 1, 10, "%.1fs")
+local farmHint = safeText(farmPage, "Hint", "Auto Boss keeps the same-boss respawn route when possible.", 16, 372, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+farmHint.TextXAlignment = Enum.TextXAlignment.Center
+UI.farmHint = farmHint
+UI.farmCount = safeText(farmPage, "Count", "0", 0, 0, 1, 1, 1, C.dim)
+UI.farmName = safeText(farmPage, "Target", "None", 0, 0, 1, 1, 1, C.dim)
+UI.farmID = safeText(farmPage, "ID", "--", 0, 0, 1, 1, 1, C.dim)
+UI.farmPath = safeText(farmPage, "Path", "", 0, 0, 1, 1, 1, C.dim)
+UI.farmHP = safeText(farmPage, "HP", "", 0, 0, 1, 1, 1, C.dim)
+UI.farmParts = safeText(farmPage, "Parts", "", 0, 0, 1, 1, 1, C.dim)
+UI.farmStatus = safeText(farmPage, "Status", "", 0, 0, 1, 1, 1, C.dim)
+UI.farmDetail = safeText(farmPage, "Detail", "", 0, 0, 1, 1, 1, C.dim)
+UI.refTargetName = safeText(farmPage, "RefTarget", "", 0, 0, 1, 1, 1, C.dim)
+UI.refBossDelay = safeText(farmPage, "RefDelay", "", 0, 0, 1, 1, 1, C.dim)
+UI.refRunDot = frame(farmPage, "RunDot", 0, 0, 1, 1, C.dim, 1)
+UI.refElapsed = safeText(farmPage, "Elapsed", "", 0, 0, 1, 1, 1, C.dim)
 
-label(moveOptions, "NoClipLabel", "No Clip (starts ON)", 16, 52, 280, 24, 12, C.text, Enum.Font.GothamMedium)
-toggle(moveOptions, "NoClipToggle", 326, 52, 50, 24,
-    function() return Settings.NoClip end, Movement.setNoClip)
+local movePage = newPage("Move")
+moveBody = movePage
+pageHead(movePage, "move", "MOVEMENT", "3 MODULES")
+makeRow(movePage, 48, "NoClip", "Prevents collision while moving", function() return Settings.NoClip end, function(v) Settings.NoClip = v; Movement.step(0) end)
+makeRow(movePage, 108, "Fly", "Camera-relative full-direction flight", function() return Settings.FlyEnabled end, Movement.setFly)
+makeRow(movePage, 168, "Speed", "Adjusts local walk speed", function() return Settings.SpeedEnabled end, function(v) Settings.SpeedEnabled = v; Movement.step(0) end)
+makeSlider(movePage, 228, "Speed Multiplier", function() return Settings.FlySpeed end, function(v) Settings.FlySpeed = math.floor(v + 0.5); Movement.step(0) end, 20, 200, "%.0f")
+local moveHint = safeText(movePage, "Hint", "T is blocked while NoClip is active.", 16, 312, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+moveHint.TextXAlignment = Enum.TextXAlignment.Center
+UI.moveStatus = moveHint
+UI.moveDetail = moveHint
+UI.moveStatusDot = frame(movePage, "MoveDot", 0, 0, 1, 1, C.dim, 1)
+UI.moveMasterStroke = stroke(movePage, C.line, 1, 1)
 
-label(moveOptions, "SpeedToggleLabel", "Speed override", 16, 90, 280, 24, 12, C.text, Enum.Font.GothamMedium)
-toggle(moveOptions, "SpeedToggle", 326, 90, 50, 24,
-    function() return Settings.SpeedEnabled end, Movement.setSpeed)
-
-slider("MoveFlySpeed", "Fly speed", "FlySpeed", 132, 20, 250, {
-    parent = moveOptions, step = 5, format = "%.0f studs/s",
-})
-slider("MoveWalkSpeed", "Walk speed", "WalkSpeed", 205, 16, 150, {
-    parent = moveOptions, step = 2, format = "%.0f",
-    onChange = function()
-        if Settings.SpeedEnabled then Movement.setSpeed(true) end
-    end,
-})
-
-local flyHelp = label(moveOptions, "FlyHelp",
-    "Fly: WASD follows full camera direction | Space/E up | Ctrl/Q down. Fly automatically uses No Clip.",
-    16, 274, 360, 52, 10, C.muted)
-flyHelp.TextWrapped = true
-
-local moveStatusCard = frame(moveBody, "MovementStatusCard", 24, 470, 392, 58, C.surface, 10)
-UI.moveStatusDot = frame(moveStatusCard, "Dot", 13, 14, 6, 6, C.green, 4)
-UI.moveStatus = label(moveStatusCard, "Status", "NOCLIP ON", 26, 7, 354, 16, 10, C.green, Enum.Font.GothamBold)
-UI.moveDetail = label(moveStatusCard, "Detail", "No-clip is active automatically.", 13, 28, 366, 22, 9, C.muted)
-UI.moveDetail.TextWrapped = true
-
-label(moveBody, "MovementFooter",
-    "No Clip activates as soon as this script executes. F7 unload restores movement state.",
-    26, 548, 390, 32, 9, C.dim, Enum.Font.GothamMedium)
-
-
-local systemBody = frame(panel, "SystemControls", 14, 130, W - 28, H - 130)
-systemBody.BackgroundTransparency, systemBody.Visible = 1, false
-
-local systemMaster = frame(systemBody, "SystemMasterCard", 24, 0, 392, 80, C.raised, 13)
-UI.systemMasterStroke = stroke(systemMaster, C.accent, 0.18)
-label(systemMaster, "Eyebrow", "RECOVERY + DISCOVERY", 18, 10, 250, 14, 9, C.bright, Enum.Font.GothamBold)
-label(systemMaster, "Title", "System", 18, 27, 260, 24, 19, C.text, Enum.Font.GothamBold)
-label(systemMaster, "Hint", "Static map scan, private rejoin and persistence.", 18, 53, 330, 15, 10, C.muted)
-
-local scanCard = frame(systemBody, "StaticScanCard", 24, 103, 392, 126, C.surface, 13)
-stroke(scanCard, C.line, 0.45)
-label(scanCard, "ScanEyebrow", "STATIC MAP SCAN", 16, 12, 210, 14, 9, C.bright, Enum.Font.GothamBold)
-label(scanCard, "ScanTitle", "500,000-stud boss discovery", 16, 31, 280, 22, 13, C.text, Enum.Font.GothamBold)
-local scanHint = label(scanCard, "ScanHint",
-    "Reads replicated boss/spawn/timer coordinates while your character stays at spawn.",
-    16, 54, 360, 32, 10, C.muted)
-scanHint.TextWrapped = true
-toggle(scanCard, "StaticScanToggle", 326, 12, 50, 24,
-    function() return Settings.StaticMapScan end, System.setStaticScan)
-UI.staticScanButton = button(scanCard, "StaticScanNow", "Scan map now", 16, 90, 142, 26, C.raised, 11)
-UI.staticScanStatus = label(scanCard, "StaticScanStatus", "", 170, 89, 206, 28, 9, C.muted)
+local systemPage = newPage("System")
+systemBody = systemPage
+pageHead(systemPage, "system", "SYSTEM CORE", "STATUS")
+makeRow(systemPage, 48, "Overlay Lock", "Pins the panel after dragging", function() return false end, function(_) end)
+makeRow(systemPage, 108, "Auto Rejoin", "Retries the configured recovery path", function() return Settings.AutoRejoin end, System.setAutoRejoin)
+makeRow(systemPage, 168, "Auto Execute", "Queues the script after teleport", function() return Settings.AutoExecute end, function(v) Settings.AutoExecute = v end)
+makeRow(systemPage, 228, "Static Map Scan", "Discovers replicated boss locations", function() return Settings.StaticMapScan end, function(v) Settings.StaticMapScan = v end)
+local scanButton = button(systemPage, "Scan", "SCAN MAP NOW", 16, 288, 128, 30, C.panel2, 9)
+scanButton.TextColor3 = C.cyan
+stroke(scanButton, C.violet2, 0.55, 1)
+UI.staticScanButton = scanButton
+UI.staticScanStatus = safeText(systemPage, "ScanStatus", "", 154, 286, 244, 34, 9, C.faint, Enum.Font.GothamMedium)
 UI.staticScanStatus.TextWrapped = true
-connect(UI.staticScanButton.Activated, function()
-    Farm.staticMapScan(true)
+connect(scanButton.Activated, function()
+    if Farm.staticMapScan then Farm.staticMapScan(true) end
+    render()
 end)
-
-local rejoinCard = frame(systemBody, "RejoinCard", 24, 243, 392, 148, C.surface, 13)
-stroke(rejoinCard, C.line, 0.45)
-label(rejoinCard, "RejoinEyebrow", "PRIVATE SERVER RECOVERY", 16, 12, 240, 14, 9, C.bright, Enum.Font.GothamBold)
-label(rejoinCard, "RejoinLabel", "Auto rejoin", 16, 36, 220, 22, 12, C.text, Enum.Font.GothamMedium)
-toggle(rejoinCard, "AutoRejoinToggle", 326, 35, 50, 24,
-    function() return Settings.AutoRejoin end, System.setAutoRejoin)
-label(rejoinCard, "MapLabel", "Target map", 16, 70, 90, 20, 10, C.muted, Enum.Font.GothamBold)
-UI.privateMapBox = make("TextBox", rejoinCard, {
-    Name = "PrivateMap",
-    Position = UDim2.fromOffset(108, 67),
-    Size = UDim2.fromOffset(268, 28),
-    BackgroundColor3 = C.raised,
-    BorderSizePixel = 0,
-    Text = Settings.PrivateServerMap,
-    PlaceholderText = "Ouwigahara",
-    TextColor3 = C.text,
-    PlaceholderColor3 = C.dim,
-    TextSize = 11,
-    Font = Enum.Font.GothamMedium,
-    ClearTextOnFocus = false,
-    TextXAlignment = Enum.TextXAlignment.Left,
+local systemHint = safeText(systemPage, "Hint", "VOID NEXUS  /  LINK STABLE", 16, 336, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+systemHint.TextXAlignment = Enum.TextXAlignment.Center
+UI.systemStatus = systemHint
+UI.systemDetail = systemHint
+UI.systemStatusDot = frame(systemPage, "SystemDot", 0, 0, 1, 1, C.dim, 1)
+UI.systemMasterStroke = stroke(systemPage, C.line, 1, 1)
+UI.rejoinStatus = safeText(systemPage, "RejoinStatus", "", 0, 0, 1, 1, 1, C.dim)
+UI.privateMapBox = make("TextBox", systemPage, {
+    Name = "PrivateMap", Text = Settings.PrivateServerMap, Position = UDim2.fromOffset(16, 360),
+    Size = UDim2.fromOffset(180, 28), BackgroundColor3 = Color3.fromRGB(18,10,30),
+    BorderSizePixel = 0, TextColor3 = C.ink, TextSize = 10, Font = Enum.Font.GothamMedium,
+    PlaceholderText = "Map", ClearTextOnFocus = false, ZIndex = 5,
 })
-corner(UI.privateMapBox, 8)
-UI.rejoinStatus = label(rejoinCard, "RejoinStatus", "", 16, 104, 360, 34, 9, C.muted)
-UI.rejoinStatus.TextWrapped = true
+corner(UI.privateMapBox, 8); stroke(UI.privateMapBox, C.line, 0.72, 1)
 connect(UI.privateMapBox.FocusLost, function()
-    System.setPrivateMap(UI.privateMapBox.Text)
+    Settings.PrivateServerMap = UI.privateMapBox.Text ~= "" and UI.privateMapBox.Text or Settings.PrivateServerMap
+    render()
 end)
 
-local persistCard = frame(systemBody, "PersistCard", 24, 405, 392, 116, C.surface, 13)
-stroke(persistCard, C.line, 0.45)
-label(persistCard, "PersistEyebrow", "PERSISTENCE", 16, 12, 180, 14, 9, C.bright, Enum.Font.GothamBold)
-label(persistCard, "PersistLabel", "Auto execute", 16, 36, 220, 22, 12, C.text, Enum.Font.GothamMedium)
-toggle(persistCard, "AutoExecuteToggle", 326, 35, 50, 24,
-    function() return Settings.AutoExecute end, System.setAutoExecute)
-local persistHint = label(persistCard, "PersistHint",
-    "Queues itself across teleports and installs a best-effort executor autoexec loader for this Roblox universe only.",
-    16, 68, 360, 38, 9, C.muted)
-persistHint.TextWrapped = true
+-- Hidden compatibility references used by the existing health/farm render data.
+UI.count = safeText(skillsPage, "Count", "4 / 4 ENABLED", 0, 0, 1, 1, 1, C.dim)
+UI.cycle = safeText(skillsPage, "Cycle", "", 0, 0, 1, 1, 1, C.dim)
+UI.status = safeText(skillsPage, "Status", "STANDBY", 0, 0, 1, 1, 1, C.dim)
+UI.detail = safeText(skillsPage, "Detail", "", 0, 0, 1, 1, 1, C.dim)
+UI.statusDot = frame(skillsPage, "StatusDot", 0, 0, 1, 1, C.dim, 1)
+UI.healthStatusDot = frame(healthPage, "HealthDot", 0, 0, 1, 1, C.dim, 1)
+UI.healthSource = safeText(healthPage, "Source", "Auto", 0, 0, 1, 1, 1, C.dim)
+UI.healthSourceDetail = safeText(healthPage, "SourceDetail", "", 0, 0, 1, 1, 1, C.dim)
+UI.healthRearm = safeText(healthPage, "Rearm", "", 0, 0, 1, 1, 1, C.dim)
+UI.healthNumbers = safeText(healthPage, "Numbers", "", 0, 0, 1, 1, 1, C.dim)
+UI.healthPercent = safeText(healthPage, "Percent", "", 0, 0, 1, 1, 1, C.dim)
+UI.healthFill = frame(healthPage, "HealthFill", 0, 0, 1, 1, C.green, 1)
+UI.healthMarker = frame(healthPage, "HealthMarker", 0, 0, 1, 1, C.red, 1)
+UI.healthRelease = safeText(healthPage, "Release", "", 0, 0, 1, 1, 1, C.dim)
+UI.espCount = safeText(espPage, "ESPCount", "0 TRACKED", 0, 0, 1, 1, 1, C.dim)
+UI.espDetail = safeText(espPage, "ESPDetail", "", 0, 0, 1, 1, 1, C.dim)
+UI.espStatus = safeText(espPage, "ESPStatus", "ESP OFF", 0, 0, 1, 1, 1, C.dim)
+UI.espStatusDot = frame(espPage, "ESPStatusDot", 0, 0, 1, 1, C.dim, 1)
+UI.espMasterStroke = stroke(espPage, C.line, 1, 1)
+UI.healthMasterStroke = stroke(healthPage, C.line, 1, 1)
+UI.masterStroke = stroke(skillsPage, C.line, 1, 1)
+UI.farmHeaderGlow = frame(farmPage, "FarmGlow", 0, 0, 1, 1, C.violet2, 1)
+UI.advancedArrow = safeText(farmPage, "Advanced", "", 0, 0, 1, 1, 1, C.dim)
+UI.filterArrow = safeText(farmPage, "Filter", "", 0, 0, 1, 1, 1, C.dim)
+UI.bossDwell = safeText(farmPage, "Dwell", "", 0, 0, 1, 1, 1, C.dim)
+UI.bossRadius = safeText(farmPage, "Radius", "", 0, 0, 1, 1, 1, C.dim)
+UI.bossDiscover = safeText(farmPage, "Discover", "", 0, 0, 1, 1, 1, C.dim)
+UI.bossSaveStatus = safeText(farmPage, "SaveStatus", "", 0, 0, 1, 1, 1, C.dim)
+UI.bossDiscoveryStatus = safeText(farmPage, "DiscoveryStatus", "", 0, 0, 1, 1, 1, C.dim)
 
-local systemStatusCard = frame(systemBody, "SystemStatusCard", 24, 535, 392, 70, C.surface, 11)
-UI.systemStatusDot = frame(systemStatusCard, "Dot", 13, 15, 6, 6, C.green, 4)
-UI.systemStatus = label(systemStatusCard, "Status", "READY", 26, 8, 350, 16, 10, C.green, Enum.Font.GothamBold)
-UI.systemDetail = label(systemStatusCard, "Detail", "", 13, 29, 366, 34, 9, C.muted)
-UI.systemDetail.TextWrapped = true
+-- The reference HTML has no footer bar; the status remains in the header.
+UI.footerBar = frame(panel, "FooterCompatibility", 0, 0, 1, 1, C.panel, 1)
+UI.footerBar.Visible = false
+UI.footerConnected = safeText(panel, "FooterConnected", "CONNECTED", 0, 0, 1, 1, 1, C.green)
+UI.footerConnected.Visible = false
+local footerDot = frame(panel, "FooterDot", 0, 0, 1, 1, C.green, 1)
+footerDot.Visible = false
 
+local pageMap = {Skills = skillsPage, ESP = espPage, Health = healthPage, Farm = farmPage, Move = movePage, System = systemPage}
+local pageBaseY = 0
 
--- Reference-style content shell. All original controls stay inside a centered
--- 440px content canvas, so behavior/callbacks are untouched while the outer
--- layout becomes a VOID NEXUS game-control panel.
-local function skinPage(page)
-    page.BackgroundColor3 = Color3.fromRGB(8, 4, 15)
-    page.BackgroundTransparency = 0.08
-    page.ClipsDescendants = true
-    corner(page, 12)
-    stroke(page, C.line, 0.42)
+local function showPage(key)
+    State.tab = key
+    for name, page in pairs(pageMap) do page.Visible = name == key end
+    render()
+    local page = pageMap[key]
+    if page then
+        page.CanvasPosition = Vector2.new(0, 0)
+        page.Position = UDim2.fromOffset(0, 3)
+        animate(page, {Position = UDim2.fromOffset(0, pageBaseY)}, false)
+    end
+end
 
-    local oldChildren = {}
-    for _, child in ipairs(page:GetChildren()) do
-        if not child:IsA("UICorner") and not child:IsA("UIStroke") then
-            oldChildren[#oldChildren + 1] = child
+for key, tab in pairs(navButtons) do
+    connect(tab.MouseEnter, function()
+        if State.tab ~= key then
+            animate(tab, {BackgroundColor3 = Color3.fromRGB(24, 13, 38)}, false)
         end
-    end
+    end)
+    connect(tab.MouseLeave, function()
+        if State.tab ~= key then
+            animate(tab, {BackgroundColor3 = Color3.fromRGB(8, 4, 16)}, false)
+        end
+    end)
+    connect(tab.Activated, function() showPage(key) end)
+end
 
-    local inner = frame(page, "PageContent", math.floor(((W - 28) - 440) / 2), 0, 440, H - 130)
-    inner.BackgroundTransparency = 1
-
-    for _, child in ipairs(oldChildren) do
-        child.Parent = inner
-    end
-
-    -- Give cards a violet edge without changing their geometry.
-    for _, object in ipairs(inner:GetDescendants()) do
-        if object:IsA("Frame") and object.BackgroundTransparency < 1 then
-            local existing = object:FindFirstChildOfClass("UIStroke")
-            if existing then
-                existing.Color = C.line
-            end
-        elseif object:IsA("TextButton") then
-            local existing = object:FindFirstChildOfClass("UIStroke")
-            if existing and object.Name ~= "HeaderToggle" then
-                existing.Color = C.line
+local function updateTabVisuals()
+    for key, tab in pairs(navButtons) do
+        local selected = State.tab == key
+        tab.BackgroundColor3 = selected and Color3.fromRGB(30, 14, 48) or Color3.fromRGB(8, 4, 16)
+        tab.TextColor3 = selected and C.ink or C.faint
+        local strokeObj = UI.navStrokes[key]
+        if strokeObj then strokeObj.Transparency = selected and 0.42 or 0.88 end
+        local bar = UI.navBars[key]
+        if bar then bar.Visible = selected end
+        local icon = tab:FindFirstChild("Icon")
+        if icon then
+            for _, child in ipairs(icon:GetDescendants()) do
+                if child:IsA("Frame") then child.BackgroundColor3 = selected and C.cyan or C.faint end
+                if child:IsA("UIStroke") then child.Color = selected and C.cyan or C.faint end
             end
         end
     end
 end
 
-for _, page in ipairs({body, espBody, healthBody, moveBody, systemBody}) do
-    skinPage(page)
+-- Resize grip, matching the HTML bottom-right handle.
+local resizeGrip = button(panel, "ResizeGrip", "", W - 22, H - 22, 22, 22, C.panel, 1)
+resizeGrip.BackgroundTransparency = 1
+resizeGrip.ZIndex = 30
+for i = 1, 3 do
+    local line = frame(resizeGrip, "Line" .. i, 20 - i * 5, 20 - i * 5, i * 5, 1, C.violet2, 1)
+    line.Rotation = -45
+    line.ZIndex = 31
 end
-
-farmBody.BackgroundColor3 = Color3.fromRGB(8, 4, 15)
-farmBody.BackgroundTransparency = 0.05
-farmBody.ClipsDescendants = true
-corner(farmBody, 12)
-stroke(farmBody, C.line, 0.42)
-
-local footerBar = frame(panel, "FooterBar", 0, H - 32, W, 32, Color3.fromRGB(5, 2, 10))
-stroke(footerBar, C.line, 0.45)
-local footerDot = frame(footerBar, "ConnectedDot", 16, 11, 7, 7, C.green, 4)
-UI.footerConnected = label(footerBar, "Connected", "CONNECTED", 30, 5, 110, 20, 9, C.green, Enum.Font.GothamBold)
-label(footerBar, "Divider1", "|", 139, 5, 12, 20, 9, C.dim, Enum.Font.GothamMedium)
-label(footerBar, "FooterHint", "F7 UNLOAD    /    R-SHIFT HIDE", 156, 5, 300, 20, 9, C.muted, Enum.Font.GothamMedium)
-local footerVersion = label(footerBar, "FooterVersion", "CORE 3.1", W - 110, 5, 92, 20, 9, C.dim, Enum.Font.GothamMedium)
-footerVersion.TextXAlignment = Enum.TextXAlignment.Right
-UI.footerBar = footerBar
-
--- Animated entrance + ambient cyan edge glow.
-local introScale = make("UIScale", panel, {Scale = 0.965})
-panel.BackgroundTransparency = 0.04
-
-task.defer(function()
-    if not State.alive or not panel.Parent then return end
-
-    TweenService:Create(introScale,
-        TweenInfo.new(0.32, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
-        {Scale = 1}):Play()
-
-    TweenService:Create(panel,
-        TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-        {BackgroundTransparency = 0}):Play()
-
-    TweenService:Create(halo,
-        TweenInfo.new(1.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
-        {BackgroundTransparency = 0.94}):Play()
-end)
-
-local headerSweep = frame(panel, "HeaderSweep", -180, 58, 180, 1, C.bright)
-headerSweep.BackgroundTransparency = 0.18
-task.spawn(function()
-    while State.alive and headerSweep.Parent do
-        headerSweep.Position = UDim2.fromOffset(-180, 58)
-        local sweep = TweenService:Create(headerSweep,
-            TweenInfo.new(2.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-            {Position = UDim2.fromOffset(W, 58)})
-        sweep:Play()
-        sweep.Completed:Wait()
-        task.wait(1.4)
+connect(resizeGrip.InputBegan, function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        State.gesture = {kind = "resize", input = input, start = input.Position, scale = State.uiScaleTarget}
     end
 end)
 
@@ -4566,267 +3954,106 @@ local function fitWindow(centerIfNeeded)
     if not State.alive then return end
     local viewport = canvas.AbsoluteSize
     if viewport.X <= 0 or viewport.Y <= 0 then return end
-    uiScale.Scale = math.clamp(math.min((viewport.X - 24) / W, (viewport.Y - 36) / H), 0.32, State.uiScaleTarget)
-    local width = W * uiScale.Scale
-    local height = (State.minimized and 78 or H) * uiScale.Scale
-    local maxX, maxY = math.max(12, viewport.X - width - 12), math.max(44, viewport.Y - height - 12)
-    local x, y = holder.Position.X.Offset, holder.Position.Y.Offset
-    if centerIfNeeded then x, y = 20, 40 end
-    holder.Position = UDim2.fromOffset(math.clamp(x, 12, maxX), math.clamp(y, 44, maxY))
-end
-local function setMinimized(value)
-    State.minimized = value
-    minimize.Text = value and "+" or "-"
-    local height = value and 60 or H
-    animate(panel, {Size = UDim2.fromOffset(W, height)})
-    animate(halo, {Size = UDim2.fromOffset(W + 4, height + 4)})
-    animate(shadow, {Size = UDim2.fromOffset(W + 12, height + 12)})
-    holder.Size = UDim2.fromOffset(W, height)
-    render()
-    fitWindow(false)
-end
-
--- Reference-style bottom-right resize grip. It changes the UIScale rather than
--- rebuilding the UI, so every existing control keeps its working callbacks.
-local resizeGrip = button(panel, "ResizeGrip", "", W - 22, H - 22, 22, 22, C.panel, 1)
-resizeGrip.BackgroundTransparency = 1
-resizeGrip.ZIndex = 50
-for i = 1, 3 do
-    local line = frame(resizeGrip, "GripLine" .. i, 22 - i * 5, 20 - i * 5, i * 5, 1, C.accent, 1)
-    line.Rotation = -45
-    line.ZIndex = 51
-end
-connect(resizeGrip.InputBegan, function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        State.gesture = {kind = "resize", input = input, start = input.Position, scale = State.uiScaleTarget}
-        releaseOrPause()
+    local target = math.min((viewport.X - 24) / W, (viewport.Y - 24) / H, 1)
+    if State.uiScaleTarget then target = math.min(target, State.uiScaleTarget) end
+    uiScale.Scale = math.clamp(target, 0.55, 1)
+    local width, height = W * uiScale.Scale, H * uiScale.Scale
+    local x = (viewport.X - width) / 2
+    local y = math.max(8, viewport.Y * 0.08)
+    if not centerIfNeeded then
+        x = holder.Position.X.Offset
+        y = holder.Position.Y.Offset
     end
-end)
+    local maxX = math.max(8, viewport.X - width - 8)
+    local maxY = math.max(8, viewport.Y - height - 8)
+    holder.Position = UDim2.fromOffset(math.clamp(x, 8, maxX), math.clamp(y, 8, maxY))
+end
 
-render = function()
+local function renderPageState()
     if not State.alive then return end
     local running, statusName, description = availability()
     local count = selectedCount()
-    local color = State.fault and C.red or (running and C.green or (State.enabled and C.amber or C.dim))
-    UI.badge.Text = State.enabled and (running and "ON" or "PAUSED")
-        or (State.farming and Settings.FarmUseSkills and (running and "FARM" or "PAUSED") or "OFF")
-    UI.badge.TextColor3 = color
-    UI.badge.BackgroundColor3 = State.enabled and C.raised or C.surface
-    UI.status.Text, UI.detail.Text = statusName, description
-    UI.status.TextColor3, UI.statusDot.BackgroundColor3 = color, color
+    local mainColor = State.fault and C.red or (running and C.green or (State.enabled and C.amber or C.faint))
+    UI.badge.Text = State.fault and "ERROR" or (State.tab == "Skills" and (running and "SYNCED" or "PAUSED")
+        or State.tab == "Farm" and (Settings.AutoBoss and "BOSS" or Settings.FarmEnabled and "FARM" or "SYNCED")
+        or State.tab == "ESP" and (Settings.ESPEnabled and "ESP" or "SYNCED")
+        or State.tab == "Health" and (Settings.HealthEscapeEnabled and "HP" or "SYNCED")
+        or State.tab == "Move" and (Settings.FlyEnabled and "FLY" or Settings.NoClip and "MOVE" or "SYNCED")
+        or "SYNCED")
+    UI.badge.TextColor3 = mainColor
+    statusDot.BackgroundColor3 = mainColor
     UI.count.Text = tostring(count) .. " / 4 ENABLED"
     UI.cycle.Text = count > 0 and string.format("~ %.2f s / cycle", count * (Settings.HoldTime + Settings.KeyGap)) or "No keys selected"
-    UI.masterStroke.Transparency = State.enabled and 0.18 or 0.65
-    tabs.Visible = not State.minimized
-    sidebarInfo.Visible = false
-    UI.footerBar.Visible = not State.minimized
-    body.Visible = not State.minimized and State.tab == "Skills"
-    espBody.Visible = not State.minimized and State.tab == "ESP"
-    healthBody.Visible = not State.minimized and State.tab == "Health"
-    farmBody.Visible = not State.minimized and State.tab == "Farm"
-    moveBody.Visible = not State.minimized and State.tab == "Move"
-    systemBody.Visible = not State.minimized and State.tab == "System"
-    UI.farmTab.BackgroundColor3 = State.tab == "Farm" and C.raised or C.surface
-    UI.farmTab.TextColor3 = State.tab == "Farm" and C.bright or C.dim
-    UI.skillsTab.BackgroundColor3 = State.tab == "Skills" and C.raised or C.surface
-    UI.skillsTab.TextColor3 = State.tab == "Skills" and C.bright or C.dim
-    UI.espTab.BackgroundColor3 = State.tab == "ESP" and C.raised or C.surface
-    UI.espTab.TextColor3 = State.tab == "ESP" and C.bright or C.dim
-    UI.healthTab.BackgroundColor3 = State.tab == "Health" and C.raised or C.surface
-    UI.healthTab.TextColor3 = State.tab == "Health" and C.bright or C.dim
-    UI.moveTab.BackgroundColor3 = State.tab == "Move" and C.raised or C.surface
-    UI.moveTab.TextColor3 = State.tab == "Move" and C.bright or C.dim
-    UI.systemTab.BackgroundColor3 = State.tab == "System" and C.raised or C.surface
-    UI.systemTab.TextColor3 = State.tab == "System" and C.bright or C.dim
-    for key, navStroke in pairs(UI.navStrokes) do
-        local selected = State.tab == key
-        navStroke.Transparency = selected and 0.08 or 0.86
-        UI.navBars[key].Visible = selected
-    end
-    UI.sidebarState.Text = State.fault and "ERROR" or "CONNECTED"
-    UI.sidebarState.TextColor3 = State.fault and C.red or C.green
-    UI.footerConnected.Text = State.fault and "ERROR" or "CONNECTED"
-    UI.footerConnected.TextColor3 = State.fault and C.red or C.green
-    footerDot.BackgroundColor3 = State.fault and C.red or C.green
-    local espColor = State.espFault and C.red or (Settings.ESPEnabled and C.green or C.dim)
-    UI.espStatus.Text = State.espFault and "ESP ERROR" or (Settings.ESPEnabled and "ESP ACTIVE" or "ESP OFF")
-    UI.espStatus.TextColor3, UI.espStatusDot.BackgroundColor3 = espColor, espColor
-    UI.espDetail.Text = State.espFault or (Settings.ESPEnabled
-        and (tostring(State.espCount) .. " players in range. F8 toggles ESP.")
-        or "Turn on Player ESP or press F8 to begin.")
+    UI.status.Text = statusName
+    UI.detail.Text = description
+    UI.statusDot.BackgroundColor3 = mainColor
+
     UI.espCount.Text = tostring(State.espCount) .. " TRACKED"
-    UI.espMasterStroke.Transparency = Settings.ESPEnabled and 0.18 or 0.65
-    if State.tab == "ESP" then
-        UI.badge.Text = State.espFault and "ERROR" or (Settings.ESPEnabled and "ESP ON" or "ESP OFF")
-        UI.badge.TextColor3 = espColor
-        UI.badge.BackgroundColor3 = Settings.ESPEnabled and C.raised or C.surface
-    end
-    local hpColor = Guard.fault and C.red or (Settings.HealthEscapeEnabled
-        and (Guard.status == "ARMED" and C.green or C.amber) or C.dim)
-    UI.healthStatus.Text, UI.healthDetail.Text = Guard.status, Guard.detail
-    UI.healthStatus.TextColor3, UI.healthStatusDot.BackgroundColor3 = hpColor, hpColor
-    UI.healthMasterStroke.Transparency = Settings.HealthEscapeEnabled and 0.18 or 0.65
-    UI.healthSource.Text, UI.healthSourceDetail.Text = Guard.sourceLabel, Guard.sourceDetail
-    UI.healthRearm.Text = string.format("Re-arm at %.0f%% health. Minimum 5 seconds between escapes.", Settings.HealthThreshold + 5)
+    UI.espDetail.Text = State.espFault or (Settings.ESPEnabled and "ESP active" or "Turn on Player ESP or press F8.")
+    UI.espStatus.Text = State.espFault and "ESP ERROR" or (Settings.ESPEnabled and "ESP ACTIVE" or "ESP OFF")
+    UI.espStatusDot.BackgroundColor3 = State.espFault and C.red or (Settings.ESPEnabled and C.green or C.faint)
+
+    UI.healthStatus.Text = Guard.status
+    UI.healthDetail.Text = Guard.detail
+    UI.healthSource.Text = Guard.sourceLabel
+    UI.healthSourceDetail.Text = Guard.sourceDetail
+    UI.healthRearm.Text = string.format("Re-arm at %.0f%% health.", Settings.HealthThreshold + 5)
     UI.healthNumbers.Text = Guard.current and string.format("%.0f / %.0f HP", Guard.current, Guard.maximum) or "-- / -- HP"
     UI.healthPercent.Text = Guard.percent and string.format("%.1f%%", Guard.percent) or "--%"
-    UI.healthFill.Size = UDim2.fromScale((Guard.percent or 0) / 100, 1)
-    UI.healthFill.BackgroundColor3 = Guard.percent and Guard.percent <= Settings.HealthThreshold and C.red or C.green
-    UI.healthMarker.Position = UDim2.new(Settings.HealthThreshold / 100, 0, 0, -3)
-    if State.tab == "Health" then
-        UI.badge.Text = Guard.fault and "ERROR" or (Settings.HealthEscapeEnabled and "HP ON" or "HP OFF")
-        UI.badge.TextColor3 = hpColor
-        UI.badge.BackgroundColor3 = Settings.HealthEscapeEnabled and C.raised or C.surface
-    end
-    UI.healthRelease.TextColor3 = Guard.held and C.bright or C.dim
-    UI.bossDwell.Text=string.format("Dwell: %.1fs (click)",Settings.BossDwell)
-    UI.bossRadius.Text=string.format("Radius: %d (click)",Settings.BossGridRadius)
-    UI.bossDiscover.Text=(State.discovering or Farm.pendingDiscovery) and "Stop discovery / return" or "Start discovery"
-    UI.bossSaveStatus.Text=Farm.configStatus
-    UI.bossDiscoveryStatus.Text=Farm.pendingDiscovery and "First-run discovery starts shortly..." or Farm.discoveryStatus
-    UI.farmHint.Text = Settings.AutoBoss
-        and string.format("Auto Boss active - %d saved locations - same-boss respawn resume enabled.", #Farm.remembered)
+    UI.healthFill.Size = UDim2.fromScale(math.clamp((Guard.percent or 0) / 100, 0, 1), 1)
+    UI.healthMarker.Position = UDim2.new(math.clamp(Settings.HealthThreshold / 100, 0, 1), 0, 0, -3)
+    UI.healthRelease.Text = Guard.held and "LOCKED" or "RELEASED"
+
+    UI.farmHint.Text = Settings.AutoBoss and string.format("Auto Boss active - %d saved locations.", #Farm.remembered)
         or "Automate farming, bosses and loot collection."
-    UI.farmCount.Text = tostring(Farm.aliveCount or 0)
     local remembered = Farm.pinned and Farm.catalog[Farm.pinned]
-    UI.farmName.Text = remembered and remembered.name or (Farm.selected and Farm.selected.name or (Settings.AutoBoss and "Auto Boss: finding next" or "Choose boss / Auto nearest"))
+    UI.farmName.Text = remembered and remembered.name or (Farm.selected and Farm.selected.name or (Settings.AutoBoss and "Finding next boss" or "None"))
     UI.farmID.Text = Farm.selected and Farm.selected.id or "--"
-    UI.farmPath.Text = Farm.selected and Farm.selected.path or "Replicated NPCs with Humanoids"
-    local targetHP, targetMax, targetHumanoid, targetRoot = Farm.read(Farm.selected)
-    UI.farmHP.Text = targetHP and string.format("%s  /  %.0f of %.0f HP", targetHP > 0 and "ALIVE" or "DEAD", targetHP, targetMax) or (remembered and "UNLOADED / HEALTH UNKNOWN" or "UNAVAILABLE")
-    UI.farmHP.TextColor3 = targetHP and targetHP > 0 and C.green or C.red
-    UI.farmParts.Text = targetHumanoid and ("Humanoid: " .. targetHumanoid.Name .. "  /  Root: " .. (targetRoot and targetRoot.Name or "missing")) or (remembered and "Saved location; enable Farm to travel" or "Humanoid / root unavailable")
-    if remembered and remembered.timerText and os.clock()-(remembered.timerAt or 0)<5 then
-        UI.farmParts.Text="Observed timer: "..remembered.timerText
-    end
-    UI.farmStatus.Text, UI.farmDetail.Text = Farm.status, Farm.detail
-    UI.farmStatus.TextColor3 = Farm.fault and C.red or ((State.farming or Settings.AutoBoss) and C.green or C.muted)
+    UI.farmPath.Text = Farm.selected and Farm.selected.path or "Replicated NPCs"
+    local targetHP, targetMax = Farm.read(Farm.selected)
+    UI.farmHP.Text = targetHP and string.format("%.0f / %.0f HP", targetHP, targetMax) or "Unavailable"
+    UI.farmParts.Text = Farm.detail or ""
+    UI.farmStatus.Text = Farm.status or "OFF"
+    UI.farmDetail.Text = Farm.detail or ""
+    UI.refTargetName.Text = UI.farmName.Text
+    UI.refBossDelay.Text = string.format("%.1f", Settings.BossNoAttackTimeout)
+    UI.refRunDot.BackgroundColor3 = (Settings.FarmEnabled or Settings.AutoBoss) and C.green or C.faint
+    UI.refElapsed.Text = string.format("%02d:%02d:%02d", math.floor(os.clock()/3600)%100, math.floor(os.clock()/60)%60, math.floor(os.clock())%60)
 
-    if UI.refTargetName then
-        UI.refTargetName.Text = remembered and remembered.name
-            or (Farm.selected and Farm.selected.name)
-            or (Settings.AutoBoss and "Finding boss..." or "None")
-        UI.refTargetName.TextColor3 = (remembered or Farm.selected) and C.accent or C.dim
-    end
+    UI.moveStatus.Text = Movement.status
+    UI.moveDetail.Text = Movement.detail
+    UI.moveStatusDot.BackgroundColor3 = (Settings.FlyEnabled or Settings.SpeedEnabled or Settings.NoClip) and C.green or C.faint
+    UI.systemStatus.Text = System.status
+    UI.systemDetail.Text = System.persistStatus .. "\n" .. System.friendReadyStatus
+    UI.systemStatusDot.BackgroundColor3 = (Settings.StaticMapScan or Settings.AutoRejoin or Settings.AutoExecute) and C.green or C.faint
+    UI.staticScanButton.Text = Farm.staticScanBusy and "SCANNING..." or "SCAN MAP NOW"
+    UI.staticScanStatus.Text = Farm.staticScanStatus
+    UI.rejoinStatus.Text = System.rejoinStatus
+    if Input:GetFocusedTextBox() ~= UI.privateMapBox then UI.privateMapBox.Text = Settings.PrivateServerMap end
 
-    if UI.refBossDelay then
-        UI.refBossDelay.Text = string.format("%.1f", Settings.BossNoAttackTimeout)
-    end
-
-    if UI.refRunDot then
-        local running = Settings.FarmEnabled or Settings.AutoBoss
-        UI.refRunDot.BackgroundColor3 = Farm.fault and C.red or (running and C.green or C.dim)
-    end
-
-    if UI.refElapsed then
-        local elapsed = math.max(0, math.floor(os.clock()))
-        local hours = math.floor(elapsed / 3600) % 100
-        local minutes = math.floor(elapsed / 60) % 60
-        local seconds = elapsed % 60
-        UI.refElapsed.Text = string.format("%02d:%02d:%02d", hours, minutes, seconds)
-    end
-    if State.tab == "Farm" then
-        UI.badge.Text = Farm.fault and "ERROR" or (Settings.AutoBoss and "BOSS AUTO" or (Settings.FarmEnabled and "FARM ON" or "OFF"))
-        UI.badge.TextColor3 = State.farming and C.green or C.dim
-        UI.badge.BackgroundColor3 = Settings.FarmEnabled and C.raised or C.surface
-    end
-    if State.tab == "Move" then
-        local movementOn = Settings.FlyEnabled or Settings.SpeedEnabled or Settings.NoClip
-        local movementColor = movementOn and C.green or C.dim
-        UI.badge.Text = Settings.FlyEnabled and "FLY ON" or (Settings.NoClip and "NOCLIP" or (Settings.SpeedEnabled and "SPEED" or "OFF"))
-        UI.badge.TextColor3 = movementColor
-        UI.badge.BackgroundColor3 = movementOn and C.raised or C.surface
-        UI.moveStatus.Text = Movement.status
-        UI.moveDetail.Text = Movement.detail
-        UI.moveStatus.TextColor3 = movementColor
-        UI.moveStatusDot.BackgroundColor3 = movementColor
-        UI.moveMasterStroke.Transparency = movementOn and 0.18 or 0.65
-    end
-    if State.tab == "System" then
-        local systemOn = Settings.StaticMapScan or Settings.AutoRejoin or Settings.AutoExecute
-        local systemColor = systemOn and C.green or C.dim
-
-        UI.badge.Text = Settings.AutoRejoin and "RECOVERY" or "SYSTEM"
-        UI.badge.TextColor3 = systemColor
-        UI.badge.BackgroundColor3 = systemOn and C.raised or C.surface
-
-        UI.staticScanButton.Text = Farm.staticScanBusy and "Scanning..." or "Scan map now"
-        UI.staticScanStatus.Text = Farm.staticScanStatus
-        UI.rejoinStatus.Text = System.rejoinStatus
-        UI.privateMapBox.Text = Input:GetFocusedTextBox() == UI.privateMapBox
-            and UI.privateMapBox.Text or Settings.PrivateServerMap
-
-        UI.systemStatus.Text = System.status
-        UI.systemStatus.TextColor3 = systemColor
-        UI.systemStatusDot.BackgroundColor3 = systemColor
-        UI.systemDetail.Text = System.persistStatus .. "\n" .. System.friendReadyStatus
-        UI.systemMasterStroke.Transparency = systemOn and 0.18 or 0.65
-    end
     for _, view in ipairs(toggleViews) do
         local value = view.getter()
         if view.last ~= value then
-            local instant = view.last == nil
             view.last = value
-            animate(view.track, {BackgroundColor3 = value and C.accent or C.line}, instant)
-            animate(view.knob, {
-                Position = UDim2.fromOffset(value and (view.width - view.height + 4) or 4, 4),
-                BackgroundColor3 = value and C.text or C.muted,
-            }, instant)
-        end
-    end
-    for index, skill in ipairs(Skills) do
-        local view = UI.keys[index]
-        local pressed = State.heldKey == skill.key
-        if view.selected ~= skill.enabled or view.pressed ~= pressed then
-            view.selected, view.pressed = skill.enabled, pressed
-            view.button.BackgroundColor3 = pressed and Color3.fromRGB(49, 20, 82) or (skill.enabled and C.raised or C.surface)
-            view.border.Color = pressed and C.bright or (skill.enabled and C.accent or C.line)
-            view.border.Transparency = pressed and 0 or (skill.enabled and 0.58 or 0.45)
-            view.keyText.TextColor3 = skill.enabled and C.bright or C.dim
-            view.dot.BackgroundColor3 = skill.enabled and C.accent or C.line
-            view.hint.Text = pressed and "PRESSING" or (skill.enabled and "ENABLED" or "DISABLED")
-            view.hint.TextColor3 = pressed and C.bright or C.muted
-            view.flash.BackgroundTransparency = pressed and 0 or 1
+            view.track.BackgroundColor3 = value and Color3.fromRGB(88, 48, 124) or Color3.fromRGB(32, 24, 43)
+            view.knob.Position = UDim2.fromOffset(value and 22 or 3, 3)
+            view.knob.BackgroundColor3 = value and C.cyan or C.faint
         end
     end
     for _, view in ipairs(sliders) do
-        local value = Settings[view.property]
-        local fraction = (value - view.minimum) / (view.maximum - view.minimum)
+        local value = view.getter()
+        local fraction = math.clamp((value - view.minimum) / (view.maximum - view.minimum), 0, 1)
         view.valueLabel.Text = string.format(view.format, value)
         view.fill.Size = UDim2.new(fraction, 0, 1, 0)
-        view.knob.Position = UDim2.new(fraction, 0, 0.5, 0)
+        view.knob.Position = UDim2.new(fraction, -7, 0.5, -7)
     end
-    for _, preset in ipairs(presets) do
-        local selected = math.abs(Settings.KeyGap - preset.gap) < 0.001 and math.abs(Settings.HoldTime - preset.hold) < 0.001
-        preset.button.BackgroundColor3 = selected and C.raised or C.panel
-        preset.button.TextColor3 = selected and C.bright or C.dim
-    end
+    updateTabVisuals()
 end
-local pageBasePosition = UDim2.fromOffset(14, 130)
-local function animatePageIn(page)
-    if not page or not page.Visible then return end
-    page.Position = UDim2.fromOffset(24, 130)
-    animate(page, {Position = pageBasePosition})
-end
+render = renderPageState
 
-connect(UI.skillsTab.Activated, function()
-    State.tab = "Skills"; State.gesture = nil; render(); animatePageIn(body)
-end)
-connect(UI.espTab.Activated, function()
-    State.tab = "ESP"; State.gesture = nil; render(); animatePageIn(espBody)
-end)
-connect(UI.farmTab.Activated, function()
-    State.tab = "Farm"; State.gesture = nil; Farm.scan(true); Farm.step(); render(); animatePageIn(farmBody)
-end)
-connect(UI.healthTab.Activated, function()
-    State.tab = "Health"; State.gesture = nil; Guard.step(); render(); animatePageIn(healthBody)
-end)
-connect(UI.moveTab.Activated, function()
-    State.tab = "Move"; State.gesture = nil; Movement.step(0); render(); animatePageIn(moveBody)
-end)
-connect(UI.systemTab.Activated, function()
-    State.tab = "System"; State.gesture = nil; render(); animatePageIn(systemBody)
-end)
+-- Compatibility names expected by the older render/event code are supplied
+-- above, while the actual visible UI remains the HTML-shaped panel.
+showPage("Skills")
 connect(UI.badge.Activated, function()
     if State.tab == "ESP" then setESPEnabled(not Settings.ESPEnabled)
     elseif State.tab == "Farm" then Farm.setEnabled(not Settings.FarmEnabled)
@@ -4835,15 +4062,10 @@ connect(UI.badge.Activated, function()
     elseif State.tab == "System" then System.setAutoRejoin(not Settings.AutoRejoin)
     else setEnabled(not State.enabled) end
 end)
-connect(minimize.Activated, function() setMinimized(not State.minimized) end)
-connect(close.Activated, function() controller.Stop() end)
-connect(root.Destroying, function() controller.Stop() end)
-connect(canvas:GetPropertyChangedSignal("AbsoluteSize"), function() fitWindow(false) end)
 connect(header.InputBegan, function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         State.gesture = {kind = "window", input = input, start = input.Position,
             x = holder.Position.X.Offset, y = holder.Position.Y.Offset}
-        releaseOrPause()
     end
 end)
 connect(Input.InputChanged, function(input)
@@ -4856,9 +4078,9 @@ connect(Input.InputChanged, function(input)
         gesture.view.updateFromX(input.Position.X)
     elseif gesture.kind == "resize" then
         local deltaX = input.Position.X - gesture.start.X
-        State.uiScaleTarget = math.clamp(gesture.scale + (deltaX / W), 0.48, 1.0)
+        State.uiScaleTarget = math.clamp(gesture.scale + deltaX / W, 0.65, 1.25)
         fitWindow(false)
-    else
+    elseif gesture.kind == "window" then
         local delta = input.Position - gesture.start
         holder.Position = UDim2.fromOffset(gesture.x + delta.X, gesture.y + delta.Y)
         fitWindow(false)
@@ -4872,27 +4094,10 @@ connect(Input.InputEnded, function(input)
         render()
     end
 end)
-connect(Input.InputBegan, function(input, processed)
-    if Settings.NoClip and input.KeyCode == Enum.KeyCode.T then return end
-    if input.KeyCode == Settings.StopKey then controller.Stop(); return end
-    if processed or Input:GetFocusedTextBox() then return end
-    if input.KeyCode == Settings.ToggleKey then
-        setEnabled(not State.enabled)
-    elseif input.KeyCode == Settings.ESPToggleKey then
-        setESPEnabled(not Settings.ESPEnabled)
-    elseif input.KeyCode == Settings.HealthToggleKey then
-        Guard.setEnabled(not Settings.HealthEscapeEnabled)
-    elseif input.KeyCode == Settings.VisibilityKey then
-        root.Enabled = not root.Enabled
-        State.gesture = nil
-        render()
-    end
-end)
-connect(Input.TextBoxFocused, function(box)
-    if Settings.PauseWhileTyping and isChatTextBox(box) then
-        releaseOrPause()
-    end
-end)
+connect(canvas:GetPropertyChangedSignal("AbsoluteSize"), function() fitWindow(false) end)
+fitWindow(true)
+render()
+
 -- Menus/inventories no longer stop M1 or Auto Skills.
 connect(GuiService.MenuOpened, function() render() end)
 connect(Input.WindowFocusReleased, function()

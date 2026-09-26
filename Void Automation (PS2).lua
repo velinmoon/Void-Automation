@@ -12,6 +12,8 @@ local Settings = {
     AutoRejoin = true, AutoExecute = true,
     PrivateServerMap = "Ouwigahara", PrivateJoinHold = 1.35,
     NoClip = true, FlyEnabled = false, FlySpeed = 85,
+    NoClipWorldRadius = 100, NoClipWorldScanInterval = 0.20,
+    NoClipStopLift = 10, NoClipStopSettle = 1.00,
     SpeedEnabled = false, WalkSpeed = 32,
     ToggleKey = Enum.KeyCode.F6,
     StopKey = Enum.KeyCode.F7,
@@ -1951,7 +1953,10 @@ do
         else
             Settings.FarmEnabled = false
             resetAutoBossRoute(true)
+            local character = Player.Character
+            local rootPart = character and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart)
             Farm.release(false)
+            Movement.prepareStopLanding(character, rootPart)
         end
         Farm.step()
         render()
@@ -1988,7 +1993,10 @@ do
         if not value then
             Settings.AutoBoss = false
             resetAutoBossRoute(true)
+            local character = Player.Character
+            local rootPart = character and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart)
             Farm.release(false)
+            Movement.prepareStopLanding(character, rootPart)
         end
         Farm.nextScan = 0
         Farm.step()
@@ -2328,7 +2336,10 @@ do
         Settings.FarmEnabled = false
         Settings.AutoBoss = false
         resetAutoBossRoute(true)
+        local character = Player.Character
+        local rootPart = character and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart)
         Farm.release(false)
+        Movement.prepareStopLanding(character, rootPart)
     end
     local runOK, Run = pcall(function() return game:GetService("RunService") end)
     if runOK then
@@ -2781,8 +2792,13 @@ end
 local Movement = {
     character = nil, humanoid = nil, rootPart = nil,
     collisions = setmetatable({}, {__mode = "k"}),
+    worldCollisions = setmetatable({}, {__mode = "k"}),
+    worldCollisionAt = 0,
+    terrainCollision = nil,
+    climbHumanoid = nil, climbEnabled = nil,
     speedHumanoid = nil, speedOriginal = nil,
     flyHumanoid = nil, flyAutoRotate = nil,
+    stopLiftToken = 0,
     tBlocked = false,
     status = "NOCLIP ON",
     detail = "No-clip is active automatically. T is blocked while No Clip is on.",
@@ -2822,9 +2838,24 @@ function Movement.restoreNoClip(force)
         end
         Movement.collisions[part] = nil
     end
+    for part, original in pairs(Movement.worldCollisions) do
+        if part and part.Parent then
+            pcall(function() part.CanCollide = original end)
+        end
+        Movement.worldCollisions[part] = nil
+    end
+    if Movement.terrainCollision ~= nil and World.Terrain then
+        pcall(function() World.Terrain.CanCollide = Movement.terrainCollision end)
+    end
+    Movement.terrainCollision = nil
+    Movement.worldCollisionAt = 0
+    if Movement.climbHumanoid and Movement.climbHumanoid.Parent and Movement.climbEnabled ~= nil then
+        pcall(function() Movement.climbHumanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, Movement.climbEnabled) end)
+    end
+    Movement.climbHumanoid, Movement.climbEnabled = nil, nil
 end
 
-local function applyNoClip(character)
+local function applyNoClip(character, rootPart, humanoid)
     if not character then return end
     for _, part in ipairs(character:GetDescendants()) do
         if part:IsA("BasePart") then
@@ -2834,6 +2865,69 @@ local function applyNoClip(character)
             part.CanCollide = false
         end
     end
+
+    if humanoid and humanoid.Parent then
+        if Movement.climbHumanoid ~= humanoid then
+            Movement.climbHumanoid = humanoid
+            local ok, enabled = pcall(function()
+                return humanoid:GetStateEnabled(Enum.HumanoidStateType.Climbing)
+            end)
+            Movement.climbEnabled = ok and enabled or true
+        end
+        pcall(function() humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, false) end)
+        pcall(function()
+            local state = humanoid:GetState()
+            if state == Enum.HumanoidStateType.Climbing then
+                humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+            end
+        end)
+    end
+
+    local now = os.clock()
+    if rootPart and now >= Movement.worldCollisionAt then
+        Movement.worldCollisionAt = now + math.max(0.05, Settings.NoClipWorldScanInterval)
+        local radius = math.clamp(Settings.NoClipWorldRadius, 30, 200)
+        local overlap = OverlapParams.new()
+        overlap.FilterType = Enum.RaycastFilterType.Exclude
+        overlap.FilterDescendantsInstances = {character}
+        overlap.MaxParts = 512
+        local ok, parts = pcall(function()
+            return World:GetPartBoundsInBox(CFrame.new(rootPart.Position), Vector3.new(radius * 2, radius, radius * 2), overlap)
+        end)
+        if ok and type(parts) == "table" then
+            for _, part in ipairs(parts) do
+                if part:IsA("BasePart") and not part:IsDescendantOf(character) then
+                    if Movement.worldCollisions[part] == nil then
+                        Movement.worldCollisions[part] = part.CanCollide
+                    end
+                    part.CanCollide = false
+                end
+            end
+        end
+        if World.Terrain then
+            if Movement.terrainCollision == nil then
+                local okTerrain, value = pcall(function() return World.Terrain.CanCollide end)
+                if okTerrain then Movement.terrainCollision = value end
+            end
+            pcall(function() World.Terrain.CanCollide = false end)
+        end
+    end
+end
+
+function Movement.prepareStopLanding(character, rootPart)
+    if not character or not rootPart or not rootPart.Parent then return end
+    if not Settings.NoClip then return end
+    Movement.stopLiftToken = Movement.stopLiftToken + 1
+    local pivot = character:GetPivot()
+    local lifted = pivot + Vector3.new(0, Settings.NoClipStopLift, 0)
+    pcall(function() character:PivotTo(lifted) end)
+
+    -- Auto Farm stops with normal collisions restored so the player cannot fall through the map.
+    Settings.NoClip = false
+    Movement.updateTBlock()
+    Movement.restoreNoClip(true)
+    pcall(function() rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
+    pcall(function() rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0) end)
 end
 
 function Movement.restoreSpeed()
@@ -2910,7 +3004,7 @@ function Movement.step(dt)
     end
 
     if Settings.NoClip or Settings.FlyEnabled then
-        applyNoClip(character)
+        applyNoClip(character, rootPart, humanoid)
     else
         Movement.restoreNoClip(false)
     end

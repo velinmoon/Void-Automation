@@ -50,6 +50,8 @@ local Settings = {
     BossAutoSave = true, BossFirstDiscovery = false, BossGridSearch = true,
     BossDwell = 1.5, BossGridRadius = 2048,
     AutoBoss = false, BossAutoRange = 500000, BossLocalScanRadius = 2500, BossNoAttackTimeout = 5,
+    GuardianDamageTimeout = 0.75, GuardianStuckTimeout = 6, GuardianCombatStallTimeout = 25,
+    GuardianVerifyInterval = 1.0, GuardianMaxRecoveries = 1,
     StaticMapScan = true, StaticScanRange = 500000,
     AutoRejoin = true, AutoExecute = true,
     PrivateServerMap = "Ouwigahara", PrivateJoinHold = 1.35,
@@ -551,7 +553,11 @@ local Farm = {catalog = {}, remembered = {}, pinned = nil, records = {}, selecte
     autoVisited = {}, autoCurrent = nil, autoLastPath = nil, autoArrivedAt = 0,
     autoCombatAt = 0, autoLastProgressAt = 0, autoLastHP = nil, autoDefeated = false,
     autoRespawnResume = false, autoResumePath = nil,
-    autoCycles = 0, autoSkipped = 0, travelHealth = nil}
+    autoCycles = 0, autoSkipped = 0, travelHealth = nil,
+    guardian = {lastHealth = nil, damageSince = 0, damageBase = nil, lastPosition = nil,
+        lastPositionAt = 0, stuckSince = 0, lostSince = 0, verifyAt = 0, recoveries = 0,
+        lastAction = "STANDBY", lastActionAt = 0}
+}
 local function attackHealthAllowed(maximum)
     return type(maximum) == "number"
         and maximum == maximum
@@ -1776,6 +1782,10 @@ do
         Farm.autoDefeated = false
         Farm.autoRespawnResume = false
         Farm.autoResumePath = nil
+        local g = Farm.guardian
+        g.lastHealth, g.damageSince, g.damageBase = nil, 0, nil
+        g.lastPosition, g.lastPositionAt, g.stuckSince, g.lostSince = nil, 0, 0, 0
+        g.verifyAt, g.recoveries, g.lastAction, g.lastActionAt = 0, 0, "STANDBY", 0
         if clearLast then Farm.autoLastPath = nil end
     end
     local function autoBossLocation(entry)
@@ -1858,6 +1868,10 @@ do
         Farm.pinned = entry.path
         Farm.selected = entry.live
         Farm.travelKey, Farm.travelAt = nil, nil
+        local g = Farm.guardian
+        g.lastHealth, g.damageSince, g.damageBase = nil, 0, nil
+        g.lastPosition, g.lastPositionAt, g.stuckSince = rootPart.Position, os.clock(), 0
+        g.verifyAt, g.recoveries, g.lastAction, g.lastActionAt = 0, 0, "TARGET SELECTED", os.clock()
         Farm.status = "AUTO BOSS"
         Farm.detail = string.format("Next: %s | %.0f studs away", entry.name, distance or 0)
         return entry
@@ -1879,11 +1893,137 @@ do
         Farm.autoDefeated = false
         Farm.travelKey, Farm.travelAt = nil, nil
         Farm.travelHealth = nil
+        local g = Farm.guardian
+        g.lastHealth, g.damageSince, g.damageBase = nil, 0, nil
+        g.lastPosition, g.lastPositionAt, g.stuckSince, g.lostSince = rootPart and rootPart.Position or nil, os.clock(), 0, 0
+        g.verifyAt, g.recoveries, g.lastAction, g.lastActionAt = 0, 0, reason or "MOVING", os.clock()
         Farm.nextScan = 0
         Farm.status = "AUTO BOSS"
         Farm.detail = (reason or "Moving to next boss") .. (previous and (" | " .. previous.name) or "")
         return pickAutoBoss(rootPart)
     end
+
+    -- VOID GUARDIAN: supervises Auto Boss without changing the normal M1 path.
+    -- It watches for environmental damage, failed travel, invalid/stale targets,
+    -- and bosses that stop making HP progress after combat has already started.
+    local function guardianResetObservation(rootPart, humanoid)
+        local g = Farm.guardian
+        local now = os.clock()
+        g.lastHealth = humanoid and humanoid.Health or nil
+        g.damageSince, g.damageBase = 0, nil
+        g.lastPosition, g.lastPositionAt = rootPart and rootPart.Position or nil, now
+        g.stuckSince, g.lostSince = 0, 0
+        g.verifyAt = 0
+    end
+
+    local function guardianObservePlayer(humanoid, rootPart, engaged)
+        if not Settings.AutoBoss or not humanoid or not rootPart then return false end
+        local g, now = Farm.guardian, os.clock()
+        local hp = humanoid.Health
+
+        if g.lastHealth == nil then
+            guardianResetObservation(rootPart, humanoid)
+            return false
+        end
+
+        local drop = g.lastHealth - hp
+        if not engaged and drop > 0.01 then
+            if g.damageSince == 0 then
+                g.damageSince = now
+                g.damageBase = g.lastHealth
+            end
+            local cumulative = (g.damageBase or g.lastHealth) - hp
+            if cumulative >= 1 or now - g.damageSince >= Settings.GuardianDamageTimeout then
+                g.lastHealth = hp
+                g.damageSince, g.damageBase = 0, nil
+                return true
+            end
+        elseif not engaged and g.damageSince ~= 0 then
+            local cumulative = (g.damageBase or g.lastHealth) - hp
+            if now - g.damageSince >= Settings.GuardianDamageTimeout then
+                g.damageSince, g.damageBase = 0, nil
+                if cumulative >= 0.25 then return true end
+            end
+        end
+
+        g.lastHealth = hp
+        return false
+    end
+
+    local function guardianObserveTravel(rootPart, entry, targetRoot, engaged)
+        if not Settings.AutoBoss or not rootPart or not entry or engaged then return false end
+        local g, now = Farm.guardian, os.clock()
+        if not g.lastPosition then
+            g.lastPosition, g.lastPositionAt = rootPart.Position, now
+            return false
+        end
+
+        local moved = (rootPart.Position - g.lastPosition).Magnitude
+        if moved >= 1 then
+            g.lastPosition, g.lastPositionAt, g.stuckSince = rootPart.Position, now, 0
+        elseif Farm.travelDestination and Farm.travelAt and now - Farm.travelAt >= 1.25 then
+            local distance = (rootPart.Position - Farm.travelDestination).Magnitude
+            if distance > 10 then
+                if g.stuckSince == 0 then g.stuckSince = now end
+                if now - g.stuckSince >= Settings.GuardianStuckTimeout then
+                    g.lastAction, g.lastActionAt = "TRAVEL STUCK", now
+                    return true
+                end
+            else
+                g.stuckSince = 0
+            end
+        end
+
+        return false
+    end
+
+    local function guardianVerifyTarget(entry, targetRoot)
+        if not Settings.AutoBoss or not entry or not targetRoot then return false end
+        local location = autoBossLocation(entry)
+        if not location then return false end
+        return (targetRoot.Position - location).Magnitude <= Settings.BossLocalScanRadius
+    end
+
+    local function guardianCombatStalled(hp, targetRoot)
+        if not Settings.AutoBoss or not Farm.autoEngaged or not targetRoot or not hp or hp <= 0 then return false end
+        local g, now = Farm.guardian, os.clock()
+        if Farm.autoLastProgressAt == 0 then Farm.autoLastProgressAt = now end
+        if now - Farm.autoLastProgressAt < Settings.GuardianCombatStallTimeout then return false end
+
+        if g.recoveries < Settings.GuardianMaxRecoveries then
+            g.recoveries = g.recoveries + 1
+            g.lastAction, g.lastActionAt = "REACQUIRING BOSS", now
+            Farm.stopM1()
+            Farm.restoreHitbox()
+            combatPose = nil
+            Farm.selected = nil
+            Farm.nextScan = 0
+            Farm.scan(true)
+            local entry = Farm.catalog[Farm.autoCurrent]
+            local nearby = entry and findBossNearSavedLocation(entry) or nil
+            if nearby then
+                Farm.selected = nearby
+                if entry then entry.live = nearby end
+                Farm.autoCombatAt = now
+                Farm.autoLastProgressAt = now
+                Farm.autoLastHP = nearby.humanoid and nearby.humanoid.Health or hp
+                Farm.autoEngaged = false
+                Farm.travelKey, Farm.travelAt, Farm.travelHealth = nil, nil, nil
+                Farm.status = "AUTO BOSS RECOVERING"
+                Farm.detail = string.format("Guardian reacquired %s after %.0fs without HP progress.", nearby.name, Settings.GuardianCombatStallTimeout)
+                guardianResetObservation(Player.Character and (Player.Character:FindFirstChild("HumanoidRootPart") or Player.Character.PrimaryPart), Player.Character and Player.Character:FindFirstChildOfClass("Humanoid"))
+                return "recovered"
+            end
+        end
+
+        return "skip"
+    end
+
+    function Farm.guardianStatus()
+        local g = Farm.guardian
+        return g.lastAction or "STANDBY"
+    end
+
     function Farm.setAutoBoss(value)
         if not State.alive then return end
         if Farm.stopDiscovery then Farm.stopDiscovery() end
@@ -2012,6 +2152,23 @@ do
             end
             Farm.pinned = entry.path
             Farm.selected = entry.live
+
+            -- Guardian verification: never trust a stale global target when Auto Boss
+            -- is supposed to be working a specific saved location.
+            if Farm.autoCurrent == entry.path and Farm.guardian.verifyAt <= os.clock() then
+                Farm.guardian.verifyAt = os.clock() + Settings.GuardianVerifyInterval
+                local currentHP, currentMax, _, currentRoot = Farm.read(Farm.selected)
+                if currentHP and currentHP > 0 and currentRoot and attackHealthAllowed(currentMax)
+                    and not guardianVerifyTarget(entry, currentRoot) then
+                    local nearby = findBossNearSavedLocation(entry)
+                    if nearby then
+                        Farm.selected, entry.live = nearby, nearby
+                    else
+                        Farm.selected = nil
+                        Farm.guardian.lastAction, Farm.guardian.lastActionAt = "NO VALID BOSS", os.clock()
+                    end
+                end
+            end
         end
         if stepLoot(character, rootPart) then return end
         if Settings.AutoBoss and Farm.autoDefeated then
@@ -2120,6 +2277,46 @@ do
             end
             Farm.travelKey, Farm.travelAt, Farm.travelHealth = nil, nil, nil
         end
+
+        if Settings.AutoBoss then
+            local engaged = Farm.autoEngaged == true
+            if guardianObservePlayer(humanoid, rootPart, engaged) then
+                Farm.guardian.lastAction, Farm.guardian.lastActionAt = "DAMAGE WITHOUT COMBAT", os.clock()
+                advanceAutoBoss("Guardian: player taking damage with no boss being damaged", rootPart, true)
+                return
+            end
+
+            local entry = Farm.autoCurrent and Farm.catalog[Farm.autoCurrent] or nil
+            if entry and guardianObserveTravel(rootPart, entry, targetRoot, engaged) then
+                Farm.guardian.lastAction, Farm.guardian.lastActionAt = "TRAVEL STUCK", os.clock()
+                advanceAutoBoss("Guardian: travel position stuck, moving to next boss", rootPart, true)
+                return
+            end
+
+            if engaged then
+                if not hp or hp <= 0 or not targetRoot then
+                    local now = os.clock()
+                    local g = Farm.guardian
+                    if g.lostSince == 0 then g.lostSince = now end
+                    if now - g.lostSince >= Settings.GuardianCombatStallTimeout then
+                        g.lastAction, g.lastActionAt, g.lostSince = "BOSS LOST", now, 0
+                        advanceAutoBoss("Guardian: engaged boss disappeared without a kill", rootPart, true)
+                        return
+                    end
+                elseif hp and hp > 0 and targetRoot then
+                    Farm.guardian.lostSince = 0
+                    local combatResult = guardianCombatStalled(hp, targetRoot)
+                    if combatResult == "skip" then
+                        Farm.guardian.lastAction, Farm.guardian.lastActionAt = "COMBAT STALLED", os.clock()
+                        advanceAutoBoss("Guardian: boss made no HP progress for too long", rootPart, true)
+                        return
+                    elseif combatResult == "recovered" then
+                        return
+                    end
+                end
+            end
+        end
+
         if Settings.AutoBoss and (not hp or hp <= 0 or not targetRoot or not attackHealthAllowed(maximum)) then
             if Farm.autoDefeated or (hp and hp <= 0) then
                 Farm.autoDefeated = true
@@ -2189,6 +2386,8 @@ do
                     -- First confirmed damage permanently locks this boss in until death/loot.
                     Farm.autoEngaged = true
                     Farm.autoLastProgressAt = now
+                    Farm.guardian.recoveries = 0
+                    Farm.guardian.lastAction, Farm.guardian.lastActionAt = "BOSS DAMAGED", now
                 end
                 Farm.autoLastHP = hp
             end
@@ -2203,7 +2402,8 @@ do
         stepM1()
         Farm.status = Settings.AutoBoss and "AUTO BOSS FARMING" or "FARMING"
         Farm.detail = Settings.AutoBoss
-            and string.format("%s | %s | route %d visited, %d skipped", Farm.m1Status, Farm.selected.name,
+            and string.format("%s | %s | Guardian: %s | route %d visited, %d skipped", Farm.m1Status, Farm.selected.name,
+                Farm.guardianStatus(),
                 (function() local n=0 for _ in pairs(Farm.autoVisited) do n=n+1 end return n end)(), Farm.autoSkipped)
             or (Farm.m1Status .. " | " .. Farm.selected.name)
     end
@@ -4314,7 +4514,7 @@ local farmPage = newPage("Farm")
 farmBody = farmPage
 pageHead(farmPage, "farm", "FARM ROUTE", "5 NODES")
 makeRow(farmPage, 48, "Auto Farm", "Selects eligible 3000-3200 HP targets", function() return Settings.FarmEnabled end, Farm.setEnabled)
-makeRow(farmPage, 108, "Auto Boss", "Routes through saved boss locations", function() return Settings.AutoBoss end, function(v) Settings.AutoBoss = v; if Farm.resetAutoBoss then Farm.resetAutoBoss(true) end; Farm.step() end)
+makeRow(farmPage, 108, "Auto Boss", "Routes through saved boss locations", function() return Settings.AutoBoss end, Farm.setAutoBoss)
 makeRow(farmPage, 168, "Auto Collect", "Loots boss drops and world rewards", function() return Settings.FarmAutoLoot end, Farm.setLoot)
 makeRow(farmPage, 228, "Auto M1", "Uses the inventory-safe M1 path", function() return Settings.FarmM1 end, function(v) Settings.FarmM1 = v; Farm.step() end)
 makeSlider(farmPage, 288, "Boss Delay", function() return Settings.BossNoAttackTimeout end, function(v) Settings.BossNoAttackTimeout = math.max(1, v) end, 1, 10, "%.1fs")

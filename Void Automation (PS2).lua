@@ -1,5 +1,7 @@
 loadstring([=====[
+-- AutoSkills / Void bootstrap (compact build)
 local __AUTOSKILLS_SOURCE = [====[
+
 local Settings = {
     BossAutoSave = true, BossFirstDiscovery = false, BossGridSearch = true,
     BossDwell = 1.5, BossGridRadius = 2048,
@@ -27,6 +29,7 @@ local Settings = {
     FarmUseSkills = true, FarmExpandHitbox = false, FarmHitboxSize = 16,
     HealthEscapeEnabled = false, HealthThreshold = 30, HealthSource = "Auto",
 }
+
 local CustomHealthReader = false
 local Skills = {
     {name = "Z", key = Enum.KeyCode.Z, enabled = true},
@@ -56,10 +59,12 @@ if not serviceOK or not Player then
     return
 end
 local playerGui = Player:WaitForChild("PlayerGui")
+
 local environment = type(getgenv) == "function" and getgenv() or _G
 local slot = "__AutoSkills_ZXCVB"
 local previous = environment[slot]
 if type(previous) == "table" and type(previous.Stop) == "function" then previous.Stop() end
+
 local State = {
     alive = true, enabled = false, focused = true, minimized = false,
     heldKey = nil, lastKey = nil, fault = nil, gesture = nil,
@@ -76,12 +81,14 @@ local stopMovement = function() end
 local pauseFarmForEscape = function() end
 local root
 local loaderRoot
+
 environment[slot] = controller
 local function connect(signal, callback)
     local connection = signal:Connect(callback)
     connections[#connections + 1] = connection
     return connection
 end
+
 if virtualUserOK and VirtualUser then
     connect(Player.Idled, function()
         pcall(function()
@@ -90,6 +97,7 @@ if virtualUserOK and VirtualUser then
         end)
     end)
 end
+
 local function notify(message)
     print("AutoSkills: " .. message)
     pcall(function()
@@ -143,6 +151,7 @@ local function selectedCount()
     end
     return count
 end
+
 local function isChatTextBox(box)
     if not box then return false end
     local node = box
@@ -160,9 +169,11 @@ local function isChatTextBox(box)
     end
     return false
 end
+
 local function shouldPauseForTextEntry()
     return Settings.PauseWhileTyping and isChatTextBox(Input:GetFocusedTextBox())
 end
+
 local function availability()
     if State.discovering then return false, "DISCOVERING", "Skills paused during location discovery." end
     if State.fault then return false, "INPUT ERROR", State.fault end
@@ -171,6 +182,7 @@ local function availability()
     if shouldPauseForTextEntry() then
         return false, "PAUSED", "Chat typing detected. Resumes when chat closes."
     end
+
     if State.gesture then return false, "PAUSED", "Adjusting controls. Resumes when released." end
     local character = Player.Character
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -185,6 +197,7 @@ local function setEnabled(value)
     if value then State.fault = nil else releaseOrPause() end
     render()
 end
+
 local Guard = {
     sources = {}, source = nil, character = nil, nextScan = 0,
     current = nil, maximum = nil, percent = nil, latched = false,
@@ -314,6 +327,7 @@ do
                     }
                 end
             end
+
             if depth < 3 then
                 for _, child in ipairs(children) do
                     if containers[normalized(child.Name)] and (child:IsA("Folder")
@@ -338,6 +352,7 @@ do
         Guard.sources = found
         local selected
         if Settings.HealthSource == "Auto" then
+
             if found[1] and found[1].id == "Humanoid" then selected = found[1]
             elseif #found == 1 then selected = found[1] end
         else
@@ -415,14 +430,17 @@ do
         end
         Guard.status, Guard.detail = "ARMED", string.format("Teleports +70 studs at or below %.0f%% health.", threshold)
         if Guard.percent > threshold then return end
+
         if not State.alive or not Settings.HealthEscapeEnabled or character ~= Guard.character then return end
         Guard.latched, Guard.lastTeleport = true, os.clock()
+
         character:PivotTo(character:GetPivot() + Vector3.new(0, 70, 0))
         pauseFarmForEscape()
         if Settings.HealthLock then
             Guard.held = {root = rootPart, anchored = rootPart.Anchored, pivot = character:GetPivot()}
             rootPart.Anchored = true
         end
+
         pcall(function()
             local velocity = rootPart.AssemblyLinearVelocity
             rootPart.AssemblyLinearVelocity = Vector3.new(velocity.X, 0, velocity.Z)
@@ -460,6 +478,7 @@ do
         end
         index = (index + direction) % (#Guard.sources + 1)
         Settings.HealthSource = index == 0 and "Auto" or Guard.sources[index].id
+
         Guard.setEnabled(false)
     end
     stopHealthGuard = function()
@@ -469,6 +488,7 @@ do
         Guard.sources, Guard.source, Guard.character = {}, nil, nil
     end
 end
+
 local System
 local BUILT_IN_BOSS_SEED_CODE = "__AUTOSKILLS_BOSS_SEED_PLACEHOLDER__"
 local Farm = {catalog = {}, remembered = {}, pinned = nil, records = {}, selected = nil, nextScan = 0, status = "OFF",
@@ -487,6 +507,7 @@ local function attackHealthAllowed(maximum)
         and maximum >= Settings.FarmMinHP
         and maximum <= Settings.FarmMaxHP
 end
+
 do
     local place = tostring(game.PlaceId or 0)
     Farm.configPath = "AutoSkills_BossLocations_" .. place .. "_v1.json"
@@ -583,6 +604,7 @@ do
         for _, entry in pairs(Farm.markers) do
             if #markers<512 then markers[#markers+1]={key=entry.key,name=entry.name,position=pack(entry.position)} end
         end
+
         if optionsOnly and not Settings.BossAutoSave then
             if validBytes then local previous=decode(validBytes);bosses,markers=previous.bosses,previous.markers or {}
             else bosses,markers={},{} end
@@ -611,6 +633,7 @@ do
         if key=="BossFirstDiscovery" and not value then Farm.pendingDiscovery=false end
         Farm.markDirty(); Farm.saveConfig(true,true); render()
     end
+
     local alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
     local values={};for i=1,#alphabet do values[alphabet:sub(i,i)]=i-1 end
     local function encode64(bytes)
@@ -708,6 +731,7 @@ do
                 markers[#markers+1]={key=entry.key,name=entry.name,position=position}
             end
             if #bosses+#markers==0 then error("This code contains no locations") end
+
             local merged,mergedMarkers={},{}
             for key,entry in pairs(Farm.catalog) do merged[key]=entry end
             for key,entry in pairs(Farm.markers) do mergedMarkers[key]=entry end
@@ -725,6 +749,7 @@ do
                 end
             end
             for _,entry in ipairs(markers) do
+
                 local p=entry.position
                 local key=string.format("%d_%d_%d",math.floor(p.X/32),math.floor(p.Y/32),math.floor(p.Z/32))
                 entry.key=key
@@ -737,7 +762,7 @@ do
             return {catalog=merged,markers=mergedMarkers,added=added}
         end)
         if not ok then return false,tostring(result):gsub("^.-:%d+: ","") end
-        Farm.setEnabled(false) -- also cancels pending or active first-run discovery
+        Farm.setEnabled(false)
         Farm.catalog,Farm.markers=result.catalog,result.markers
         Farm.hadConfig=true
         Farm.markDirty(); Farm.scan(true); Farm.saveConfig(true)
@@ -780,11 +805,13 @@ do
         Farm.saveConfig(false)
     end
 end
+
 do
     local ids, nextID = setmetatable({}, {__mode = "k"}), 0
     local collisionState, farmCharacter, origin = {}, nil, nil
     local rotationState, expanded
     local combatPose = nil
+
     local function makeCombatPose(character, humanoid, rootPart, targetRoot)
         if not character or not humanoid or not rootPart or not targetRoot then return end
         if not character.Parent or not targetRoot.Parent then return end
@@ -796,11 +823,13 @@ do
         if flat.Magnitude > 0.05 then
             yaw = math.atan2(-flat.X, -flat.Z)
         end
+
         local desired = CFrame.new(destination) * CFrame.Angles(math.rad(90), yaw, 0)
         rootPart.CFrame = desired
         rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
     end
+
     local function prepareFarmCollision(character)
         if not character then return end
         for _, part in ipairs(character:GetDescendants()) do
@@ -924,6 +953,7 @@ do
     local Mouse = Player:GetMouse()
     local coreGuiOK, CoreGui = pcall(function() return game:GetService("CoreGui") end)
     Farm.m1Status = "M1 ready"
+
     local function guiVisible(object)
         local node = object
         while node and node ~= playerGui do
@@ -933,10 +963,12 @@ do
         end
         return true
     end
+
     local inventoryWords = {
         "inventory", "backpack", "storage", "equipment",
         "itemmenu", "items", "bag", "hotbarinventory",
     }
+
     local function nameLooksInventory(name)
         name = string.lower(tostring(name or ""))
         for _, word in ipairs(inventoryWords) do
@@ -944,6 +976,7 @@ do
         end
         return false
     end
+
     local function looksLikeInventory(object)
         local node = object
         for _ = 1, 9 do
@@ -953,15 +986,18 @@ do
         end
         return false
     end
+
     local function centerCoveredByGameUI()
         local camera = World.CurrentCamera
         local viewport = camera and camera.ViewportSize
         if not viewport or viewport.X < 2 or viewport.Y < 2 then return false end
+
         local point = Vector2.new(math.floor(viewport.X / 2), math.floor(viewport.Y / 2))
         local ok, hits = pcall(function()
             return playerGui:GetGuiObjectsAtPosition(point.X, point.Y)
         end)
         if not ok then return true end
+
         for _, object in ipairs(hits) do
             if (not root or not object:IsDescendantOf(root)) and guiVisible(object) then
                 if object:IsA("TextButton") or object:IsA("ImageButton") or object:IsA("TextBox")
@@ -972,13 +1008,17 @@ do
         end
         return false
     end
+
     function Farm.inventoryOrBlockingUIOpen(force)
         local focused = Input:GetFocusedTextBox()
         if focused and not isChatTextBox(focused) then return true end
+
         local now = os.clock()
         if not force and now < nextUIBlockScan then return uiBlockCache end
         nextUIBlockScan = now + 0.12
+
         local blocked = centerCoveredByGameUI()
+
         if not blocked then
             for _, object in ipairs(playerGui:GetDescendants()) do
                 if object:IsA("GuiObject")
@@ -991,9 +1031,11 @@ do
                 end
             end
         end
+
         uiBlockCache = blocked
         return blocked
     end
+
     local function getConnections(signal)
         local getter = type(getconnections) == "function" and getconnections
             or (type(environment.getconnections) == "function" and environment.getconnections or nil)
@@ -1001,11 +1043,14 @@ do
         local ok, list = pcall(getter, signal)
         return ok and type(list) == "table" and list or nil
     end
+
     local function callConnections(signal, ...)
         local list = getConnections(signal)
         if not list or #list == 0 then return false end
+
         local args = table.pack(...)
         local attempted = false
+
         for _, connection in ipairs(list) do
             local enabled = connection.Enabled
             if enabled == nil or enabled == true then
@@ -1018,8 +1063,10 @@ do
                 end
             end
         end
+
         return attempted
     end
+
     local function syntheticInput(keyCode, inputType, state)
         return {
             KeyCode = keyCode or Enum.KeyCode.Unknown,
@@ -1029,16 +1076,20 @@ do
             Delta = Vector3.new(0, 0, 0),
         }
     end
+
     local function inventoryRoots()
         local roots, seen = {}, {}
+
         local function inspect(container)
             if not container then return end
             for _, object in ipairs(container:GetDescendants()) do
                 if (object:IsA("GuiObject") or object:IsA("ScreenGui"))
                     and (not root or not object:IsDescendantOf(root))
                     and nameLooksInventory(object.Name) then
+
                     local candidate = object
                     local node = object.Parent
+
                     while node and node ~= container do
                         if (node:IsA("GuiObject") or node:IsA("ScreenGui"))
                             and nameLooksInventory(node.Name) then
@@ -1046,6 +1097,7 @@ do
                         end
                         node = node.Parent
                     end
+
                     if not seen[candidate] then
                         seen[candidate] = true
                         roots[#roots + 1] = candidate
@@ -1053,18 +1105,23 @@ do
                 end
             end
         end
+
         inspect(playerGui)
         if coreGuiOK then inspect(CoreGui) end
         return roots
     end
+
     local function suspendInventoryVisual()
         local saved = {}
         local focused = Input:GetFocusedTextBox()
+
         if focused and not isChatTextBox(focused) then
             pcall(function() focused:ReleaseFocus(false) end)
         end
+
         for _, object in ipairs(inventoryRoots()) do
             local record = {object = object}
+
             if object:IsA("ScreenGui") then
                 record.enabled = object.Enabled
                 object.Enabled = false
@@ -1072,10 +1129,13 @@ do
                 record.visible = object.Visible
                 object.Visible = false
             end
+
             saved[#saved + 1] = record
         end
+
         local oldSelected = GuiService.SelectedObject
         pcall(function() GuiService.SelectedObject = nil end)
+
         return function()
             pcall(function() GuiService.SelectedObject = oldSelected end)
             for i = #saved, 1, -1 do
@@ -1091,52 +1151,68 @@ do
             end
         end, #saved
     end
+
     local function hardInventoryPulse(downCallback, upCallback, holdTime)
         local restore, rootCount = suspendInventoryVisual()
+
         task.wait(0.015)
+
         local okDown, downResult = pcall(downCallback)
+
         if okDown and upCallback then
             task.wait(math.max(0.025, holdTime or 0.03))
             pcall(upCallback)
         end
+
         task.wait(0.015)
         restore()
+
         return okDown, downResult, rootCount
     end
+
     local function neutralizeInventoryInput()
         local saved = {}
         local focused = Input:GetFocusedTextBox()
+
         if focused and not isChatTextBox(focused) then
             pcall(function() focused:ReleaseFocus(false) end)
         end
+
         for _, object in ipairs(playerGui:GetDescendants()) do
             if object:IsA("GuiObject")
                 and (not root or not object:IsDescendantOf(root))
                 and guiVisible(object)
                 and looksLikeInventory(object) then
+
                 local record = {object = object}
+
                 local okActive, active = pcall(function() return object.Active end)
                 if okActive then
                     record.active = active
                     pcall(function() object.Active = false end)
                 end
+
                 if object:IsA("GuiButton") then
                     local okModal, modal = pcall(function() return object.Modal end)
                     if okModal then
                         record.modal = modal
                         pcall(function() object.Modal = false end)
                     end
+
                     local okSelectable, selectable = pcall(function() return object.Selectable end)
                     if okSelectable then
                         record.selectable = selectable
                         pcall(function() object.Selectable = false end)
                     end
                 end
+
                 saved[#saved + 1] = record
             end
         end
+
         local oldSelected = GuiService.SelectedObject
         pcall(function() GuiService.SelectedObject = nil end)
+
         return function()
             pcall(function() GuiService.SelectedObject = oldSelected end)
             for i = #saved, 1, -1 do
@@ -1150,21 +1226,26 @@ do
             end
         end
     end
+
     local function withInventoryBypass(callback)
         local restore = neutralizeInventoryInput()
         local ok, a, b = pcall(callback)
         restore()
         return ok, a, b
     end
+
     function Farm.directSkillKey(key, down)
         local signal = down and Input.InputBegan or Input.InputEnded
         local state = down and Enum.UserInputState.Begin or Enum.UserInputState.End
         local inputObject = syntheticInput(key, Enum.UserInputType.Keyboard, state)
+
         local ok, attempted = withInventoryBypass(function()
             return callConnections(signal, inputObject, false)
         end)
+
         return ok and attempted == true
     end
+
     function Farm.inventorySkillPulse(key)
         local ok, _, roots = hardInventoryPulse(
             function()
@@ -1176,28 +1257,36 @@ do
             end,
             Settings.HoldTime
         )
+
         if roots == 0 and type(Farm.directSkillKey) == "function" then
             Farm.directSkillKey(key, true)
             task.wait(math.max(0.025, Settings.HoldTime))
             Farm.directSkillKey(key, false)
         end
+
         return ok
     end
+
     local function directMouseM1(down)
         local mouseSignal = down and Mouse.Button1Down or Mouse.Button1Up
         local uiSignal = down and Input.InputBegan or Input.InputEnded
         local state = down and Enum.UserInputState.Begin or Enum.UserInputState.End
         local inputObject = syntheticInput(Enum.KeyCode.Unknown, Enum.UserInputType.MouseButton1, state)
+
         local ok, attempted = withInventoryBypass(function()
+
             local usedMouse = callConnections(mouseSignal)
             if usedMouse then return true end
             return callConnections(uiSignal, inputObject, false)
         end)
+
         return ok and attempted == true
     end
+
     function Farm.stopM1()
         local point, tool = mouseDown, toolDown
         mouseDown, toolDown = nil, nil
+
         if point == "DIRECT" then
             pcall(function() directMouseM1(false) end)
         elseif point then
@@ -1205,40 +1294,50 @@ do
                 VirtualInput:SendMouseButtonEvent(point.X, point.Y, 0, false, game, 0)
             end)
         end
+
         if tool then
             pcall(function() tool:Deactivate() end)
         end
     end
+
     function Farm.setM1(value)
         Farm.stopM1()
         Settings.FarmM1 = value
         nextM1 = 0
         Farm.m1Status = value and "M1 ready" or "M1 off"
     end
+
     local function stepM1()
         if (mouseDown or toolDown) and (os.clock() >= releaseM1At
             or (toolDown and toolDown.Parent ~= Player.Character)) then
             Farm.stopM1()
         end
+
         if not Settings.FarmM1 then
             Farm.stopM1()
             return
         end
+
         if shouldPauseForTextEntry() or State.gesture then
             Farm.stopM1()
             Farm.m1Status = "M1 paused for chat / script controls"
             return
         end
+
         if mouseDown or toolDown or os.clock() < nextM1 then return end
+
         local camera = World.CurrentCamera
         local viewport = camera and camera.ViewportSize
         if not viewport or viewport.X < 2 or viewport.Y < 2 then
             Farm.m1Status = "M1 waiting for camera"
             return
         end
+
         local point = Vector2.new(math.floor(viewport.X / 2), math.floor(viewport.Y / 2))
         local blocked = Farm.inventoryOrBlockingUIOpen(false)
+
         if blocked then
+
             local ok, _, roots = hardInventoryPulse(
                 function()
                     VirtualInput:SendMouseButtonEvent(point.X, point.Y, 0, true, game, 0)
@@ -1249,17 +1348,20 @@ do
                 end,
                 0.035
             )
+
             if ok and roots > 0 then
                 nextM1 = os.clock() + 0.16
                 Farm.m1Status = "M1: inventory pulse bypass"
                 return
             end
+
             if directMouseM1(true) then
                 mouseDown = "DIRECT"
                 nextM1, releaseM1At = os.clock() + 0.16, os.clock() + 0.035
                 Farm.m1Status = "M1: local inventory bypass"
                 return
             end
+
             local character = Player.Character
             local tool = character and character:FindFirstChildOfClass("Tool")
             if tool and (not tool.RequiresHandle or tool:FindFirstChild("Handle")) then
@@ -1274,20 +1376,25 @@ do
                 end
                 return
             end
+
             Farm.m1Status = "M1 inventory bypass unavailable"
             nextM1 = os.clock() + 0.20
             return
         end
+
         if State.focused and (Input:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
             or Input:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)) then
             Farm.m1Status = "M1 paused for your mouse"
             return
         end
+
         nextM1, releaseM1At = os.clock() + 0.16, os.clock() + 0.035
         mouseDown = point
+
         local ok, err = pcall(function()
             VirtualInput:SendMouseButtonEvent(point.X, point.Y, 0, true, game, 0)
         end)
+
         if not ok then
             mouseDown = nil
             Farm.m1Status = "M1 input failed: " .. tostring(err)
@@ -1295,6 +1402,7 @@ do
             Farm.m1Status = "M1 active"
         end
     end
+
     local loot, watched, deathConnection, lastTargetPosition
     local LOOT_OLD_HORIZONTAL_RADIUS = 60
     local LOOT_NEW_HORIZONTAL_RADIUS = 250
@@ -1322,6 +1430,7 @@ do
     local function beginLoot(position)
         if not Settings.FarmEnabled or not Settings.FarmAutoLoot or not State.alive or loot then return end
         Farm.stopM1(); Farm.restoreHitbox(); State.farming = false; combatPose = nil; releaseOrPause()
+
         loot = {
             center = position,
             destination = position + Vector3.new(0, 2, 0),
@@ -1336,6 +1445,7 @@ do
             indexReady = false,
             message = "Waiting for boss drops near the kill.",
         }
+
         local lootSession = loot
         local function indexObject(object, isFresh)
             if not lootSession or lootSession ~= loot or not object then return end
@@ -1359,9 +1469,11 @@ do
                 end
             end
         end
+
         loot.spawnConnection = World.DescendantAdded:Connect(function(object)
             indexObject(object, true)
         end)
+
         task.spawn(function()
             local initial = World:GetDescendants()
             local batch = 0
@@ -1378,6 +1490,7 @@ do
                 lootSession.indexReady = true
             end
         end)
+
         if deathConnection then deathConnection:Disconnect(); deathConnection = nil end
         watched, lastTargetPosition = nil, nil
     end
@@ -1428,20 +1541,25 @@ do
     end
     local function lootDistanceOK(part, entity)
         if not loot or not part then return false, false, math.huge end
+
         local delta = part.Position - loot.center
         local horizontal = Vector3.new(delta.X, 0, delta.Z).Magnitude
         local vertical = math.abs(delta.Y)
+
         if vertical > LOOT_VERTICAL_RADIUS then
             return false, false, horizontal
         end
+
         local fresh = (loot.fresh and (
             loot.fresh[part] or
             (entity and loot.fresh[entity]) or
             loot.fresh[part.Parent]
         )) and true or false
+
         local radius = fresh and LOOT_NEW_HORIZONTAL_RADIUS or LOOT_OLD_HORIZONTAL_RADIUS
         return horizontal <= radius, fresh, horizontal
     end
+
     local function findLoot()
         local candidates, interactive, seen = {}, {}, {}
         local function available(object)
@@ -1449,6 +1567,7 @@ do
             return not attempt or (attempt.count < 3 and os.clock() >= attempt.nextTry)
         end
         if not loot.index then return nil end
+
         for _, object in ipairs(loot.index) do
             if object and object.Parent and (object:IsA("ProximityPrompt") or object:IsA("ClickDetector")) then
                 local cached = loot.cache[object]
@@ -1465,6 +1584,7 @@ do
                     allowed, isPickup = allowedPrompt(object)
                     marked = marked or isPickup
                     allowed = allowed and object.Enabled
+
                 end
                 if entity and marked then
                     interactive[entity] = true
@@ -1480,6 +1600,7 @@ do
                 end
             end
         end
+
         for _, object in ipairs(loot.index) do
             if object and object.Parent and object:IsA("BasePart") and object.CanTouch then
                 local cached = loot.cache[object]
@@ -1593,25 +1714,31 @@ do
         if not entry then return nil end
         local location = autoBossLocation(entry)
         if not location then return nil end
+
         Farm.scan(true)
+
         local wantedKey = Farm.bossKey(entry.name)
         local bestSame, bestSameDistance
         local bestAny, bestAnyDistance
+
         for _, record in ipairs(Farm.records) do
             local hp, maximum, _, candidateRoot = Farm.read(record)
             if hp and hp > 0 and candidateRoot and attackHealthAllowed(maximum) then
                 local distance = (candidateRoot.Position - location).Magnitude
                 if distance <= Settings.BossLocalScanRadius then
                     local sameBoss = wantedKey ~= "" and Farm.bossKey(record.name) == wantedKey
+
                     if sameBoss and (not bestSameDistance or distance < bestSameDistance) then
                         bestSame, bestSameDistance = record, distance
                     end
+
                     if not bestAnyDistance or distance < bestAnyDistance then
                         bestAny, bestAnyDistance = record, distance
                     end
                 end
             end
         end
+
         return bestSame or bestAny
     end
     local function pickAutoBoss(rootPart)
@@ -1687,6 +1814,7 @@ do
         Farm.detail = (reason or "Moving to next boss") .. (previous and (" | " .. previous.name) or "")
         return pickAutoBoss(rootPart)
     end
+
     local function guardianResetObservation(rootPart, humanoid)
         local g = Farm.guardian
         local now = os.clock()
@@ -1696,14 +1824,17 @@ do
         g.stuckSince, g.lostSince = 0, 0
         g.verifyAt = 0
     end
+
     local function guardianObservePlayer(humanoid, rootPart, engaged)
         if not Settings.AutoBoss or not humanoid or not rootPart then return false end
         local g, now = Farm.guardian, os.clock()
         local hp = humanoid.Health
+
         if g.lastHealth == nil then
             guardianResetObservation(rootPart, humanoid)
             return false
         end
+
         local drop = g.lastHealth - hp
         if not engaged and drop > 0.01 then
             if g.damageSince == 0 then
@@ -1723,9 +1854,11 @@ do
                 if cumulative >= 0.25 then return true end
             end
         end
+
         g.lastHealth = hp
         return false
     end
+
     local function guardianObserveTravel(rootPart, entry, targetRoot, engaged)
         if not Settings.AutoBoss or not rootPart or not entry or engaged then return false end
         local g, now = Farm.guardian, os.clock()
@@ -1733,6 +1866,7 @@ do
             g.lastPosition, g.lastPositionAt = rootPart.Position, now
             return false
         end
+
         local moved = (rootPart.Position - g.lastPosition).Magnitude
         if moved >= 1 then
             g.lastPosition, g.lastPositionAt, g.stuckSince = rootPart.Position, now, 0
@@ -1748,19 +1882,23 @@ do
                 g.stuckSince = 0
             end
         end
+
         return false
     end
+
     local function guardianVerifyTarget(entry, targetRoot)
         if not Settings.AutoBoss or not entry or not targetRoot then return false end
         local location = autoBossLocation(entry)
         if not location then return false end
         return (targetRoot.Position - location).Magnitude <= Settings.BossLocalScanRadius
     end
+
     local function guardianCombatStalled(hp, targetRoot)
         if not Settings.AutoBoss or not Farm.autoEngaged or not targetRoot or not hp or hp <= 0 then return false end
         local g, now = Farm.guardian, os.clock()
         if Farm.autoLastProgressAt == 0 then Farm.autoLastProgressAt = now end
         if now - Farm.autoLastProgressAt < Settings.GuardianCombatStallTimeout then return false end
+
         if g.recoveries < Settings.GuardianMaxRecoveries then
             g.recoveries = g.recoveries + 1
             g.lastAction, g.lastActionAt = "REACQUIRING BOSS", now
@@ -1786,12 +1924,15 @@ do
                 return "recovered"
             end
         end
+
         return "skip"
     end
+
     function Farm.guardianStatus()
         local g = Farm.guardian
         return g.lastAction or "STANDBY"
     end
+
     function Farm.setAutoBoss(value)
         if not State.alive then return end
         if Farm.stopDiscovery then Farm.stopDiscovery() end
@@ -1799,6 +1940,7 @@ do
         Farm.fault = nil
         Farm.nextScan = 0
         if Settings.AutoBoss then
+
             Settings.BossAutoSave = true
             Settings.FarmEnabled = true
             Farm.markDirty(); Farm.saveConfig(true)
@@ -1895,6 +2037,7 @@ do
         end
         if Settings.AutoBoss then
             local entry
+
             if Farm.autoRespawnResume and Farm.autoResumePath then
                 entry = Farm.catalog[Farm.autoResumePath]
                 if entry and autoBossEligible(entry) then
@@ -1908,6 +2051,7 @@ do
             else
                 entry = Farm.autoCurrent and Farm.catalog[Farm.autoCurrent] or nil
             end
+
             if not entry or not autoBossEligible(entry) then entry = pickAutoBoss(rootPart) end
             if not entry then
                 Farm.stopM1(); Farm.restoreHitbox()
@@ -1917,6 +2061,7 @@ do
             end
             Farm.pinned = entry.path
             Farm.selected = entry.live
+
             if Farm.autoCurrent == entry.path and Farm.guardian.verifyAt <= os.clock() then
                 Farm.guardian.verifyAt = os.clock() + Settings.GuardianVerifyInterval
                 local currentHP, currentMax, _, currentRoot = Farm.read(Farm.selected)
@@ -1956,7 +2101,9 @@ do
                         hp, maximum, _, targetRoot = Farm.read(nearby)
                     end
                 end
+
                 if hp and hp > 0 and targetRoot and attackHealthAllowed(maximum) then
+
                     Farm.travelKey, Farm.travelAt, Farm.travelHealth = nil, nil, nil
                 else
                     State.farming = false; Farm.stopM1(); Farm.restoreHitbox(); releaseOrPause()
@@ -1971,6 +2118,7 @@ do
                 end
                 humanoid.AutoRotate = false
                 prepareFarmCollision(character)
+
                 if Farm.travelHealth and humanoid.Health < Farm.travelHealth - 0.01 then
                     local damagedHealth = humanoid.Health
                     Farm.travelHealth = nil
@@ -1981,6 +2129,7 @@ do
                     end
                     return
                 end
+
                 if Farm.travelKey ~= entry.path then
                     Farm.travelKey, Farm.travelAt = entry.path, os.clock()
                     Farm.travelHealth = humanoid.Health
@@ -2031,6 +2180,7 @@ do
             end
             Farm.travelKey, Farm.travelAt, Farm.travelHealth = nil, nil, nil
         end
+
         if Settings.AutoBoss then
             local engaged = Farm.autoEngaged == true
             if guardianObservePlayer(humanoid, rootPart, engaged) then
@@ -2038,12 +2188,14 @@ do
                 advanceAutoBoss("Guardian: player taking damage with no boss being damaged", rootPart, true)
                 return
             end
+
             local entry = Farm.autoCurrent and Farm.catalog[Farm.autoCurrent] or nil
             if entry and guardianObserveTravel(rootPart, entry, targetRoot, engaged) then
                 Farm.guardian.lastAction, Farm.guardian.lastActionAt = "TRAVEL STUCK", os.clock()
                 advanceAutoBoss("Guardian: travel position stuck, moving to next boss", rootPart, true)
                 return
             end
+
             if engaged then
                 if not hp or hp <= 0 or not targetRoot then
                     local now = os.clock()
@@ -2067,6 +2219,7 @@ do
                 end
             end
         end
+
         if Settings.AutoBoss and (not hp or hp <= 0 or not targetRoot or not attackHealthAllowed(maximum)) then
             if Farm.autoDefeated or (hp and hp <= 0) then
                 Farm.autoDefeated = true
@@ -2074,6 +2227,7 @@ do
                 if stepLoot(character, rootPart) then return end
                 advanceAutoBoss("Killed + loot pass complete; moving on", rootPart, false)
             elseif Farm.autoEngaged then
+
                 Farm.stopM1()
                 Farm.restoreHitbox()
                 combatPose = nil
@@ -2122,6 +2276,7 @@ do
         if Settings.AutoBoss then
             local now = os.clock()
             if Farm.autoCombatAt == 0 then
+
                 Farm.autoCombatAt = now
                 Farm.autoLastProgressAt = now
                 Farm.autoLastHP = hp
@@ -2129,6 +2284,7 @@ do
             else
                 local previousHP = Farm.autoLastHP
                 if previousHP ~= nil and hp < previousHP - 0.01 then
+
                     Farm.autoEngaged = true
                     Farm.autoLastProgressAt = now
                     Farm.guardian.recoveries = 0
@@ -2136,6 +2292,7 @@ do
                 end
                 Farm.autoLastHP = hp
             end
+
             if not Farm.autoEngaged and now - Farm.autoCombatAt >= Settings.BossNoAttackTimeout then
                 advanceAutoBoss("No first damage within 5s; skipped", rootPart, true)
                 return
@@ -2175,11 +2332,13 @@ do
     end
     local runOK, Run = pcall(function() return game:GetService("RunService") end)
     if runOK then
+
         connect(Run.Stepped, function()
             local pose = combatPose
             if not State.alive or not State.farming or not pose then return end
             if pose.character and pose.character.Parent and pose.rootPart and pose.rootPart.Parent
                 and pose.targetRoot and pose.targetRoot.Parent then
+
                 local depth = math.clamp(Settings.FarmDepth, 6, 7)
                 local desiredPosition = pose.targetRoot.Position - Vector3.new(0, depth, 0)
                 local upright = math.abs(pose.rootPart.CFrame.UpVector.Y) > 0.55
@@ -2191,6 +2350,7 @@ do
                 combatPose = nil
             end
         end)
+
         local nextFarmStep = 0
         connect(Run.Stepped, function()
             local now = os.clock()
@@ -2204,6 +2364,7 @@ do
         end)
     end
 end
+
 do
     local function finite(n) return type(n)=="number" and n==n and math.abs(n)<10000000 end
     local function valid(v) return v and finite(v.X) and finite(v.Y) and finite(v.Z) end
@@ -2274,15 +2435,18 @@ do
         for _, parent in ipairs({World,playerGui}) do
             for _, object in ipairs(parent:GetDescendants()) do
                 if object:IsA("BillboardGui") or object:IsA("SurfaceGui") then
+
                     pcall(inspect,object)
                 end
             end
         end
     end
+
     Farm.staticScanBusy = false
     Farm.staticScanCount = 0
     Farm.staticScanStatus = "Not scanned yet"
     Farm.staticScanOrigin = nil
+
     local function normalizedWords(object)
         local parts = {tostring(object.Name or "")}
         for key, value in pairs(object:GetAttributes()) do
@@ -2299,6 +2463,7 @@ do
         end
         return string.lower(table.concat(parts, " "))
     end
+
     local function bossNameFromObject(object, blob)
         local direct = object:GetAttribute("BossName")
             or object:GetAttribute("NPCName")
@@ -2307,6 +2472,7 @@ do
         if type(direct) == "string" and #direct > 0 and #direct <= 200 then
             return direct
         end
+
         for _, candidate in ipairs(known) do
             local lower = string.lower(candidate)
             if blob:find("%f[%a]" .. lower .. "%f[%A]") then
@@ -2314,6 +2480,7 @@ do
             end
         end
     end
+
     local function staticPosition(object)
         local current = object
         for _ = 1, 5 do
@@ -2323,6 +2490,7 @@ do
             current = current.Parent
         end
     end
+
     local function staticSignal(blob, object)
         if object:GetAttribute("BossName") ~= nil
             or object:GetAttribute("BossId") ~= nil
@@ -2330,6 +2498,7 @@ do
             or object:GetAttribute("NPCName") ~= nil then
             return true
         end
+
         for _, word in ipairs({
             "boss", "spawn", "spawner", "location", "marker",
             "respawn", "timer", "npcspawn", "bossspawn",
@@ -2338,10 +2507,13 @@ do
         end
         return false
     end
+
     local function addStaticLocation(name, position, source)
         if not name or not valid(position) then return false end
+
         local bossKey = Farm.bossKey(name)
         if bossKey == "" then return false end
+
         local nearest, nearestDistance
         for _, entry in pairs(Farm.catalog) do
             if entry.spawn and Farm.bossKey(entry.name) == bossKey then
@@ -2351,12 +2523,14 @@ do
                 end
             end
         end
+
         if nearest and nearestDistance <= 350 then
             if nearest.id == nil or nearest.id == "Saved location" then
                 nearest.id = source or "Static map scan"
             end
             return false
         end
+
         local key = string.format(
             "%s:%d_%d_%d",
             bossKey,
@@ -2365,6 +2539,7 @@ do
             math.floor(position.Z / 32)
         )
         local path = "@mapscan:" .. key
+
         if not Farm.catalog[path] then
             Farm.catalog[path] = {
                 path = path,
@@ -2379,37 +2554,48 @@ do
         end
         return false
     end
+
     function Farm.staticMapScan(force)
         if Farm.staticScanBusy then return false end
         if not force and not Settings.StaticMapScan then return false end
+
         Farm.staticScanBusy = true
         Farm.staticScanStatus = "Scanning replicated map from spawn..."
         render()
+
         task.spawn(function()
             local character = Player.Character
             local rootPart = character and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart)
             local origin = rootPart and rootPart:IsA("BasePart") and rootPart.Position
                 or (World.CurrentCamera and World.CurrentCamera.CFrame.Position)
                 or Vector3.new(0, 0, 0)
+
             Farm.staticScanOrigin = Farm.staticScanOrigin or origin
             origin = Farm.staticScanOrigin
+
             Farm.scan(true)
             Farm.scanMarkers()
+
             local found = 0
             local inspected = 0
             local descendants = World:GetDescendants()
+
             for _, object in ipairs(descendants) do
                 inspected = inspected + 1
+
                 if object:IsA("BasePart")
                     or object:IsA("Attachment")
                     or object:IsA("Model")
                     or object:IsA("BillboardGui")
                     or object:IsA("SurfaceGui") then
+
                     if not isCharacter(object) then
                         local blob = normalizedWords(object)
                         local name = bossNameFromObject(object, blob)
+
                         if name and staticSignal(blob, object) then
                             local position = staticPosition(object)
+
                             if position and (position - origin).Magnitude <= Settings.StaticScanRange then
                                 if addStaticLocation(name, position, "Static map scan") then
                                     found = found + 1
@@ -2418,6 +2604,7 @@ do
                         end
                     end
                 end
+
                 if inspected % 2500 == 0 then
                     Farm.staticScanStatus = string.format(
                         "Static scan: %d objects checked / %d new boss locations",
@@ -2427,6 +2614,7 @@ do
                     task.wait()
                 end
             end
+
             local requested, requestLimit = 0, 128
             for _, entry in pairs(Farm.catalog) do
                 if requested >= requestLimit then break end
@@ -2438,14 +2626,17 @@ do
                     task.wait(0.02)
                 end
             end
+
             Farm.scan(true)
             Farm.scanMarkers()
+
             Farm.staticScanCount = 0
             for _, entry in pairs(Farm.catalog) do
                 if entry.spawn and (entry.spawn - origin).Magnitude <= Settings.StaticScanRange then
                     Farm.staticScanCount = Farm.staticScanCount + 1
                 end
             end
+
             Farm.markDirty()
             Farm.saveConfig(true)
             Farm.staticScanStatus = string.format(
@@ -2458,8 +2649,10 @@ do
             end
             render()
         end)
+
         return true
     end
+
     local discovery
     local sessionKey="__AutoSkills_Discovery_"..tostring(game.PlaceId or 0)
     Farm.pendingDiscovery=Settings.BossFirstDiscovery and not Farm.hadConfig and not environment[sessionKey]
@@ -2507,6 +2700,7 @@ do
         discovery=run;State.discovering=true;environment[sessionKey]=true
         Farm.scan(true);addKnown(run)
         if Settings.BossGridSearch then
+
             local radius=Settings.BossGridRadius
             local step=math.max(512,math.ceil(radius*2/20))
             for x=-radius,radius,step do
@@ -2553,6 +2747,7 @@ do
             run.destination=point.position+Vector3.new(0,12,0)
             run.nextStep=os.clock()+Settings.BossDwell
             Farm.discoveryStatus=string.format("%d visited / %d queued | %s",run.completed,#run.queue+1,point.label)
+
             if not run.requestBusy then
                 run.requestBusy=true
                 task.spawn(function()
@@ -2570,6 +2765,7 @@ do
     function Farm.bootDiscovery()
         if not Farm.pendingDiscovery then return end
         task.spawn(function()
+
             for _=1,30 do
                 task.wait(0.1)
                 if not State.alive or not Farm.pendingDiscovery then return end
@@ -2581,6 +2777,7 @@ do
         end)
     end
 end
+
 local Movement = {
     character = nil, humanoid = nil, rootPart = nil,
     collisions = setmetatable({}, {__mode = "k"}),
@@ -2590,6 +2787,7 @@ local Movement = {
     status = "NOCLIP ON",
     detail = "No-clip is active automatically. T is blocked while No Clip is on.",
 }
+
 local function movementCharacter()
     local character = Player.Character
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -2597,6 +2795,7 @@ local function movementCharacter()
     if rootPart and not rootPart:IsA("BasePart") then rootPart = nil end
     return character, humanoid, rootPart
 end
+
 function Movement.updateTBlock()
     if Settings.NoClip and not Movement.tBlocked then
         ContextActionService:BindActionAtPriority(
@@ -2614,6 +2813,7 @@ function Movement.updateTBlock()
         Movement.tBlocked = false
     end
 end
+
 function Movement.restoreNoClip(force)
     if not force and (Settings.FarmEnabled or State.farming or State.discovering or Settings.FlyEnabled) then return end
     for part, original in pairs(Movement.collisions) do
@@ -2623,6 +2823,7 @@ function Movement.restoreNoClip(force)
         Movement.collisions[part] = nil
     end
 end
+
 local function applyNoClip(character)
     if not character then return end
     for _, part in ipairs(character:GetDescendants()) do
@@ -2634,18 +2835,21 @@ local function applyNoClip(character)
         end
     end
 end
+
 function Movement.restoreSpeed()
     if Movement.speedHumanoid and Movement.speedHumanoid.Parent and Movement.speedOriginal then
         pcall(function() Movement.speedHumanoid.WalkSpeed = Movement.speedOriginal end)
     end
     Movement.speedHumanoid, Movement.speedOriginal = nil, nil
 end
+
 function Movement.restoreFly()
     if Movement.flyHumanoid and Movement.flyHumanoid.Parent and Movement.flyAutoRotate ~= nil then
         pcall(function() Movement.flyHumanoid.AutoRotate = Movement.flyAutoRotate end)
     end
     Movement.flyHumanoid, Movement.flyAutoRotate = nil, nil
 end
+
 local function refreshMovementCharacter()
     local character, humanoid, rootPart = movementCharacter()
     if character ~= Movement.character then
@@ -2658,6 +2862,7 @@ local function refreshMovementCharacter()
     end
     return character, humanoid, rootPart
 end
+
 function Movement.setNoClip(value)
     Settings.NoClip = value
     Movement.updateTBlock()
@@ -2668,9 +2873,11 @@ function Movement.setNoClip(value)
         or "Collision restored when Auto Farm/Fly is not using it."
     render()
 end
+
 function Movement.setFly(value)
     Settings.FlyEnabled = value
     if value then
+
         Settings.NoClip = true
         Movement.updateTBlock()
     else
@@ -2682,6 +2889,7 @@ function Movement.setFly(value)
         or "Fly disabled."
     render()
 end
+
 function Movement.setSpeed(value)
     Settings.SpeedEnabled = value
     if not value then Movement.restoreSpeed() end
@@ -2689,20 +2897,26 @@ function Movement.setSpeed(value)
     Movement.detail = value and ("WalkSpeed locked to " .. tostring(Settings.WalkSpeed) .. ".") or "Speed override disabled."
     render()
 end
+
 function Movement.step(dt)
     if not State.alive then return end
+
     Movement.updateTBlock()
+
     local character, humanoid, rootPart = refreshMovementCharacter()
     if not character or not character.Parent or not humanoid or humanoid.Health <= 0 or not rootPart then
         Movement.status, Movement.detail = "WAITING", "Waiting for your character."
         return
     end
+
     if Settings.NoClip or Settings.FlyEnabled then
         applyNoClip(character)
     else
         Movement.restoreNoClip(false)
     end
+
     local farmBusy = Settings.FarmEnabled or State.farming or State.discovering
+
     if Settings.SpeedEnabled and not farmBusy and not Settings.FlyEnabled then
         if Movement.speedHumanoid ~= humanoid then
             Movement.restoreSpeed()
@@ -2712,36 +2926,47 @@ function Movement.step(dt)
     else
         Movement.restoreSpeed()
     end
+
     if Settings.FlyEnabled and not farmBusy and not rootPart.Anchored then
         if Movement.flyHumanoid ~= humanoid then
             Movement.restoreFly()
             Movement.flyHumanoid, Movement.flyAutoRotate = humanoid, humanoid.AutoRotate
         end
         humanoid.AutoRotate = false
+
         local camera = World.CurrentCamera
         local cf = camera and camera.CFrame or rootPart.CFrame
+
         local forward = cf.LookVector
         local right = cf.RightVector
         local worldUp = Vector3.new(0, 1, 0)
+
         local direction = Vector3.new(0, 0, 0)
+
         if Input:IsKeyDown(Enum.KeyCode.W) then direction = direction + forward end
         if Input:IsKeyDown(Enum.KeyCode.S) then direction = direction - forward end
         if Input:IsKeyDown(Enum.KeyCode.D) then direction = direction + right end
         if Input:IsKeyDown(Enum.KeyCode.A) then direction = direction - right end
+
         if Input:IsKeyDown(Enum.KeyCode.Space) or Input:IsKeyDown(Enum.KeyCode.E) then
             direction = direction + worldUp
         end
         if Input:IsKeyDown(Enum.KeyCode.LeftControl) or Input:IsKeyDown(Enum.KeyCode.Q) then
             direction = direction - worldUp
         end
+
         if direction.Magnitude > 1 then direction = direction.Unit end
+
         local frameDelta = math.clamp(dt or 0, 0, 0.05)
         local delta = direction * Settings.FlySpeed * frameDelta
+
         if delta.Magnitude > 0 then
             character:PivotTo(character:GetPivot() + delta)
         end
+
         rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+
         Movement.status = "FLY ON"
         Movement.detail = string.format(
             "Fly %.0f | WASD + camera pitch | Space/E up | Ctrl/Q down | No Clip ON",
@@ -2749,6 +2974,7 @@ function Movement.step(dt)
         )
     else
         Movement.restoreFly()
+
         if Settings.FlyEnabled and farmBusy then
             Movement.status, Movement.detail = "FLY PAUSED", "Auto Farm / discovery has movement priority."
         elseif Settings.SpeedEnabled then
@@ -2760,6 +2986,7 @@ function Movement.step(dt)
         end
     end
 end
+
 stopMovement = function()
     Settings.FlyEnabled = false
     Settings.SpeedEnabled = false
@@ -2769,7 +2996,9 @@ stopMovement = function()
     Movement.restoreSpeed()
     Movement.restoreNoClip(true)
 end
+
 Movement.updateTBlock()
+
 do
     local okRun, Run = pcall(function() return game:GetService("RunService") end)
     if okRun and Run then
@@ -2786,6 +3015,7 @@ do
         end)
     end
 end
+
 System = {
     configPath = "AutoSkills_System_v1.json",
     bodyPath = "AutoSkills_Void_AutoRun.lua",
@@ -2804,25 +3034,31 @@ System = {
     menuNextAt = 0,
     menuStage = "idle",
 }
+
 do
     local reader = type(readfile) == "function" and readfile or environment.readfile
     local writer = type(writefile) == "function" and writefile or environment.writefile
     local exists = type(isfile) == "function" and isfile or environment.isfile
     local deleter = type(delfile) == "function" and delfile or environment.delfile
     local mkdir = type(makefolder) == "function" and makefolder or environment.makefolder
+
     System.reader, System.writer, System.exists, System.deleter, System.mkdir =
         reader, writer, exists, deleter, mkdir
+
     local function finiteText(value, limit)
         return type(value) == "string" and #value > 0 and #value <= (limit or 200)
     end
+
     function System.loadPrefs()
         if type(reader) ~= "function" or type(exists) ~= "function" then return end
         local okExists, present = pcall(exists, System.configPath)
         if not okExists or not present then return end
+
         local ok, data = pcall(function()
             return HttpService:JSONDecode(reader(System.configPath))
         end)
         if not ok or type(data) ~= "table" then return end
+
         if type(data.StaticMapScan) == "boolean" then Settings.StaticMapScan = data.StaticMapScan end
         if type(data.AutoRejoin) == "boolean" then Settings.AutoRejoin = data.AutoRejoin end
         if type(data.AutoExecute) == "boolean" then Settings.AutoExecute = data.AutoExecute end
@@ -2831,11 +3067,13 @@ do
         if finiteText(data.LastPrivateJob, 120) then System.lastPrivateJob = data.LastPrivateJob end
         if type(data.LastPrivatePlace) == "number" then System.lastPrivatePlace = data.LastPrivatePlace end
     end
+
     function System.savePrefs()
         if type(writer) ~= "function" then
             System.persistStatus = "File write unavailable; preferences are session-only."
             return false
         end
+
         local ok, err = pcall(function()
             writer(System.configPath, HttpService:JSONEncode({
                 schema = 1,
@@ -2848,16 +3086,20 @@ do
                 LastPrivateJob = System.lastPrivateJob,
             }))
         end)
+
         if not ok then
             System.persistStatus = "Preference save failed: " .. tostring(err)
             return false
         end
         return true
     end
+
     System.loadPrefs()
+
     if not finiteText(System.targetGameId, 40) or System.targetGameId == "0" then
         System.targetGameId = tostring(game.GameId or 0)
     end
+
     local loader = string.format([[
 pcall(function()
     if tostring(game.GameId or 0) ~= %q then return end
@@ -2870,21 +3112,25 @@ pcall(function()
     end
 end)
 ]], System.targetGameId, System.bodyPath, System.bodyPath)
+
     function System.applyAutoExecute()
         local queue = type(queue_on_teleport) == "function" and queue_on_teleport
             or (type(environment.queue_on_teleport) == "function" and environment.queue_on_teleport)
             or (type(syn) == "table" and type(syn.queue_on_teleport) == "function" and syn.queue_on_teleport)
             or nil
+
         local queued = false
         if Settings.AutoExecute and type(queue) == "function" then
             local ok = pcall(queue, loader)
             queued = ok
         end
+
         if Settings.AutoExecute and type(writer) == "function" then
             local folderOK = true
             if type(mkdir) == "function" then
                 folderOK = pcall(mkdir, "autoexec")
             end
+
             local ok = pcall(writer, System.autoexecPath, loader)
             if ok then
                 System.persistStatus = queued
@@ -2907,13 +3153,16 @@ end)
             end
             System.persistStatus = "Auto-execute OFF"
         end
+
         System.savePrefs()
         render()
     end
+
     function System.setAutoExecute(value)
         Settings.AutoExecute = value and true or false
         System.applyAutoExecute()
     end
+
     function System.setAutoRejoin(value)
         Settings.AutoRejoin = value and true or false
         if not Settings.AutoRejoin then
@@ -2925,6 +3174,7 @@ end)
         System.savePrefs()
         render()
     end
+
     function System.setStaticScan(value)
         Settings.StaticMapScan = value and true or false
         System.savePrefs()
@@ -2933,6 +3183,7 @@ end)
         end
         render()
     end
+
     function System.setPrivateMap(value)
         value = tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
         if value == "" then value = "Ouwigahara" end
@@ -2940,42 +3191,51 @@ end)
         System.savePrefs()
         render()
     end
+
     function System.writeFriendReady()
         if type(writer) ~= "function" then
             System.friendReadyStatus = "Friend-ready file unavailable: writefile missing."
             return false
         end
+
         local source = environment.__AUTOSKILLS_SOURCE
         if type(source) ~= "string" or #source < 1000 then
             System.friendReadyStatus = "Friend-ready source unavailable in this launch."
             return false
         end
+
         local code, message = Farm.exportCode()
         if not code then
             System.friendReadyStatus = "Friend-ready file waiting for boss locations."
             return false
         end
+
         local marker = 'local BUILT_IN_BOSS_SEED_CODE = "'
         local startAt = source:find(marker, 1, true)
         if not startAt then
             System.friendReadyStatus = "Friend-ready template marker missing."
             return false
         end
+
         local valueStart = startAt + #marker
         local valueEnd = source:find('"', valueStart, true)
         if not valueEnd then
             System.friendReadyStatus = "Friend-ready template malformed."
             return false
         end
+
         local baked = source:sub(1, valueStart - 1) .. code .. source:sub(valueEnd)
+
         local ok, err = pcall(writer, System.friendReadyPath, baked)
         if ok then
             System.friendReadyStatus = message .. " -> " .. System.friendReadyPath
             return true
         end
+
         System.friendReadyStatus = "Friend-ready write failed: " .. tostring(err)
         return false
     end
+
     function System.rememberPrivateServer()
         if tostring(game.PrivateServerId or "") ~= "" and tostring(game.JobId or "") ~= "" then
             local changed = System.lastPrivatePlace ~= game.PlaceId or System.lastPrivateJob ~= game.JobId
@@ -2988,6 +3248,7 @@ end)
         end
         return false
     end
+
     local function buttonText(button)
         local pieces = {button.Name}
         if button:IsA("TextButton") then pieces[#pieces+1] = button.Text end
@@ -2998,6 +3259,7 @@ end)
         end
         return string.lower(table.concat(pieces, " "))
     end
+
     local function guiVisible(object)
         local node = object
         while node and node ~= playerGui do
@@ -3007,9 +3269,11 @@ end)
         end
         return true
     end
+
     local function normalize(value)
         return string.lower(tostring(value or "")):gsub("[^%w]", "")
     end
+
     local function findButton(predicate)
         for _, object in ipairs(playerGui:GetDescendants()) do
             if object:IsA("GuiButton")
@@ -3020,9 +3284,11 @@ end)
             end
         end
     end
+
     local function pressButton(button, hold)
         if not button or not button.Parent then return false end
         local center = button.AbsolutePosition + button.AbsoluteSize / 2
+
         local ok = pcall(function()
             VirtualInput:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 0)
             task.wait(hold or 0.04)
@@ -3030,14 +3296,17 @@ end)
         end)
         return ok
     end
+
     function System.tryDirectRejoin(reason)
         if not Settings.AutoRejoin then return false end
         if not System.lastPrivatePlace or not System.lastPrivateJob then return false end
         if os.clock() - System.directTriedAt < 15 then return false end
+
         System.directTriedAt = os.clock()
         System.rejoinRequested = true
         System.rejoinStatus = "Direct private-instance rejoin requested..."
         render()
+
         local ok, err = pcall(function()
             TeleportService:TeleportToPlaceInstance(
                 System.lastPrivatePlace,
@@ -3045,12 +3314,14 @@ end)
                 Player
             )
         end)
+
         if not ok then
             System.rejoinStatus = "Direct rejoin failed; using menu recovery."
             warn("AutoSkills direct rejoin: " .. tostring(err))
         end
         return ok
     end
+
     function System.menuStep()
         if not Settings.AutoRejoin or not System.rejoinRequested then return end
         if os.clock() < System.menuNextAt then return end
@@ -3058,6 +3329,7 @@ end)
             System.rememberPrivateServer()
             return
         end
+
         local play = findButton(function(text, compact)
             return compact == "play" or compact == "playgame" or compact == "playbutton"
         end)
@@ -3069,6 +3341,7 @@ end)
             render()
             return
         end
+
         local target = normalize(Settings.PrivateServerMap)
         local prefix = target:sub(1, math.min(#target, 6))
         local mapButton = findButton(function(text, compact)
@@ -3084,6 +3357,7 @@ end)
             render()
             return
         end
+
         local privateButton = findButton(function(text, compact)
             return compact == "private"
                 or compact:find("privateserver", 1, true) ~= nil
@@ -3097,6 +3371,7 @@ end)
             render()
             return
         end
+
         local join = findButton(function(text, compact)
             return compact == "join"
                 or compact == "joinserver"
@@ -3114,8 +3389,10 @@ end)
             render()
             return
         end
+
         System.rejoinStatus = "Waiting for Play / map / Private Server / Join UI..."
     end
+
     connect(TeleportService.TeleportInitFailed, function(player, result, message)
         if player ~= Player or not Settings.AutoRejoin then return end
         System.rejoinRequested = true
@@ -3123,6 +3400,7 @@ end)
         System.menuNextAt = 0
         render()
     end)
+
     pcall(function()
         connect(GuiService.ErrorMessageChanged, function(message)
             if not Settings.AutoRejoin or tostring(message or "") == "" then return end
@@ -3133,10 +3411,13 @@ end)
             render()
         end)
     end)
+
     if not System.rememberPrivateServer() and Settings.AutoRejoin then
         System.rejoinRequested = true
     end
+
     System.applyAutoExecute()
+
     task.spawn(function()
         while State.alive do
             if Settings.AutoRejoin then
@@ -3151,7 +3432,9 @@ end)
         end
     end)
 end
+
 local C = {
+
     panel = Color3.fromRGB(8, 4, 15),
     surface = Color3.fromRGB(16, 8, 29),
     raised = Color3.fromRGB(27, 13, 45),
@@ -3226,6 +3509,7 @@ local function hover(object, normal, highlighted)
     connect(object.MouseEnter, function() animate(object, {TextColor3 = highlighted}) end)
     connect(object.MouseLeave, function() animate(object, {TextColor3 = normal}) end)
 end
+
 local espRecords, espFolder = {}, nil
 local function removeESPRecord(other)
     local record = espRecords[other]
@@ -3245,6 +3529,7 @@ local function sameTeam(other)
 end
 local function createESPRecord(other, character, anchor)
     local record = {character = character}
+
     espRecords[other] = record
     record.highlight = make("Highlight", espFolder, {
         Name = "Player_" .. tostring(other.UserId), Adornee = character,
@@ -3351,6 +3636,7 @@ local function setESPEnabled(value)
     if value then refreshESP() else clearESP() end
     render()
 end
+
 root = make("ScreenGui", playerGui, {
     Name = "AutoSkillsVoidUI", ResetOnSpawn = false, IgnoreGuiInset = true,
     DisplayOrder = 100, ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
@@ -3370,6 +3656,7 @@ loaderCanvas = make("Frame", loaderRoot, {
     Name = "LoaderCanvas", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
     BorderSizePixel = 0, Active = false,
 })
+
 local W, H = 420, 560
 local windowWidth = W
 local C = {
@@ -3389,6 +3676,7 @@ local C = {
     amber = Color3.fromRGB(255, 199, 96),
     red = Color3.fromRGB(255, 103, 127),
     white = Color3.fromRGB(255, 255, 255),
+
     accent = Color3.fromRGB(168, 85, 247),
     bright = Color3.fromRGB(143, 227, 255),
     muted = Color3.fromRGB(155, 143, 184),
@@ -3422,17 +3710,20 @@ make("UIGradient", panel, {
         NumberSequenceKeypoint.new(1, 0.12),
     }),
 })
+
 panel.BackgroundTransparency = 0.40
 local panelBackdrop = make("Frame", panel, {
     Name = "VoidBackdrop", Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(W, H),
     BackgroundColor3 = C.black, BackgroundTransparency = 0.56, BorderSizePixel = 0,
     Active = false, ZIndex = 1,
 })
+
 local voidFX = make("Frame", panel, {
     Name = "VoidFX", Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(W, H),
     BackgroundTransparency = 1, BorderSizePixel = 0, Active = false, ZIndex = 3,
 })
 local voidRings, voidStars, voidDust, voidShots = {}, {}, {}, {}
+
 local voidCore = frame(voidFX, "Core", 166, 214, 88, 88, C.black, 44)
 voidCore.BackgroundTransparency = 0.18
 voidCore.ZIndex = 2
@@ -3445,6 +3736,7 @@ local coreGlow2 = frame(voidFX, "CoreGlow2", 125, 173, 170, 170, C.magenta, 85)
 coreGlow2.BackgroundTransparency = 0.96
 coreGlow2.ZIndex = 2
 stroke(coreGlow2, C.magenta, 0.96, 1)
+
 local nebulaA = frame(voidFX, "NebulaA", -90, 155, 300, 90, C.violet, 45)
 nebulaA.BackgroundTransparency = 0.985
 nebulaA.Rotation = -18
@@ -3471,6 +3763,7 @@ make("UIGradient", nebulaB, {
         NumberSequenceKeypoint.new(1, 1),
     }),
 })
+
 for i, size in ipairs({180, 290, 390}) do
     local ring = frame(voidFX, "Ring" .. i,
         math.floor(W * 0.5 - size / 2), math.floor(H * 0.49 - size / 2),
@@ -3486,6 +3779,7 @@ for i, size in ipairs({180, 290, 390}) do
         size = size,
     }
 end
+
 for i = 1, 34 do
     local size = math.random(1, 2)
     local dust = frame(voidFX, "Dust" .. i,
@@ -3501,6 +3795,7 @@ for i = 1, 34 do
         phase = math.random() * math.pi * 2,
     }
 end
+
 for i = 1, 42 do
     local size = (i % 7 == 0) and 2.4 or (i % 3 == 0 and 1.8 or 1.35)
     local x = math.random(10, math.max(11, W - 12))
@@ -3510,21 +3805,25 @@ for i = 1, 42 do
     local group = frame(voidFX, "Star" .. i, math.floor(x), math.floor(y), groupSize, groupSize, C.black, math.floor(groupSize / 2))
     group.BackgroundTransparency = 1
     group.ZIndex = 4
+
     local coreSize = math.max(2, math.floor(3.2 * size))
     local cx = math.floor(groupSize / 2 - coreSize / 2)
     local cy = math.floor(groupSize / 2 - coreSize / 2)
     local core = frame(group, "Core", cx, cy, coreSize, coreSize, color, math.floor(coreSize / 2))
     core.BackgroundTransparency = 0.03
     core.ZIndex = 8
+
     local hotSize = math.max(1, math.floor(coreSize * 0.45))
     local hot = frame(group, "HotCore",
         math.floor(groupSize / 2 - hotSize / 2), math.floor(groupSize / 2 - hotSize / 2),
         hotSize, hotSize, C.white, math.floor(hotSize / 2))
     hot.BackgroundTransparency = 0.02
     hot.ZIndex = 9
+
     local rayLen = math.max(5, math.floor(7 * size))
     local outerW = math.max(2, math.floor(size * 0.95))
     local innerW = math.max(1, math.floor(size * 0.48))
+
     local function makeRay(name, rotation, length, width, rayColor, transparency, z)
         local ray = frame(group, name,
             math.floor(groupSize / 2 - width / 2),
@@ -3535,6 +3834,7 @@ for i = 1, 42 do
         ray.ZIndex = z
         return ray
     end
+
     local outerRays = {
         makeRay("OuterV", 0, rayLen + 4, outerW, color, 0.55, 5),
         makeRay("OuterH", 90, rayLen + 4, outerW, color, 0.55, 5),
@@ -3545,6 +3845,7 @@ for i = 1, 42 do
         makeRay("InnerV", 0, rayLen, innerW, C.white, 0.08, 7),
         makeRay("InnerH", 90, rayLen, innerW, C.white, 0.08, 7),
     }
+
     local tailLen = math.floor(8 + size * 7)
     local tail = frame(group, "Tail",
         math.floor(groupSize / 2 - 0.5), math.floor(groupSize / 2 + 2),
@@ -3552,6 +3853,7 @@ for i = 1, 42 do
     tail.BackgroundTransparency = 0.58
     tail.Rotation = -18
     tail.ZIndex = 4
+
     voidStars[#voidStars + 1] = {
         object = group,
         core = core,
@@ -3569,6 +3871,7 @@ for i = 1, 42 do
         widthAtSpawn = W,
     }
 end
+
 for i = 1, 10 do
     local streak = frame(voidFX, "VoidStreak" .. i, 0, 0, 2, 34,
         i % 2 == 0 and C.cyan or C.magenta, 1)
@@ -3586,6 +3889,7 @@ for i = 1, 10 do
         phase = math.random() * math.pi * 2,
     }
 end
+
 local voidWisps = {}
 for i = 1, 7 do
     local length = 70 + math.random(30, 120)
@@ -3599,6 +3903,7 @@ for i = 1, 7 do
         phase = math.random() * math.pi * 2, pulse = 0.7 + math.random() * 1.5,
     }
 end
+
 local voidFXClock = os.clock()
 local voidLast = voidFXClock
 connect(RunService.RenderStepped, function()
@@ -3607,6 +3912,7 @@ connect(RunService.RenderStepped, function()
     local dt = math.min(now - voidLast, 0.05)
     voidLast = now
     local t = now - voidFXClock
+
     for _, star in ipairs(voidStars) do
         if star.object.Parent then
             star.y = star.y + star.speed * dt
@@ -3623,6 +3929,7 @@ connect(RunService.RenderStepped, function()
             star.object.Position = UDim2.fromOffset(math.floor(star.x), math.floor(star.y))
             star.object.Rotation = math.sin(t * 0.45 + star.phase) * 8 + t * star.spin * 0.015
             star.object.BackgroundTransparency = 1
+
             if star.core then
                 star.core.BackgroundTransparency = math.clamp(0.16 - pulse * 0.14, 0.01, 0.16)
                 star.core.Size = UDim2.fromOffset(
@@ -3649,6 +3956,7 @@ connect(RunService.RenderStepped, function()
             end
         end
     end
+
     for _, dust in ipairs(voidDust) do
         if dust.object.Parent then
             dust.y = dust.y + dust.speed * dt
@@ -3661,6 +3969,7 @@ connect(RunService.RenderStepped, function()
             dust.object.BackgroundTransparency = 0.90 + pulse * 0.08
         end
     end
+
     for _, shot in ipairs(voidShots) do
         if shot.object.Parent then
             local cycle = (t + shot.wait) % 3.4
@@ -3683,6 +3992,7 @@ connect(RunService.RenderStepped, function()
             end
         end
     end
+
     for _, wisp in ipairs(voidWisps or {}) do
         if wisp.object.Parent then
             wisp.x = wisp.x + wisp.speed * dt
@@ -3696,12 +4006,14 @@ connect(RunService.RenderStepped, function()
             wisp.object.BackgroundTransparency = 0.78 - wp * 0.22
         end
     end
+
     nebulaA.Rotation = -18 + math.sin(t * 0.18) * 7
     nebulaA.Position = UDim2.fromOffset(math.floor((windowWidth * 0.16) + math.sin(t * 0.22) * 24 - 90), math.floor(155 + math.cos(t * 0.31) * 18))
     nebulaB.Rotation = 16 + math.cos(t * 0.16) * 6
     nebulaB.Position = UDim2.fromOffset(math.floor((windowWidth * 0.56) + math.cos(t * 0.19) * 28), math.floor(300 + math.sin(t * 0.27) * 20))
     nebulaA.BackgroundTransparency = 0.982 + math.sin(t * 0.65) * 0.008
     nebulaB.BackgroundTransparency = 0.985 + math.cos(t * 0.52) * 0.008
+
     local pulse = 0.5 + math.sin(t * 1.2) * 0.5
     voidCore.BackgroundTransparency = 0.06 + pulse * 0.16
     coreGlow.BackgroundTransparency = 0.985 - pulse * 0.045
@@ -3715,6 +4027,7 @@ connect(RunService.RenderStepped, function()
         end
     end
 end)
+
 local lastVoidFXWidth = W
 local function resizeVoidEffects(newWidth)
     newWidth = math.max(W, math.floor(newWidth + 0.5))
@@ -3742,6 +4055,7 @@ local function resizeVoidEffects(newWidth)
     voidFX.Size = UDim2.fromOffset(newWidth, H)
     panelBackdrop.Size = UDim2.fromOffset(newWidth, H)
     lastVoidFXWidth = newWidth
+
     voidCore.Position = UDim2.fromOffset(math.floor(newWidth * 0.5 - 44), math.floor(H * 0.49 - 44))
     coreGlow.Position = UDim2.fromOffset(math.floor(newWidth * 0.5 - 65), math.floor(H * 0.49 - 65))
     coreGlow2.Position = UDim2.fromOffset(math.floor(newWidth * 0.5 - 85), math.floor(H * 0.49 - 85))
@@ -3749,9 +4063,11 @@ local function resizeVoidEffects(newWidth)
         data.object.Position = UDim2.fromOffset(math.floor(newWidth * 0.5 - data.size / 2), math.floor(H * 0.49 - data.size / 2))
     end
 end
+
 local function safeText(parent, name, text, x, y, w, h, size, color, font)
     return label(parent, name, text, x, y, w, h, size, color, font)
 end
+
 local function navIcon(parent, kind, x, y, color)
     local box = frame(parent, "Icon", x, y, 19, 19, Color3.new(1, 1, 1), 0)
     box.BackgroundTransparency = 1
@@ -3785,6 +4101,7 @@ local function navIcon(parent, kind, x, y, color)
     end
     return box
 end
+
 local header = make("Frame", panel, {
     Name = "Header", Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(W, 64),
     BackgroundColor3 = C.panel, BackgroundTransparency = 0.08, BorderSizePixel = 0,
@@ -3815,6 +4132,7 @@ UI.badge = make("TextButton", header, {
     TextColor3 = C.dim, TextSize = 10, Font = Enum.Font.GothamBold,
     TextXAlignment = Enum.TextXAlignment.Right, AutoButtonColor = false, Active = true,
 })
+
 local ticker = frame(panel, "Ticker", 0, 64, W, 24, C.black, 0)
 ticker.BackgroundTransparency = 0.38
 ticker.ZIndex = 5
@@ -3844,6 +4162,7 @@ connect(RunService.RenderStepped, function()
     local now = os.clock()
     local phase = ((now - tickerStart) * 34) % math.max(windowWidth, W)
     tickerText.Position = UDim2.fromOffset(windowWidth - phase, 0)
+
     local t = now - uiAnimStart
     brandmark.Rotation = (t * 7) % 360
     edgeSheen.Position = UDim2.fromOffset(((t * 42) % (windowWidth + 240)) - 120, 0)
@@ -3861,6 +4180,7 @@ connect(RunService.RenderStepped, function()
         selectedBar.Size = UDim2.fromOffset(math.max(12, selectedBar.AbsoluteSize.X), 2)
     end
 end)
+
 local tabs = frame(panel, "Nav", 0, 88, W, 64, C.black, 0)
 tabs.BackgroundTransparency = 0.35
 tabs.ZIndex = 5
@@ -3892,10 +4212,12 @@ UI.healthTab = navButtons.Health
 UI.farmTab = navButtons.Farm
 UI.moveTab = navButtons.Move
 UI.systemTab = navButtons.System
+
 local content = make("Frame", panel, {
     Name = "Content", Position = UDim2.fromOffset(0, 152), Size = UDim2.fromOffset(W, H - 152),
     BackgroundTransparency = 1, BorderSizePixel = 0, Active = false, ZIndex = 3,
 })
+
 local function newPage(name)
     local page = make("ScrollingFrame", content, {
         Name = name .. "Page", Position = UDim2.fromOffset(0, 0), Size = UDim2.fromScale(1, 1),
@@ -3917,6 +4239,7 @@ local function pageHead(parent, iconKind, title, moduleText)
 end
 local toggleViews = {}
 local sliders = {}
+
 local function makeRow(parent, y, name, desc, getter, setter)
     local row = frame(parent, "Row_" .. tostring(y), 16, y, W - 32, 52, Color3.fromRGB(18, 10, 30), 10)
     stroke(row, C.line, 0.72, 1)
@@ -3966,6 +4289,7 @@ local function makeSlider(parent, y, name, getter, setter, min, max, format)
     end)
     return row
 end
+
 local function addKeyLoadout(parent, y)
     local box = frame(parent, "KeyLoadout", 16, y, W - 32, 56, Color3.fromRGB(18, 10, 30), 10)
     stroke(box, C.line, 0.72, 1)
@@ -3982,6 +4306,7 @@ local function addKeyLoadout(parent, y)
     end
     return box
 end
+
 local skillsPage = newPage("Skills")
 body = skillsPage
 pageHead(skillsPage, "skills", "SKILLS", "4 MODULES")
@@ -3992,6 +4317,7 @@ makeSlider(skillsPage, 228, "Cast Priority", function() return Settings.KeyGap e
 addKeyLoadout(skillsPage, 308)
 local skillHint = safeText(skillsPage, "Hint", "F6 toggles skills  /  F7 unloads  /  R-SHIFT hides the panel", 16, 376, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
 skillHint.TextXAlignment = Enum.TextXAlignment.Center
+
 local espPage = newPage("ESP")
 espBody = espPage
 pageHead(espPage, "esp", "ESP OVERLAY", "5 LAYERS")
@@ -4000,6 +4326,7 @@ makeRow(espPage, 108, "Outline Layer", "Highlights players through geometry", fu
 makeRow(espPage, 168, "Info Tags", "Shows name and health information", function() return Settings.ESPShowNames end, function(v) Settings.ESPShowNames = v; refreshESP() end)
 makeRow(espPage, 228, "Health Bars", "Shows current player health", function() return Settings.ESPShowHealth end, function(v) Settings.ESPShowHealth = v; refreshESP() end)
 makeSlider(espPage, 288, "Render Range", function() return Settings.ESPMaxDistance end, function(v) Settings.ESPMaxDistance = math.floor(v / 50 + 0.5) * 50; refreshESP() end, 100, 10000, "%.0f studs")
+
 local healthPage = newPage("Health")
 healthBody = healthPage
 pageHead(healthPage, "health", "HEALTH CORE", "3 MODULES")
@@ -4013,6 +4340,7 @@ UI.healthStatus = safeText(healthPage, "CompatStatus", "", -100, -100, 1, 1, 1, 
 UI.healthStatus.Visible = false
 UI.healthDetail = safeText(healthPage, "CompatDetail", "", -100, -100, 1, 1, 1, C.dim)
 UI.healthDetail.Visible = false
+
 local farmPage = newPage("Farm")
 farmBody = farmPage
 pageHead(farmPage, "farm", "FARM ROUTE", "5 NODES")
@@ -4036,6 +4364,7 @@ UI.refTargetName = safeText(farmPage, "RefTarget", "", 0, 0, 1, 1, 1, C.dim)
 UI.refBossDelay = safeText(farmPage, "RefDelay", "", 0, 0, 1, 1, 1, C.dim)
 UI.refRunDot = frame(farmPage, "RunDot", 0, 0, 1, 1, C.dim, 1)
 UI.refElapsed = safeText(farmPage, "Elapsed", "", 0, 0, 1, 1, 1, C.dim)
+
 local movePage = newPage("Move")
 moveBody = movePage
 pageHead(movePage, "move", "MOVEMENT", "3 MODULES")
@@ -4051,6 +4380,7 @@ UI.moveDetail = safeText(movePage, "CompatDetail", "", -100, -100, 1, 1, 1, C.di
 UI.moveDetail.Visible = false
 UI.moveStatusDot = frame(movePage, "MoveDot", 0, 0, 1, 1, C.dim, 1)
 UI.moveMasterStroke = stroke(movePage, C.line, 1, 1)
+
 local systemPage = newPage("System")
 systemBody = systemPage
 pageHead(systemPage, "system", "SYSTEM CORE", "STATUS")
@@ -4088,6 +4418,7 @@ connect(UI.privateMapBox.FocusLost, function()
     Settings.PrivateServerMap = UI.privateMapBox.Text ~= "" and UI.privateMapBox.Text or Settings.PrivateServerMap
     render()
 end)
+
 UI.count = safeText(skillsPage, "Count", "4 / 4 ENABLED", 0, 0, 1, 1, 1, C.dim)
 UI.cycle = safeText(skillsPage, "Cycle", "", 0, 0, 1, 1, 1, C.dim)
 UI.status = safeText(skillsPage, "Status", "STANDBY", 0, 0, 1, 1, 1, C.dim)
@@ -4119,14 +4450,17 @@ UI.bossRadius = safeText(farmPage, "Radius", "", 0, 0, 1, 1, 1, C.dim)
 UI.bossDiscover = safeText(farmPage, "Discover", "", 0, 0, 1, 1, 1, C.dim)
 UI.bossSaveStatus = safeText(farmPage, "SaveStatus", "", 0, 0, 1, 1, 1, C.dim)
 UI.bossDiscoveryStatus = safeText(farmPage, "DiscoveryStatus", "", 0, 0, 1, 1, 1, C.dim)
+
 UI.footerBar = frame(panel, "FooterCompatibility", 0, 0, 1, 1, C.panel, 1)
 UI.footerBar.Visible = false
 UI.footerConnected = safeText(panel, "FooterConnected", "CONNECTED", 0, 0, 1, 1, 1, C.green)
 UI.footerConnected.Visible = false
 local footerDot = frame(panel, "FooterDot", 0, 0, 1, 1, C.green, 1)
 footerDot.Visible = false
+
 local pageMap = {Skills = skillsPage, ESP = espPage, Health = healthPage, Farm = farmPage, Move = movePage, System = systemPage}
 local pageBaseY = 0
+
 local function showPage(key)
     State.tab = key
     for name, page in pairs(pageMap) do page.Visible = name == key end
@@ -4144,6 +4478,7 @@ local function showPage(key)
         end)
     end
 end
+
 for key, tab in pairs(navButtons) do
     connect(tab.MouseEnter, function()
         if State.tab ~= key then
@@ -4157,6 +4492,7 @@ for key, tab in pairs(navButtons) do
     end)
     connect(tab.Activated, function() showPage(key) end)
 end
+
 local function updateTabVisuals()
     for key, tab in pairs(navButtons) do
         local selected = State.tab == key
@@ -4175,9 +4511,11 @@ local function updateTabVisuals()
         end
     end
 end
+
 local resizeGrip
 local windowPlaced = false
 local MIN_WINDOW_WIDTH = W
+
 resizeGrip = button(panel, "ResizeGrip", "", W - 28, H - 28, 28, 28, C.panel, 1)
 resizeGrip.BackgroundTransparency = 1
 resizeGrip.ZIndex = 30
@@ -4192,11 +4530,13 @@ connect(resizeGrip.InputBegan, function(input)
         State.gesture = {kind = "resize", input = input, start = input.Position, width = windowWidth}
     end
 end)
+
 local function setObjectWidth(obj, width)
     if obj and obj.Parent then
         obj.Size = UDim2.new(0, math.max(1, width), obj.Size.Y.Scale, obj.Size.Y.Offset)
     end
 end
+
 local function applyWindowWidth(width)
     windowWidth = math.max(MIN_WINDOW_WIDTH, math.floor(width + 0.5))
     setObjectWidth(holder, windowWidth)
@@ -4214,6 +4554,7 @@ local function applyWindowWidth(width)
     setObjectWidth(panelBackdrop, windowWidth)
     setObjectWidth(voidFX, windowWidth)
     resizeVoidEffects(windowWidth)
+
     local availableNav = math.max(240, windowWidth - 24 - navGap * 5)
     local dynamicNavW = math.floor(availableNav / 6)
     for i, key in ipairs(navNames) do
@@ -4230,6 +4571,7 @@ local function applyWindowWidth(width)
             end
         end
     end
+
     for _, page in pairs(pageMap) do
         setObjectWidth(page, windowWidth)
         for _, child in ipairs(page:GetChildren()) do
@@ -4256,6 +4598,7 @@ local function applyWindowWidth(width)
     end
     resizeGrip.Position = UDim2.fromOffset(windowWidth - 28, H - 28)
 end
+
 local function fitWindow(centerIfNeeded)
     if not State.alive then return end
     local viewport = canvas.AbsoluteSize
@@ -4271,11 +4614,13 @@ local function fitWindow(centerIfNeeded)
     else
         x = holder.Position.X.Offset
         y = holder.Position.Y.Offset
+
         x = math.clamp(x, 8, math.max(8, viewport.X - width - 8))
     end
     holder.Position = UDim2.fromOffset(math.floor(x), math.floor(y))
     windowPlaced = true
 end
+
 local function renderPageState()
     if not State.alive then return end
     local running, statusName, description = availability()
@@ -4294,10 +4639,12 @@ local function renderPageState()
     UI.status.Text = statusName
     UI.detail.Text = description
     UI.statusDot.BackgroundColor3 = mainColor
+
     UI.espCount.Text = tostring(State.espCount) .. " TRACKED"
     UI.espDetail.Text = State.espFault or (Settings.ESPEnabled and "ESP active" or "Turn on Player ESP or press F8.")
     UI.espStatus.Text = State.espFault and "ESP ERROR" or (Settings.ESPEnabled and "ESP ACTIVE" or "ESP OFF")
     UI.espStatusDot.BackgroundColor3 = State.espFault and C.red or (Settings.ESPEnabled and C.green or C.faint)
+
     UI.healthStatus.Text = Guard.status
     UI.healthDetail.Text = Guard.detail
     UI.healthSource.Text = Guard.sourceLabel
@@ -4308,6 +4655,7 @@ local function renderPageState()
     UI.healthFill.Size = UDim2.fromScale(math.clamp((Guard.percent or 0) / 100, 0, 1), 1)
     UI.healthMarker.Position = UDim2.new(math.clamp(Settings.HealthThreshold / 100, 0, 1), 0, 0, -3)
     UI.healthRelease.Text = Guard.held and "LOCKED" or "RELEASED"
+
     UI.farmHint.Text = Settings.AutoBoss and string.format("Auto Boss active - %d saved locations.", #Farm.remembered)
         or "Automate farming, bosses and loot collection."
     local remembered = Farm.pinned and Farm.catalog[Farm.pinned]
@@ -4323,6 +4671,7 @@ local function renderPageState()
     UI.refBossDelay.Text = string.format("%.1f", Settings.BossNoAttackTimeout)
     UI.refRunDot.BackgroundColor3 = (Settings.FarmEnabled or Settings.AutoBoss) and C.green or C.faint
     UI.refElapsed.Text = string.format("%02d:%02d:%02d", math.floor(os.clock()/3600)%100, math.floor(os.clock()/60)%60, math.floor(os.clock())%60)
+
     UI.moveStatus.Text = Movement.status
     UI.moveDetail.Text = Movement.detail
     UI.moveStatusDot.BackgroundColor3 = (Settings.FlyEnabled or Settings.SpeedEnabled or Settings.NoClip) and C.green or C.faint
@@ -4333,6 +4682,7 @@ local function renderPageState()
     UI.staticScanStatus.Text = Farm.staticScanStatus
     UI.rejoinStatus.Text = System.rejoinStatus
     if Input:GetFocusedTextBox() ~= UI.privateMapBox then UI.privateMapBox.Text = Settings.PrivateServerMap end
+
     for _, view in ipairs(toggleViews) do
         local value = view.getter()
         if view.last ~= value then
@@ -4351,6 +4701,7 @@ local function renderPageState()
     end
     updateTabVisuals()
 end
+
 local uiRenderError = nil
 local rawRenderPageState = renderPageState
 render = function()
@@ -4360,6 +4711,7 @@ render = function()
     end
     return ok
 end
+
 showPage("Skills")
 connect(UI.badge.Activated, function()
     if State.tab == "ESP" then setESPEnabled(not Settings.ESPEnabled)
@@ -4387,6 +4739,7 @@ connect(Input.InputChanged, function(input)
         local deltaX = input.Position.X - gesture.start.X
         local viewport = canvas.AbsoluteSize
         local maxWidth = math.max(MIN_WINDOW_WIDTH, viewport.X - holder.Position.X.Offset - 8)
+
         windowWidth = math.clamp(gesture.width + deltaX, MIN_WINDOW_WIDTH, maxWidth)
         applyWindowWidth(windowWidth)
         fitWindow(false)
@@ -4407,9 +4760,11 @@ end)
 connect(canvas:GetPropertyChangedSignal("AbsoluteSize"), function() fitWindow(false) end)
 fitWindow(true)
 render()
+
 do
     local __loaderLayer
     local __loaderOK, __loaderERR = pcall(function()
+
         __loaderLayer = make("Frame", loaderCanvas, {
         Name = "VoidLoading", Position = UDim2.fromScale(0, 0), Size = UDim2.fromScale(1, 1),
         BackgroundColor3 = C.black, BackgroundTransparency = 0.08, BorderSizePixel = 0,
@@ -4424,22 +4779,26 @@ do
     stroke(loadCard, Color3.fromRGB(168, 120, 255), 0.30, 1)
     local loadScale = make("UIScale", loadCard, {Scale = 0.72})
     TweenService:Create(loadScale, TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
+
     local loadTitle = safeText(loadCard, "Title", "VOID NEXUS", 0, 14, 320, 22, 17, C.ink, Enum.Font.GothamBold)
     loadTitle.TextXAlignment = Enum.TextXAlignment.Center
     loadTitle.ZIndex = 103
     local loadSub = safeText(loadCard, "Sub", "CORE INITIALIZATION", 0, 38, 320, 16, 8, C.dim, Enum.Font.GothamBold)
     loadSub.TextXAlignment = Enum.TextXAlignment.Center
     loadSub.ZIndex = 103
+
     local symbol = frame(loadCard, "Symbol", 0, 0, 220, 220, C.black, 110)
     symbol.AnchorPoint = Vector2.new(0.5, 0.5)
     symbol.Position = UDim2.new(0.5, 0, 0, 145)
     symbol.BackgroundTransparency = 1
     symbol.ZIndex = 102
+
     local WHITE = Color3.fromRGB(255, 255, 255)
     local SKY = Color3.fromRGB(143, 227, 255)
     local PURPLE = Color3.fromRGB(168, 85, 247)
     local PINK = Color3.fromRGB(239, 79, 208)
     local LAV = Color3.fromRGB(201, 182, 255)
+
     local function loaderCircle(parent, name, size, color, transparency, z, thickness, strokeColor)
         local f = frame(parent, name, 0, 0, size, size, color or C.black, math.floor(size / 2))
         f.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -4449,16 +4808,19 @@ do
         if strokeColor then stroke(f, strokeColor, transparency or 0, thickness or 1) end
         return f
     end
+
     local bloomA = loaderCircle(symbol, "BloomA", 184, Color3.fromRGB(123, 47, 247), 0.92, 102)
     local bloomB = loaderCircle(symbol, "BloomB", 156, Color3.fromRGB(123, 47, 247), 0.90, 103)
     local bloomC = loaderCircle(symbol, "BloomC", 128, Color3.fromRGB(168, 85, 247), 0.84, 104)
     local bloomD = loaderCircle(symbol, "BloomD", 102, Color3.fromRGB(76, 20, 140), 0.70, 105)
+
     local shock1 = loaderCircle(symbol, "Shock1", 92, C.black, 1, 106, 2.4, LAV)
     local shock2 = loaderCircle(symbol, "Shock2", 92, C.black, 1, 106, 1.4, SKY)
     local shockScale1 = make("UIScale", shock1, {Scale = 0.25})
     local shockScale2 = make("UIScale", shock2, {Scale = 0.25})
     local shockStroke1 = shock1:FindFirstChildOfClass("UIStroke")
     local shockStroke2 = shock2:FindFirstChildOfClass("UIStroke")
+
     local spikeGroup = frame(symbol, "Spikes", 0, 0, 220, 220, C.black, 0)
     spikeGroup.BackgroundTransparency = 1
     spikeGroup.ZIndex = 107
@@ -4472,21 +4834,25 @@ do
         line.ZIndex = 107
         spikes[#spikes + 1] = line
     end
+
     local diskA = frame(symbol, "DiskA", 20, 78, 180, 64, C.black, 32)
     diskA.BackgroundTransparency = 1
     diskA.Rotation = -18
     diskA.ZIndex = 108
     local diskStrokeA = stroke(diskA, PINK, 0.18, 2.8)
+
     local diskB = frame(symbol, "DiskB", 20, 78, 180, 64, C.black, 32)
     diskB.BackgroundTransparency = 1
     diskB.Rotation = 162
     diskB.ZIndex = 108
     local diskStrokeB = stroke(diskB, SKY, 0.25, 1.8)
+
     local diskC = frame(symbol, "DiskC", 35, 86, 150, 48, C.black, 24)
     diskC.BackgroundTransparency = 1
     diskC.Rotation = 60
     diskC.ZIndex = 109
     local diskStrokeC = stroke(diskC, LAV, 0.34, 1.2)
+
     local dashGroups = {}
     local function makeDashGroup(name, radiusX, radiusY, count, color, z, speed)
         local group = frame(symbol, name, 0, 0, 220, 220, C.black, 0)
@@ -4507,12 +4873,14 @@ do
     makeDashGroup("DashA", 90, 32, 18, PINK, 109, 18)
     makeDashGroup("DashB", 90, 32, 14, SKY, 109, -13)
     makeDashGroup("DashC", 75, 24, 12, LAV, 110, 9)
+
     local ringOuter = loaderCircle(symbol, "RingOuter", 196, C.black, 1, 111, 2.4, PURPLE)
     local ringDash = loaderCircle(symbol, "RingDashed", 172, C.black, 1, 112, 1, PURPLE)
     local ringDash2 = loaderCircle(symbol, "RingDashed2", 128, C.black, 1, 112, 0.8, PINK)
     local ringOuterStroke = ringOuter:FindFirstChildOfClass("UIStroke")
     local ringDashStroke = ringDash:FindFirstChildOfClass("UIStroke")
     local ringDash2Stroke = ringDash2:FindFirstChildOfClass("UIStroke")
+
     local tickGroup = frame(symbol, "Ticks", 0, 0, 220, 220, C.black, 0)
     tickGroup.BackgroundTransparency = 1
     tickGroup.ZIndex = 113
@@ -4528,6 +4896,7 @@ do
         t.BackgroundTransparency = 0.15
         t.ZIndex = 113
     end
+
     local orbitGroupA = frame(symbol, "OrbitA", 0, 0, 220, 220, C.black, 0)
     local orbitGroupB = frame(symbol, "OrbitB", 0, 0, 220, 220, C.black, 0)
     local orbitGroupC = frame(symbol, "OrbitC", 0, 0, 220, 220, C.black, 0)
@@ -4545,9 +4914,11 @@ do
     satBTrail1.BackgroundTransparency = 0.5
     local satC = frame(orbitGroupC, "Satellite", 108.2, 40.2, 3.6, 3.6, LAV, 1.8)
     satC.BackgroundTransparency = 0.2
+
     local lensRing = loaderCircle(symbol, "LensRing", 88, C.black, 1, 116, 1.3, WHITE)
     local lensStroke = lensRing:FindFirstChildOfClass("UIStroke")
     local lensUIScale = make("UIScale", lensRing, {Scale = 1})
+
     local coreGlow1 = loaderCircle(symbol, "CoreGlow1", 76, Color3.fromRGB(76, 20, 140), 0.45, 117)
     local coreGlow2 = loaderCircle(symbol, "CoreGlow2", 62, Color3.fromRGB(168, 85, 247), 0.38, 118)
     local coreGlow3 = loaderCircle(symbol, "CoreGlow3", 48, Color3.fromRGB(5, 1, 7), 0.12, 119)
@@ -4555,6 +4926,7 @@ do
     local coreScale1 = make("UIScale", coreGlow1, {Scale = 1})
     local coreScale2 = make("UIScale", coreGlow2, {Scale = 1})
     local coreScale3 = make("UIScale", coreGlow3, {Scale = 1})
+
     local loadStatus = safeText(loadCard, "Status", "ESTABLISHING VOID LINK...", 0, 270, 320, 18, 9, C.cyan, Enum.Font.GothamBold)
     loadStatus.TextXAlignment = Enum.TextXAlignment.Center
     loadStatus.ZIndex = 121
@@ -4565,6 +4937,7 @@ do
     local loadPercent = safeText(loadCard, "Percent", "0%", 0, 314, 320, 16, 8, C.dim, Enum.Font.GothamMedium)
     loadPercent.TextXAlignment = Enum.TextXAlignment.Center
     loadPercent.ZIndex = 121
+
     local loadStart = os.clock()
     local loadDuration = 2.20
     local loadStages = {
@@ -4582,18 +4955,21 @@ do
         end
         local elapsed = os.clock() - loadStart
         local progress = math.clamp(elapsed / loadDuration, 0, 1)
+
         local bloomPulse = (math.sin(elapsed * math.pi * 2 / 5) + 1) * 0.5
         bloomA.Size = UDim2.fromOffset(184 + math.floor(bloomPulse * 12), 184 + math.floor(bloomPulse * 12))
         bloomA.BackgroundTransparency = 0.95 - bloomPulse * 0.07
         bloomB.BackgroundTransparency = 0.93 - bloomPulse * 0.08
         bloomC.BackgroundTransparency = 0.88 - bloomPulse * 0.10
         bloomD.BackgroundTransparency = 0.74 - bloomPulse * 0.12
+
         local shockPhase1 = (elapsed % 3.6) / 3.6
         local shockPhase2 = ((elapsed + 1.8) % 3.6) / 3.6
         shockScale1.Scale = 0.25 + shockPhase1 * 1.75
         shockScale2.Scale = 0.25 + shockPhase2 * 1.75
         shockStroke1.Transparency = 0.12 + shockPhase1 * 0.88
         shockStroke2.Transparency = 0.20 + shockPhase2 * 0.80
+
         spikeGroup.Rotation = elapsed * 6
         for i, spike in ipairs(spikes) do
             local phase = ((i - 1) / #spikes) * math.pi * 2
@@ -4601,6 +4977,7 @@ do
             spike.BackgroundTransparency = math.clamp(0.82 - flare * 0.60, 0.12, 0.82)
             spike.Size = UDim2.fromOffset(76 + math.floor(flare * 19), 2.2)
         end
+
         diskA.Rotation = -18 + elapsed * (360 / 7.5)
         diskB.Rotation = 162 - elapsed * (360 / 11.5)
         diskC.Rotation = 60 + elapsed * (360 / 17)
@@ -4610,19 +4987,24 @@ do
         for _, dash in ipairs(dashGroups) do
             dash.group.Rotation = elapsed * dash.speed
         end
+
         ringOuter.Rotation = elapsed * 2
         ringDash.Rotation = -elapsed * 12
         ringDash2.Rotation = elapsed * 7.8
         ringOuterStroke.Transparency = 0.05 + (1 - bloomPulse) * 0.35
         ringDashStroke.Transparency = 0.42 + (1 - bloomPulse) * 0.30
         ringDash2Stroke.Transparency = 0.60 + (1 - bloomPulse) * 0.22
+
         tickGroup.Rotation = math.sin(elapsed * math.pi * 2 / 12) * 2
+
         orbitGroupA.Rotation = elapsed * 72
         orbitGroupB.Rotation = -elapsed * (360 / 8.5)
         orbitGroupC.Rotation = elapsed * (360 / 13)
+
         local lensPulse = (math.sin(elapsed * math.pi * 2 / 3) + 1) * 0.5
         lensStroke.Transparency = 0.58 - lensPulse * 0.48
         lensUIScale.Scale = 1 + lensPulse * 0.08
+
         local corePulse = (math.sin(elapsed * math.pi * 2 / 3.2) + 1) * 0.5
         local coreScale = 1 + corePulse * 0.09
         coreScale1.Scale = coreScale
@@ -4631,6 +5013,7 @@ do
         coreGlow1.BackgroundTransparency = 0.54 - corePulse * 0.20
         coreGlow2.BackgroundTransparency = 0.48 - corePulse * 0.18
         eventPoint.BackgroundTransparency = 0.02 + ((math.sin(elapsed * 2 * math.pi / 1.3) + 1) * 0.5) * 0.16
+
         loadStatus.Text = loadStages[1][2]
         for i = #loadStages, 1, -1 do
             if progress >= loadStages[i][1] then
@@ -4640,13 +5023,16 @@ do
         end
         loadFill.Size = UDim2.new(progress, 0, 1, 0)
         loadPercent.Text = string.format("%d%%", math.floor(progress * 100 + 0.5))
+
         if progress >= 1 then
             loadAnimConn:Disconnect()
             loadStatus.Text = "CORE LINK STABLE"
             task.wait(0.10)
             if not State.alive then return end
+
             TweenService:Create(loadScale, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.58}):Play()
             TweenService:Create(loadingLayer, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
+
             task.delay(0.32, function()
                 if not State.alive then return end
                 if loaderRoot and loaderRoot.Parent then
@@ -4655,8 +5041,10 @@ do
                 if loadingLayer and loadingLayer.Parent then
                     loadingLayer:Destroy()
                 end
+
                 holder.Visible = true
                 root.Enabled = true
+
                 local bootScale = make("UIScale", holder, {Scale = 0.94})
                 local bootStroke = panel:FindFirstChildOfClass("UIStroke")
                 TweenService:Create(bootScale, TweenInfo.new(0.48, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Scale = 1}):Play()
@@ -4664,12 +5052,14 @@ do
                     bootStroke.Transparency = 1
                     TweenService:Create(bootStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 0.28}):Play()
                 end
+
                 if loaderRoot and loaderRoot.Parent then
                     loaderRoot:Destroy()
                 end
             end)
         end
     end)
+
     end)
     if not __loaderOK then
         if __loaderLayer and __loaderLayer.Parent then
@@ -4683,17 +5073,10 @@ do
         warn("AutoSkills VOID loader failed safely: " .. tostring(__loaderERR))
     end
 end
-task.delay(4.0, function()
-    if not State.alive or not root or not root.Parent then return end
-    if not root.Enabled then
-        holder.Visible = true
-        root.Enabled = true
-        if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end
-        warn("AutoSkills VOID loader watchdog: main UI forced visible after timeout.")
-    end
-end)
+
 connect(Input.InputBegan, function(input, gameProcessed)
     if not State.alive then return end
+
     if input.KeyCode == Settings.StopKey then
         controller.Stop()
         return
@@ -4715,12 +5098,14 @@ connect(Input.InputBegan, function(input, gameProcessed)
         end
         return
     end
+
     if gameProcessed then return end
     if input.KeyCode == Settings.ToggleKey then
         setEnabled(not State.enabled)
         render()
     end
 end)
+
 connect(GuiService.MenuOpened, function() render() end)
 connect(Input.WindowFocusReleased, function()
     State.focused = false
@@ -4732,17 +5117,21 @@ connect(Player.CharacterRemoving, function()
     if Settings.AutoBoss then
         Farm.autoResumePath = Farm.autoCurrent or Farm.pinned or Farm.autoLastPath
         Farm.autoRespawnResume = Farm.autoResumePath ~= nil
+
         Farm.autoCombatAt = 0
         Farm.autoLastProgressAt = 0
         Farm.autoLastHP = nil
         Farm.autoEngaged = false
         Farm.autoDefeated = false
+
         Farm.stopM1()
         Farm.clearLoot()
         Farm.restoreHitbox()
         Farm.release(false)
+
         Settings.AutoBoss = true
         Settings.FarmEnabled = true
+
         Farm.status = "AUTO BOSS RESPAWN"
         Farm.detail = Farm.autoRespawnResume
             and "Player died. Auto Boss stayed ON; same boss retained."
@@ -4750,6 +5139,7 @@ connect(Player.CharacterRemoving, function()
     else
         stopFarm()
     end
+
     Guard.release()
     Movement.restoreFly()
     Movement.restoreSpeed()
@@ -4757,15 +5147,19 @@ connect(Player.CharacterRemoving, function()
     Movement.character, Movement.humanoid, Movement.rootPart = nil, nil, nil
     releaseOrPause()
 end)
+
 connect(Player.CharacterAdded, function(character)
     if not Settings.AutoBoss then return end
+
     Settings.AutoBoss = true
     Settings.FarmEnabled = true
     Farm.nextScan = 0
+
     task.spawn(function()
         local humanoid = character:WaitForChild("Humanoid", 12)
         local rootPart = character:WaitForChild("HumanoidRootPart", 12)
         if not State.alive or not Settings.AutoBoss or not humanoid or not rootPart then return end
+
         task.wait(0.35)
         Farm.status = "AUTO BOSS RESPAWN"
         Farm.detail = Farm.autoRespawnResume
@@ -4775,6 +5169,7 @@ connect(Player.CharacterAdded, function(character)
         render()
     end)
 end)
+
 local function waitResponsive(duration, isHolding)
     local deadline = os.clock() + duration
     while State.alive do
@@ -4789,17 +5184,21 @@ pcall(function() fitWindow(true) end)
 local skillWorkerAlive = false
 local function runAutoCastCycle(chosen)
     if not chosen or not State.alive then return end
+
     local blocked = type(Farm.inventoryOrBlockingUIOpen) == "function"
         and Farm.inventoryOrBlockingUIOpen(false)
+
     if blocked and type(Farm.inventorySkillPulse) == "function" then
         State.heldKey = nil
         local pressed = Farm.inventorySkillPulse(chosen.key)
+
         if pressed then
             State.lastKey = chosen.name .. " (inventory pulse)"
             pcall(render)
             waitResponsive(math.max(0.03, Settings.KeyGap), false)
             return
         end
+
         State.heldKey = chosen.key
         local fallbackOK, err = pcall(function()
             VirtualInput:SendKeyEvent(true, chosen.key, false, game)
@@ -4815,6 +5214,7 @@ local function runAutoCastCycle(chosen)
         waitResponsive(math.max(0.03, Settings.KeyGap), false)
         return
     end
+
     State.heldKey = chosen.key
     local pressed, err = pcall(function()
         VirtualInput:SendKeyEvent(true, chosen.key, false, game)
@@ -4823,12 +5223,14 @@ local function runAutoCastCycle(chosen)
         inputFault(err)
         return
     end
+
     State.lastKey = chosen.name
     pcall(render)
     waitResponsive(math.max(0.03, Settings.HoldTime), true)
     releaseOrPause()
     waitResponsive(math.max(0.03, Settings.KeyGap), false)
 end
+
 task.spawn(function()
     local nextIndex = 1
     skillWorkerAlive = true
@@ -4838,6 +5240,7 @@ task.spawn(function()
                 task.wait(0.05)
                 return
             end
+
             local chosen
             for _ = 1, #Skills do
                 local candidate = Skills[nextIndex]
@@ -4847,13 +5250,16 @@ task.spawn(function()
                     break
                 end
             end
+
             if chosen then
                 runAutoCastCycle(chosen)
             else
                 task.wait(0.05)
             end
         end)
+
         if not cycleOK then
+
             warn("AutoSkills Auto Cast recovered from: " .. tostring(cycleErr))
             pcall(releaseKey)
             task.wait(0.08)
@@ -4880,6 +5286,7 @@ task.spawn(function()
         task.wait(0.1)
     end
 end)
+
 if type(BUILT_IN_BOSS_SEED_CODE) == "string"
     and BUILT_IN_BOSS_SEED_CODE:sub(1, 7) == "ASLOC1:" then
     local okSeed, seedMessage = Farm.importCode(BUILT_IN_BOSS_SEED_CODE)
@@ -4889,7 +5296,9 @@ if type(BUILT_IN_BOSS_SEED_CODE) == "string"
         warn("AutoSkills built-in boss seed: " .. tostring(seedMessage))
     end
 end
+
 Farm.scan(true)
+
 if Settings.StaticMapScan then
     task.delay(0.8, function()
         if State.alive and Farm.staticMapScan then
@@ -4897,17 +5306,22 @@ if Settings.StaticMapScan then
         end
     end)
 end
+
 if Settings.BossFirstDiscovery then
     Farm.bootDiscovery()
 end
+
 task.delay(1.5, function()
     if State.alive and System and System.writeFriendReady then
         System.writeFriendReady()
         render()
     end
 end)
+
 notify("Void UI ready | boss seeds + static scan + original stable loot active")
+
 ]====]
+
 local __env = (type(getgenv) == "function" and getgenv()) or _G
 __env.__AUTOSKILLS_SOURCE = __AUTOSKILLS_SOURCE
 pcall(function()
@@ -4921,11 +5335,5 @@ if not __fn then
     warn("AutoSkills compile error: " .. tostring(__err))
     return
 end
-local __runOK, __runERR = xpcall(__fn, function(err)
-    local trace = debug and debug.traceback
-    return trace and trace(tostring(err), 2) or tostring(err)
-end)
-if not __runOK then
-    warn("AutoSkills runtime error: " .. tostring(__runERR))
-end
+__fn()
 ]=====])()

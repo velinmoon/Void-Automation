@@ -5231,17 +5231,35 @@ function EMP.layoutResponsive(heroWidth, heroHeight)
 end
 
 function EMP.startVisuals()
-    EMP.layoutResponsive(EMP.hero.AbsoluteSize.X > 0 and EMP.hero.AbsoluteSize.X or windowWidth, 160)
+    -- EMPYREAN animation is isolated from the control/theme restyling system.
+    -- Restyling controls must never be able to remove the celestial effects.
+    if not EMP.hero or not EMP.hero.Parent then return end
     if EMP.connection then EMP.connection:Disconnect(); EMP.connection=nil end
-    EMP.clock=os.clock(); EMP.last=EMP.clock
+    EMP.hero.Visible=true
+    EMP.rayGroup.Visible=true; EMP.wingL.Visible=true; EMP.wingR.Visible=true
+    EMP.haloA.Visible=true; EMP.haloB.Visible=true; EMP.core.Visible=true
+    EMP.dot.Visible=true; EMP.scan.Visible=true; EMP.glow.Visible=true
+    EMP.clock=os.clock(); EMP.last=EMP.clock; EMP.lastWidth=0
+    EMP.layoutResponsive(math.max(300,EMP.hero.AbsoluteSize.X > 0 and EMP.hero.AbsoluteSize.X or windowWidth), math.max(160,EMP.hero.AbsoluteSize.Y > 0 and EMP.hero.AbsoluteSize.Y or 160))
+    EMP.lastWidth=EMP.hero.AbsoluteSize.X
     EMP.connection=connect(RunService.Heartbeat,function()
-        if not State.alive or not EMP.hero.Parent or not EMP.hero.Visible or System.theme~="Empyrean" then return end
-        local now=os.clock(); local dt=math.min(now-EMP.last,.05); EMP.last=now; local t=now-EMP.clock
+        if not State.alive or not EMP.hero.Parent or System.theme~="Empyrean" then return end
+        -- Never let a later restyler hide the celestial composition.
+        EMP.hero.Visible=true
+        EMP.rayGroup.Visible=true; EMP.wingL.Visible=true; EMP.wingR.Visible=true
+        EMP.haloA.Visible=true; EMP.haloB.Visible=true; EMP.core.Visible=true
+        EMP.dot.Visible=true; EMP.scan.Visible=true; EMP.glow.Visible=true
+        local now=os.clock(); EMP.last=now; local t=now-EMP.clock
         local heroWidth=math.max(300,EMP.hero.AbsoluteSize.X)
+        local heroHeight=math.max(160,EMP.hero.AbsoluteSize.Y)
+        -- Re-layout only when the UI actually changes size. This makes the
+        -- HTML-derived celestial composition expand with the Roblox panel.
+        if math.abs(heroWidth-(EMP.lastWidth or 0)) > 0.5 then
+            EMP.lastWidth=heroWidth
+            EMP.layoutResponsive(heroWidth,heroHeight)
+        end
         local sx=heroWidth/300
-        EMP.layoutResponsive(heroWidth, EMP.hero.AbsoluteSize.Y)
-        -- Match the supplied Hero Visual Only HTML timings: core 4.5s, rays 90s,
-        -- ring A 44s, ring B 60s, wings 5s/5.4s, sparkles 3s staggered, scan 7s.
+        -- Match the supplied EMPYREAN hero animation timings.
         local breath=(math.sin(t*math.pi*2/4.5)+1)*.5
         EMP.core.BackgroundTransparency=.84-breath*.18
         EMP.glow.BackgroundTransparency=.92-breath*.10
@@ -5250,11 +5268,39 @@ function EMP.startVisuals()
         EMP.rayGroup.Rotation=t*(360/90)
         EMP.wingL.Rotation=-2 + math.sin(t*math.pi*2/5)*4
         EMP.wingR.Rotation=2 - math.sin(t*math.pi*2/5.4)*4
-        for i,ray in ipairs(EMP.rays) do ray.BackgroundTransparency=.90-((math.sin(t*.9+i*.6)+1)*.5)*.16 end
-        for i,f in ipairs(EMP.wingStrokes) do f.BackgroundTransparency=.28+((i%4)*.07)+((math.sin(t*1.2+i)+1)*.5)*.10 end
-        for _,info in ipairs(EMP.sparkles) do local pulse=(math.sin((t+info.phase)*math.pi*2/3)+1)*.5; local ss=math.max(2,(2+3*pulse)*sx); info.object.BackgroundTransparency=.86-pulse*.68; info.object.Size=UDim2.fromOffset(ss,ss) end
-        local scanH=math.max(42,math.floor(61*sx+.5)); EMP.scan.Size=UDim2.fromOffset(heroWidth,scanH); EMP.scan.Position=UDim2.fromOffset(0,-scanH+((t/7)%1)*(math.max(160,EMP.hero.AbsoluteSize.Y+scanH))); EMP.scan.BackgroundTransparency=.965
+        for i,ray in ipairs(EMP.rays) do
+            ray.BackgroundTransparency=.90-((math.sin(t*.9+i*.6)+1)*.5)*.16
+        end
+        for i,f in ipairs(EMP.wingStrokes) do
+            f.BackgroundTransparency=.28+((i%4)*.07)+((math.sin(t*1.2+i)+1)*.5)*.10
+        end
+        for _,info in ipairs(EMP.sparkles) do
+            local pulse=(math.sin((t+info.phase)*math.pi*2/3)+1)*.5
+            local ss=math.max(2,(2+3*pulse)*sx)
+            info.object.BackgroundTransparency=.86-pulse*.68
+            info.object.Size=UDim2.fromOffset(ss,ss)
+        end
+        local scanH=math.max(42,math.floor(61*sx+.5))
+        EMP.scan.Size=UDim2.fromOffset(heroWidth,scanH)
+        EMP.scan.Position=UDim2.fromOffset(0,-scanH+((t/7)%1)*(math.max(160,heroHeight+scanH)))
+        EMP.scan.BackgroundTransparency=.965
     end)
+end
+
+function EMP.ensureVisuals()
+    -- Called after loader teardown and after resizing. It is intentionally
+    -- independent of Theme.canonicalizeControls().
+    if System.theme~="Empyrean" or not State.alive then return end
+    if not EMP.connection or not EMP.hero.Parent then
+        EMP.startVisuals()
+    else
+        EMP.hero.Visible=true
+        EMP.rayGroup.Visible=true; EMP.wingL.Visible=true; EMP.wingR.Visible=true
+        EMP.haloA.Visible=true; EMP.haloB.Visible=true; EMP.core.Visible=true
+        EMP.dot.Visible=true; EMP.scan.Visible=true; EMP.glow.Visible=true
+        EMP.layoutResponsive(math.max(300,EMP.hero.AbsoluteSize.X),math.max(160,EMP.hero.AbsoluteSize.Y))
+        EMP.lastWidth=EMP.hero.AbsoluteSize.X
+    end
 end
 
 local Theme = {
@@ -6562,6 +6608,10 @@ render = function()
     return ok
 end
 
+if System.theme=="Empyrean" and EMP.ensureVisuals then
+    task.defer(function() if State.alive then EMP.ensureVisuals() end end)
+end
+
 showPage("Skills")
 connect(UI.badge.Activated, function()
     if State.tab == "ESP" then setESPEnabled(not Settings.ESPEnabled)
@@ -6608,6 +6658,12 @@ connect(Input.InputEnded, function(input)
     end
 end)
 connect(canvas:GetPropertyChangedSignal("AbsoluteSize"), function() fitWindow(false) end)
+connect(EMP.hero:GetPropertyChangedSignal("AbsoluteSize"), function()
+    if System.theme=="Empyrean" and EMP.hero.Visible then
+        EMP.layoutResponsive(math.max(300,EMP.hero.AbsoluteSize.X),math.max(160,EMP.hero.AbsoluteSize.Y))
+        EMP.lastWidth=EMP.hero.AbsoluteSize.X
+    end
+end)
 -- Startup is intentionally ordered: persisted theme -> theme application -> loader.
 -- Do not render the Default theme first; doing so can leave stale theme visuals behind.
 fitWindow(true)
@@ -6673,7 +6729,7 @@ do
                 loadFill.Size=UDim2.new(progress,0,1,0); loadPercent.Text=string.format("%d%%",math.floor(progress*100+.5))
                 if progress>=1 then
                     loadAnimConn:Disconnect(); loadStatus.Text="EMPYREAN ONLINE"; task.wait(.10); if not State.alive then return end; TweenService:Create(loadScale,TweenInfo.new(.25,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{Scale=.78}):Play(); TweenService:Create(loadingLayer,TweenInfo.new(.32,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{BackgroundTransparency=1}):Play()
-                    task.delay(.36,function() if not State.alive then return end; if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled=false end; if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end; holder.Visible=true; root.Enabled=true; local bootScale=make("UIScale",holder,{Scale=.94}); local bootStroke=panel:FindFirstChildOfClass("UIStroke"); TweenService:Create(bootScale,TweenInfo.new(.48,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Scale=1}):Play(); if bootStroke then bootStroke.Transparency=1; TweenService:Create(bootStroke,TweenInfo.new(.55,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Transparency=.38}):Play() end; if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end end)
+                    task.delay(.36,function() if not State.alive then return end; if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled=false end; if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end; holder.Visible=true; root.Enabled=true; if System.theme=="Empyrean" and EMP.ensureVisuals then EMP.ensureVisuals() end; local bootScale=make("UIScale",holder,{Scale=.94}); local bootStroke=panel:FindFirstChildOfClass("UIStroke"); TweenService:Create(bootScale,TweenInfo.new(.48,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Scale=1}):Play(); if bootStroke then bootStroke.Transparency=1; TweenService:Create(bootStroke,TweenInfo.new(.55,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Transparency=.38}):Play() end; if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end end)
                 end
             end)
         else

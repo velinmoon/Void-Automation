@@ -5012,8 +5012,46 @@ function EMP.startVisuals()
     EMP.clock=os.clock(); EMP.last=EMP.clock
     EMP.connection=connect(RunService.RenderStepped,function()
         if not State.alive or not EMP.hero.Parent or not EMP.hero.Visible or System.theme~="Empyrean" then return end
-        local now=os.clock(); local dt=math.min(now-EMP.last,.05); EMP.last=now; local t=now-EMP.clock; local heroWidth=math.max(420,EMP.hero.AbsoluteSize.X); local cx=heroWidth*.5
-        EMP.glow.Position=UDim2.fromOffset(cx,78); EMP.rayGroup.Position=UDim2.fromOffset(cx,78); EMP.wingL.Position=UDim2.fromOffset(cx-5,90); EMP.wingR.Position=UDim2.fromOffset(cx+5,90); EMP.haloA.Position=UDim2.fromOffset(cx,78); EMP.haloB.Position=UDim2.fromOffset(cx,78); EMP.core.Position=UDim2.fromOffset(cx,78); EMP.dot.Position=UDim2.fromOffset(cx,78)
+        local now=os.clock(); local dt=math.min(now-EMP.last,.05); EMP.last=now; local t=now-EMP.clock
+        -- Responsive celestial composition: the HTML hero scales as one visual composition.
+        -- The hero surface always fills the Roblox UI width, while the animated rays,
+        -- wings, halos, core and sparkles expand proportionally with that width.
+        local heroWidth=math.max(300,EMP.hero.AbsoluteSize.X); local cx=heroWidth*.5
+        local sx=math.clamp(heroWidth/430,.82,2.35)
+        local sy=math.clamp(sx,.82,2.05)
+        local cy=80
+        local function scaled(v) return math.floor(v*sx+.5) end
+        EMP.glow.Size=UDim2.fromOffset(scaled(150),scaled(150)); EMP.glow.Position=UDim2.fromOffset(cx,cy)
+        EMP.rayGroup.Size=UDim2.fromOffset(heroWidth,math.min(160,scaled(160))); EMP.rayGroup.Position=UDim2.fromOffset(cx,cy)
+        EMP.wingL.Size=UDim2.fromOffset(scaled(150),scaled(90)); EMP.wingR.Size=UDim2.fromOffset(scaled(150),scaled(90))
+        EMP.wingL.Position=UDim2.fromOffset(cx-scaled(5),cy+scaled(10)); EMP.wingR.Position=UDim2.fromOffset(cx+scaled(5),cy+scaled(10))
+        EMP.haloA.Size=UDim2.fromOffset(scaled(172),math.max(2,scaled(40))); EMP.haloA.Position=UDim2.fromOffset(cx,cy)
+        EMP.haloB.Size=UDim2.fromOffset(scaled(104),scaled(104)); EMP.haloB.Position=UDim2.fromOffset(cx,cy)
+        EMP.core.Size=UDim2.fromOffset(scaled(70),scaled(70)); EMP.core.Position=UDim2.fromOffset(cx,cy)
+        EMP.dot.Size=UDim2.fromOffset(math.max(4,scaled(8)),math.max(4,scaled(8))); EMP.dot.Position=UDim2.fromOffset(cx,cy)
+        for i,info in ipairs(EMP.sparkles) do
+            local presets={{.23,42,1.8},{.77,48,1.6},{.18,118,1.5},{.82,116,1.8},{.5,18,1.3}}
+            local preset=presets[i]
+            if preset then
+                info.object.Position=UDim2.fromOffset(heroWidth*preset[1],math.floor(preset[2]*sy+.5))
+                local ss=math.max(1.5,preset[3]*sx)
+                info.object.Size=UDim2.fromOffset(ss*2,ss*2)
+            end
+        end
+        for i,ray in ipairs(EMP.rays) do
+            local rayW=math.max(80,heroWidth*.24)
+            ray.Size=UDim2.fromOffset(math.floor(rayW+.5),math.max(2,math.floor(((i%2==1) and 3 or 2)*sy+.5)))
+            ray.Position=UDim2.fromOffset(cx,cy)
+        end
+        for side,group in ipairs({EMP.wingL,EMP.wingR}) do
+            for i=1,4 do
+                local feather=group:FindFirstChild("Feather"..i)
+                if feather then
+                    feather.Size=UDim2.fromOffset(math.max(18,scaled(78-i*7)),math.max(1,scaled(2)))
+                    feather.Position=UDim2.fromOffset(side==1 and scaled(54+i*3) or scaled(96-i*3),scaled(22+i*12))
+                end
+            end
+        end
         -- Match the supplied Hero Visual Only HTML timings: core 4.5s, rays 90s,
         -- ring A 44s, ring B 60s, wings 5s/5.4s, sparkles 3s staggered, scan 7s.
         local breath=(math.sin(t*math.pi*2/4.5)+1)*.5
@@ -5027,7 +5065,7 @@ function EMP.startVisuals()
         for i,ray in ipairs(EMP.rays) do ray.BackgroundTransparency=.90-((math.sin(t*.9+i*.6)+1)*.5)*.16 end
         for i,f in ipairs(EMP.wingStrokes) do f.BackgroundTransparency=.28+((i%4)*.07)+((math.sin(t*1.2+i)+1)*.5)*.10 end
         for _,info in ipairs(EMP.sparkles) do local pulse=(math.sin((t+info.phase)*math.pi*2/3)+1)*.5; info.object.BackgroundTransparency=.86-pulse*.68; info.object.Size=UDim2.fromOffset(2+3*pulse,2+3*pulse) end
-        EMP.scan.Position=UDim2.fromOffset(0,-61+((t/7)%1)*221); EMP.scan.BackgroundTransparency=.965
+        EMP.scan.Size=UDim2.fromOffset(heroWidth,math.max(42,scaled(61))); EMP.scan.Position=UDim2.fromOffset(0,-math.max(42,scaled(61))+((t/7)%1)*(math.max(160,EMP.hero.AbsoluteSize.Y+math.max(42,scaled(61))))); EMP.scan.BackgroundTransparency=.965
     end)
 end
 

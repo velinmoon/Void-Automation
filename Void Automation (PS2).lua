@@ -4939,6 +4939,7 @@ local function applyWindowWidth(width)
         end
     end
     resizeGrip.Position = UDim2.fromOffset(windowWidth - 28, windowHeight - 28)
+    if Theme and Theme.syncAllThemeVisuals then Theme.syncAllThemeVisuals() end
 end
 
 local function fitWindow(centerIfNeeded)
@@ -5160,6 +5161,199 @@ function Theme.restyleEmpyreanThemePage()
     if ThemeUI.hint then ThemeUI.hint.TextColor3 = faint end
 end
 
+function Theme.syncAllThemeVisuals()
+    -- One authoritative visual pass.  This deliberately runs after Theme.apply,
+    -- resize, and render so an older theme cannot leave child controls behind.
+    local theme = System.theme
+    local bh = theme == "Blackhole"
+    local emp = theme == "Empyrean"
+
+    -- Navigation container + every navigation button.
+    if tabs then
+        if emp then
+            tabs.BackgroundColor3 = Color3.fromRGB(255,250,235)
+            tabs.BackgroundTransparency = 0.42
+        elseif bh then
+            tabs.BackgroundColor3 = C.black
+            tabs.BackgroundTransparency = 0.28
+        else
+            tabs.BackgroundColor3 = C.black
+            tabs.BackgroundTransparency = 0.35
+        end
+        local navStroke = tabs:FindFirstChildOfClass("UIStroke")
+        if navStroke then navStroke.Color = C.line end
+    end
+
+    for key, tab in pairs(navButtons) do
+        local selected = State.tab == key
+        if emp then
+            tab.BackgroundColor3 = selected and Color3.fromRGB(255,224,150) or Color3.fromRGB(255,255,255)
+            tab.BackgroundTransparency = selected and 0.10 or 0.34
+            tab.TextColor3 = selected and Color3.fromRGB(90,63,16) or C.faint
+        elseif bh then
+            tab.BackgroundColor3 = selected and Color3.fromRGB(30,14,48) or C.panel2
+            tab.BackgroundTransparency = 0
+            tab.TextColor3 = selected and C.ink or C.faint
+        else
+            tab.BackgroundColor3 = selected and Color3.fromRGB(30,14,48) or Color3.fromRGB(8,4,16)
+            tab.BackgroundTransparency = 0
+            tab.TextColor3 = selected and C.ink or C.faint
+        end
+        local st = UI.navStrokes[key]
+        if st then st.Color = C.line; st.Transparency = selected and 0.42 or 0.88 end
+        local bar = UI.navBars[key]
+        if bar then
+            bar.Visible = selected
+            bar.BackgroundColor3 = emp and C.violet2 or C.violet2
+        end
+        local icon = tab:FindFirstChild("Icon")
+        if icon then
+            for _, d in ipairs(icon:GetDescendants()) do
+                if d:IsA("UIStroke") then
+                    d.Color = selected and (emp and C.violet2 or C.cyan) or C.faint
+                elseif d:IsA("Frame") then
+                    d.BackgroundColor3 = selected and (emp and C.violet2 or C.cyan) or C.faint
+                end
+            end
+        end
+    end
+
+    -- The content container must never retain EMPYREAN's gradient when leaving it.
+    local contentGradient = content and content:FindFirstChild("EmpyreanSurfaceGradient")
+    if not emp and contentGradient then contentGradient:Destroy() end
+    if content then
+        if emp then
+            content.BackgroundColor3 = C.panel
+            content.BackgroundTransparency = 0
+        else
+            content.BackgroundTransparency = 1
+        end
+    end
+
+    -- Every page is transparent over the current theme's content surface.
+    for _, page in pairs(pageMap) do
+        page.BackgroundTransparency = 1
+        page.ScrollBarImageColor3 = C.violet2
+        page.ScrollBarImageTransparency = emp and 0.55 or 0.35
+    end
+
+    -- All reusable rows/controls are reset from the CURRENT theme, including
+    -- nested children.  This is the part the old palette-only restyler missed.
+    for _, page in pairs(pageMap) do
+        for _, child in ipairs(page:GetChildren()) do
+            local isRow = child.Name:match("^Row_") or child.Name:match("^Slider_") or child.Name == "KeyLoadout"
+            if isRow then
+                child.BackgroundColor3 = C.panel2
+                child.BackgroundTransparency = emp and 0.08 or 0
+                local rowStroke = child:FindFirstChildOfClass("UIStroke")
+                if rowStroke then rowStroke.Color = C.line; rowStroke.Transparency = emp and 0.42 or 0.72 end
+                for _, d in ipairs(child:GetDescendants()) do
+                    if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
+                        if d.Name == "Desc" or d.Name == "Hint" then
+                            d.TextColor3 = C.faint
+                        elseif d.Name == "Value" then
+                            d.TextColor3 = emp and C.violet2 or C.cyan
+                        else
+                            d.TextColor3 = C.ink
+                        end
+                    elseif d:IsA("UIStroke") then
+                        d.Color = C.line
+                    end
+                end
+            end
+        end
+    end
+
+    -- Toggle/slider instances are shared across all tabs.
+    for _, view in ipairs(toggleViews) do
+        local value = view.getter()
+        view.track.BackgroundColor3 = value and C.toggleOn or C.toggleOff
+        view.track.BackgroundTransparency = emp and 0.10 or 0
+        view.knob.BackgroundColor3 = value and (emp and C.bright or C.cyan) or C.faint
+        local st = view.track:FindFirstChildOfClass("UIStroke")
+        if st then st.Color = C.line end
+    end
+    for _, view in ipairs(sliders) do
+        view.fill.BackgroundColor3 = C.violet2
+        view.knob.BackgroundColor3 = emp and C.bright or C.cyan
+        local knobStroke = view.knob:FindFirstChildOfClass("UIStroke")
+        if knobStroke then knobStroke.Color = C.line end
+        local rail = view.hit:FindFirstChild("Rail")
+        if rail then rail.BackgroundColor3 = emp and C.toggleOff or C.line end
+    end
+
+    -- Theme page is explicitly restored for ALL themes.  Previously only the
+    -- EMPYREAN branch touched it, so switching away left cream controls behind.
+    if ThemeUI.themeInfo then
+        ThemeUI.themeInfo.BackgroundColor3 = C.panel2
+        ThemeUI.themeInfo.BackgroundTransparency = emp and 0.06 or 0
+        local st = ThemeUI.themeInfo:FindFirstChildOfClass("UIStroke")
+        if st then st.Color = C.line; st.Transparency = emp and 0.42 or 0.72 end
+    end
+    local themeRows = {
+        {ThemeUI.defaultRow, ThemeUI.defaultButton},
+        {ThemeUI.blackholeRow, ThemeUI.blackholeButton},
+        {ThemeUI.empyreanRow, ThemeUI.empyreanButton},
+    }
+    for _, pair in ipairs(themeRows) do
+        local row, button = pair[1], pair[2]
+        if row then
+            row.BackgroundColor3 = C.panel2
+            row.BackgroundTransparency = emp and 0.02 or 0
+            local st = row:FindFirstChildOfClass("UIStroke")
+            if st then st.Color = C.line; st.Transparency = emp and 0.48 or 0.72 end
+            local icon = row:FindFirstChild("Icon")
+            if icon then
+                icon.BackgroundColor3 = emp and C.bright or C.black
+                icon.BackgroundTransparency = emp and 0.08 or 0.18
+            end
+            local title = row:FindFirstChild("Title")
+            local desc = row:FindFirstChild("Desc")
+            if title then title.TextColor3 = C.ink end
+            if desc then desc.TextColor3 = C.faint end
+        end
+        if button then
+            local active = (row == ThemeUI.empyreanRow and emp) or (row == ThemeUI.blackholeRow and bh) or (row == ThemeUI.defaultRow and not bh and not emp)
+            button.BackgroundColor3 = active and C.violet2 or C.panel2
+            button.BackgroundTransparency = 0
+            button.TextColor3 = active and C.ink or C.faint
+            local st = button:FindFirstChildOfClass("UIStroke")
+            if st then st.Color = C.line; st.Transparency = 0.58 end
+            button.AutoButtonColor = false
+        end
+    end
+    if ThemeUI.activeLabel then
+        ThemeUI.activeLabel.Text = bh and "BLACKHOLE V1" or (emp and "EMPYREAN" or "DEFAULT")
+        ThemeUI.activeLabel.TextColor3 = C.ink
+    end
+    if ThemeUI.hint then ThemeUI.hint.TextColor3 = C.faint end
+
+    -- Header and resize grip are also reset here, so leaving EMPYREAN cannot
+    -- retain its light treatment.
+    if emp then
+        header.BackgroundColor3 = C.panel
+        header.BackgroundTransparency = 0.04
+        headerLine.BackgroundColor3 = C.line
+        brandTitle.TextColor3 = C.text
+    elseif bh then
+        header.BackgroundColor3 = C.panel
+        header.BackgroundTransparency = 0.08
+        headerLine.BackgroundColor3 = C.line
+        brandTitle.TextColor3 = C.ink
+    else
+        header.BackgroundColor3 = C.panel
+        header.BackgroundTransparency = 0.08
+        headerLine.BackgroundColor3 = C.violet
+        brandTitle.TextColor3 = C.ink
+    end
+    if resizeGrip then
+        for i = 1,3 do
+            local line = resizeGrip:FindFirstChild("Line"..i)
+            if line then line.BackgroundColor3 = emp and C.violet2 or C.violet2 end
+        end
+    end
+end
+
 function Theme.stopSpecialVisuals()
     if EMP and EMP.connection then EMP.connection:Disconnect(); EMP.connection=nil end
     if EMP and EMP.hero then EMP.hero.Visible=false end
@@ -5339,7 +5533,7 @@ function Theme.apply(themeName)
     if ThemeUI.blackholeRow then local st=ThemeUI.blackholeRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=bh and C.violet2 or C.line end end
     if ThemeUI.empyreanRow then local st=ThemeUI.empyreanRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=emp and C.violet2 or C.line end end
     if bh then BH.core.BackgroundColor3=Color3.new(0,0,0); BH.coreGlow.BackgroundColor3=Color3.fromRGB(65,35,135); BH.silverStroke.Color=Color3.fromRGB(238,241,251); BH.purpleStroke.Color=Color3.fromRGB(122,63,242) elseif emp then EMP.startVisuals() end
-    applyWindowWidth(windowWidth); fitWindow(false); render()
+    applyWindowWidth(windowWidth); fitWindow(false); Theme.syncAllThemeVisuals(); render()
 end
 
 UI.setTheme = function(themeName)
@@ -5430,7 +5624,7 @@ local function renderPageState()
         view.knob.Position = UDim2.new(fraction, -7, 0.5, -7)
     end
     updateTabVisuals()
-    if System.theme == "Empyrean" then Theme.restyleEmpyreanThemePage() end
+    if Theme.syncAllThemeVisuals then Theme.syncAllThemeVisuals() end
 end
 
 local uiRenderError = nil

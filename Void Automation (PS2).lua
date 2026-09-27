@@ -8423,6 +8423,170 @@ do
     end
 end
 
+-- EMPYREAN CELESTIAL EASTER EGGS --------------------------------------------
+-- Visual-only interactions.  This subsystem deliberately does not touch farm,
+-- analytics, theme persistence, layout sizing, visibility, or movement logic.
+-- It is safe to sleep whenever EMPYREAN is not active.
+do
+    local egg = EMP._easterEggs
+    if not egg then
+        egg = {lastInput=time(), lastBosses=0, lastKills=0, lastTargets=0, lastIdlePulse=0, lastDoubleClick=0}
+        EMP._easterEggs = egg
+
+        -- A dedicated pulse surface keeps the effect completely separate from
+        -- the live celestial renderer, so its animation cannot fight EMP.core.
+        EMP.easterPulse = frame(EMP.hero, "EasterPulse", 0, 0, 70, 70, Color3.fromRGB(255,224,150), 35)
+        EMP.easterPulse.AnchorPoint = Vector2.new(.5,.5)
+        EMP.easterPulse.Position = UDim2.fromScale(.5, .4875)
+        EMP.easterPulse.BackgroundTransparency = 1
+        EMP.easterPulse.ZIndex = 8
+
+        local pulseStroke = stroke(EMP.easterPulse, Color3.fromRGB(255,243,200), 1, 1)
+        EMP.easterPulseStroke = pulseStroke
+
+        -- Invisible click target over the celestial core.  It is deliberately
+        -- small so it cannot interfere with dragging or the rest of the hero.
+        local clicker = make("TextButton", EMP.hero, {
+            Name = "CelestialEasterEgg",
+            Position = UDim2.fromScale(.5, .4875),
+            Size = UDim2.fromOffset(92, 92),
+            AnchorPoint = Vector2.new(.5,.5),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            Text = "",
+            AutoButtonColor = false,
+            ZIndex = 20,
+        })
+        clicker.Active = true
+        EMP.easterClicker = clicker
+
+        local function celestialPulse(strong)
+            if not State.alive or System.theme ~= "Empyrean" or State.minimized or not EMP.hero.Visible then return end
+            local centerY = 78
+            local startSize = strong and 78 or 70
+            local endSize = strong and 150 or 118
+            local startTransparency = strong and .52 or .68
+            EMP.easterPulse.Position = UDim2.fromOffset(windowWidth * .5, centerY)
+            EMP.easterPulse.Size = UDim2.fromOffset(startSize, startSize)
+            EMP.easterPulse.BackgroundTransparency = startTransparency
+            EMP.easterPulseStroke.Transparency = strong and .18 or .34
+
+            local tween = TweenService:Create(EMP.easterPulse,
+                TweenInfo.new(strong and .65 or .48, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                {Size = UDim2.fromOffset(endSize, endSize), BackgroundTransparency = 1})
+            local strokeTween = TweenService:Create(EMP.easterPulseStroke,
+                TweenInfo.new(strong and .65 or .48, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                {Transparency = 1})
+            tween:Play(); strokeTween:Play()
+
+            if strong then
+                -- Briefly brighten the existing rays/wings. Their geometry is
+                -- untouched and the normal EMPYREAN animation continues running.
+                for _, ray in ipairs(EMP.rays or {}) do
+                    if ray and ray.Parent then
+                        local normal = ray.BackgroundTransparency
+                        ray.BackgroundTransparency = .14
+                        TweenService:Create(ray, TweenInfo.new(.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                            {BackgroundTransparency = normal}):Play()
+                    end
+                end
+                for _, feather in ipairs(EMP.wingStrokes or {}) do
+                    if feather and feather.Parent then
+                        local normal = feather.BackgroundTransparency
+                        feather.BackgroundTransparency = .12
+                        TweenService:Create(feather, TweenInfo.new(.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                            {BackgroundTransparency = normal}):Play()
+                    end
+                end
+            end
+        end
+        EMP.celestialPulse = celestialPulse
+
+        connect(clicker.Activated, function()
+            if System.theme ~= "Empyrean" or State.minimized then return end
+            local now = time()
+            local double = now - (egg.lastDoubleClick or 0) <= .38
+            egg.lastDoubleClick = now
+            celestialPulse(double)
+            if double then
+                -- A second click within the short window triggers the stronger
+                -- "Ascended" flash; no gameplay state is changed.
+                task.delay(.08, function()
+                    if State.alive and System.theme == "Empyrean" and not State.minimized then
+                        celestialPulse(true)
+                    end
+                end)
+            end
+        end)
+
+        -- Small gold underline on navigation hover. It does not resize or
+        -- recolor the actual navigation button.
+        EMP.easterHoverLines = {}
+        for key, tab in pairs(navButtons) do
+            if tab then
+                local line = frame(tab, "CelestialHover", 0, math.max(0, tab.Size.Y.Offset - 2), tab.Size.X.Offset, 2, Color3.fromRGB(217,169,78), 1)
+                line.BackgroundTransparency = 1
+                line.ZIndex = (tab.ZIndex or 1) + 1
+                line.Active = false
+                EMP.easterHoverLines[key] = line
+                connect(tab.MouseEnter, function()
+                    if System.theme ~= "Empyrean" then return end
+                    TweenService:Create(line, TweenInfo.new(.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                        {BackgroundTransparency = .18}):Play()
+                end)
+                connect(tab.MouseLeave, function()
+                    TweenService:Create(line, TweenInfo.new(.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                        {BackgroundTransparency = 1}):Play()
+                end)
+            end
+        end
+    end
+
+    -- User activity resets the celestial idle timer. This listener is visual-only.
+    connect(Input.InputBegan, function()
+        if EMP._easterEggs then EMP._easterEggs.lastInput = time() end
+    end)
+
+    -- Detect successful boss kills / milestones from the already-authoritative
+    -- Session Analytics counters. No counter is modified here.
+    connect(RunService.RenderStepped, function()
+        if not State.alive then return end
+        local stats = System and System.stats
+        if not stats then return end
+        local now = time()
+        local e = EMP._easterEggs
+        local bosses = tonumber(stats.bosses) or 0
+        local kills = tonumber(stats.kills) or 0
+        local targets = tonumber(stats.targets) or 0
+
+        if bosses < e.lastBosses then e.lastBosses = bosses end
+        if kills < e.lastKills then e.lastKills = kills end
+        if targets < e.lastTargets then e.lastTargets = targets end
+
+        if System.theme == "Empyrean" and not State.minimized and EMP.hero.Visible then
+            if bosses > e.lastBosses then
+                celestialPulse(true)
+            elseif kills > e.lastKills and kills % 10 == 0 then
+                celestialPulse(false)
+            elseif targets > e.lastTargets and targets % 25 == 0 then
+                celestialPulse(false)
+            end
+
+            -- Every 30 seconds of genuine user inactivity, give the celestial
+            -- core one quiet pulse. This is deliberately subtle and infrequent.
+            if now - (e.lastInput or now) >= 30 and now - (e.lastIdlePulse or 0) >= 30 then
+                e.lastIdlePulse = now
+                celestialPulse(false)
+            end
+        end
+
+        e.lastBosses = bosses
+        e.lastKills = kills
+        e.lastTargets = targets
+    end)
+end
+-- END EMPYREAN CELESTIAL EASTER EGGS ----------------------------------------
+
 connect(Input.InputBegan, function(input, gameProcessed)
     if not State.alive then return end
 

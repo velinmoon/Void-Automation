@@ -5870,6 +5870,7 @@ local function applyWindowWidth(width)
     resizeVoidEffects(windowWidth)
 
     if System.theme ~= "Frost" then
+        if FrostFX.layer then FrostFX.layer.Visible = false end
         local navCount = #navNames
         local availableNav = math.max(240, windowWidth - 24 - navGap * math.max(0, navCount - 1))
         local dynamicNavW = math.floor(availableNav / navCount)
@@ -7534,9 +7535,131 @@ function Theme.forceThemeControls()
     end)
 end
 
+
+-- ============================================================
+-- FROSTBOUND ATMOSPHERE
+-- Dedicated background-only frost particle layer.
+-- It never receives input and never participates in layout.
+-- ============================================================
+local FrostFX = {
+    layer = nil,
+    flakes = {},
+    connection = nil,
+    seeded = false,
+}
+
+function FrostFX.ensure()
+    if System.theme ~= "Frost" then
+        if FrostFX.layer then FrostFX.layer.Visible = false end
+        return
+    end
+
+    if not FrostFX.layer or not FrostFX.layer.Parent then
+        FrostFX.layer = frame(panel, "FrostAtmosphere", 0, 0, math.max(1, windowWidth), math.max(1, windowHeight), Color3.new(1,1,1), 0)
+        FrostFX.layer.BackgroundTransparency = 1
+        FrostFX.layer.BorderSizePixel = 0
+        FrostFX.layer.Active = false
+        FrostFX.layer.Selectable = false
+        FrostFX.layer.ZIndex = 2
+        FrostFX.layer.ClipsDescendants = true
+
+        local veil = frame(FrostFX.layer, "IceVeil", 0, 64, math.max(1, windowWidth), math.max(1, windowHeight - 64), Color3.fromRGB(194,239,248), 0)
+        veil.BackgroundTransparency = 0.985
+        veil.Active = false
+        veil.ZIndex = 2
+
+        for i = 1, 30 do
+            local flake = frame(FrostFX.layer, "Flake" .. i, 0, 0, 12, 12, Color3.new(1,1,1), 0)
+            flake.BackgroundTransparency = 1
+            flake.BorderSizePixel = 0
+            flake.Active = false
+            flake.ZIndex = 3
+
+            local armA = frame(flake, "A", 5, 1, 2, 10, Color3.fromRGB(223,249,255), 1)
+            local armB = frame(flake, "B", 1, 5, 10, 2, Color3.fromRGB(173,224,235), 1)
+            local armC = frame(flake, "C", 2, 2, 8, 2, Color3.fromRGB(240,253,255), 1)
+            armC.Rotation = 45
+
+            FrostFX.flakes[i] = {
+                object = flake,
+                x = 0,
+                y = 0,
+                speed = 8 + ((i * 17) % 19),
+                drift = -7 + ((i * 13) % 15),
+                phase = (i * 0.73) % (math.pi * 2),
+                size = 0.55 + ((i * 7) % 8) / 10,
+                spin = -24 + ((i * 11) % 49),
+            }
+        end
+    end
+
+    FrostFX.layer.Position = UDim2.fromOffset(0, 0)
+    FrostFX.layer.Size = UDim2.fromOffset(math.max(1, windowWidth), math.max(1, windowHeight))
+    FrostFX.layer.Visible = true
+
+    if not FrostFX.seeded then
+        FrostFX.seeded = true
+        for i, f in ipairs(FrostFX.flakes) do
+            local w = math.max(1, windowWidth)
+            local h = math.max(1, windowHeight - 64)
+            f.x = ((i * 83) % math.max(1, w - 20)) + 10
+            f.y = 64 + ((i * 47) % math.max(1, h - 10))
+        end
+    end
+
+    if not FrostFX.connection then
+        FrostFX.connection = connect(RunService.RenderStepped, function()
+            if not State.alive then
+                if FrostFX.connection then
+                    FrostFX.connection:Disconnect()
+                    FrostFX.connection = nil
+                end
+                return
+            end
+
+            if System.theme ~= "Frost" or not FrostFX.layer or not FrostFX.layer.Parent then
+                if FrostFX.layer then FrostFX.layer.Visible = false end
+                return
+            end
+
+            local now = os.clock()
+            local w = math.max(1, windowWidth)
+            local bottom = math.max(70, windowHeight)
+            local span = math.max(1, bottom - 64)
+
+            for i, f in ipairs(FrostFX.flakes) do
+                f.y = f.y + f.speed * 0.016
+                f.x = f.x + math.sin(now * 0.55 + f.phase) * f.drift * 0.016
+
+                if f.y > bottom + 12 then
+                    f.y = 60 - ((i * 17) % 40)
+                    f.x = ((i * 83 + math.floor(now * 4)) % math.max(1, w - 20)) + 10
+                end
+                if f.x < -12 then f.x = w + 8 end
+                if f.x > w + 12 then f.x = -8 end
+
+                local twinkle = (math.sin(now * 1.35 + f.phase) + 1) * 0.5
+                local alpha = 0.28 + twinkle * 0.42
+                local size = f.size * (0.88 + twinkle * 0.18)
+
+                f.object.Position = UDim2.fromOffset(math.floor(f.x), math.floor(f.y))
+                f.object.Size = UDim2.fromOffset(math.max(6, math.floor(12 * size)), math.max(6, math.floor(12 * size)))
+                f.object.Rotation = (now * f.spin + f.phase * 35) % 360
+
+                for _, child in ipairs(f.object:GetChildren()) do
+                    if child:IsA("Frame") then
+                        child.BackgroundTransparency = alpha
+                    end
+                end
+            end
+        end)
+    end
+end
+
 function Theme.applyFrostFinal()
     if System.theme ~= "Frost" then return end
     local P = Theme.Frost
+    FrostFX.ensure()
     local frostLine = Color3.fromRGB(153,211,222)
     local frostBright = Color3.fromRGB(240,253,255)
     local frostMuted = Color3.fromRGB(151,192,202)
@@ -7586,12 +7709,37 @@ function Theme.applyFrostFinal()
     -- Frost owns a dedicated sidebar. Legacy navigation remains hidden.
     FrostNav.removeLegacyDecor()
     FrostNav.ensure()
+    if FrostFX.layer then
+        FrostFX.layer.ZIndex = 2
+        FrostFX.layer.Position = UDim2.fromOffset(0,0)
+        FrostFX.layer.Size = UDim2.fromOffset(windowWidth,windowHeight)
+        FrostFX.layer.Visible = true
+    end
 
     local frostContentWidth = math.max(1, windowWidth - 170)
     content.Position=UDim2.fromOffset(170,64)
     content.Size=UDim2.fromOffset(frostContentWidth,windowHeight-64)
     content.BackgroundColor3=P.deep
-    content.BackgroundTransparency=.04
+    content.BackgroundTransparency=.62
+    local frostGradient = content:FindFirstChild("FrostSurfaceGradient")
+    if not frostGradient then
+        frostGradient = make("UIGradient", content, {
+            Name = "FrostSurfaceGradient",
+            Rotation = 90,
+            Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(30,65,75)),
+                ColorSequenceKeypoint.new(.5, Color3.fromRGB(18,43,51)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(10,29,36)),
+            }),
+            Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, .88),
+                NumberSequenceKeypoint.new(.48, .93),
+                NumberSequenceKeypoint.new(1, .84),
+            }),
+        })
+    end
+    frostGradient.Enabled = true
+    FrostFX.ensure()
 
     for _,page in pairs(pageMap) do
         page.Size=UDim2.fromOffset(frostContentWidth,windowHeight-64)
@@ -7655,6 +7803,156 @@ function Theme.applyFrostFinal()
         if ks then ks.Color=frostLine end
     end
 
+
+    -- Exhaustive Frost control pass.
+    -- The original UI was constructed with Blackhole colors in many nested
+    -- TextButtons/icons. Frost must own those visual properties too, not only
+    -- the outer rows.
+    local frostButton = P.panel2
+    local frostButtonText = frostBright
+    local frostStroke = frostLine
+    local frostIcon = P.accent
+    local frostIconBright = P.cyan
+
+    for _, page in pairs(pageMap) do
+        for _, obj in ipairs(page:GetDescendants()) do
+            if obj:IsA("TextButton") then
+                obj.AutoButtonColor = false
+                obj.BackgroundColor3 = frostButton
+                obj.BackgroundTransparency = .02
+                obj.TextColor3 = frostButtonText
+                obj.TextStrokeTransparency = 1
+                local st = obj:FindFirstChildOfClass("UIStroke")
+                if st then
+                    st.Color = frostStroke
+                    st.Transparency = .48
+                end
+            elseif obj:IsA("TextBox") then
+                obj.BackgroundColor3 = P.surface
+                obj.BackgroundTransparency = .02
+                obj.TextColor3 = frostBright
+                obj.PlaceholderColor3 = frostMuted
+                local st = obj:FindFirstChildOfClass("UIStroke")
+                if st then
+                    st.Color = frostStroke
+                    st.Transparency = .48
+                end
+            elseif obj:IsA("TextLabel") then
+                -- Remove constructor-time purple/blackhole text from every
+                -- visible Frost page label while retaining muted/status text.
+                if obj.Visible then
+                    if obj.Name == "Modules" or obj.Name == "Hint" or obj.Name == "Desc"
+                        or obj.Name == "Sub" or obj.Name == "Status" or obj.Name == "Percent"
+                        or obj.Name == "ScanStatus" or obj.Name == "Count" or obj.Name == "Cycle"
+                        or obj.Name == "Detail" or obj.Name == "Advanced" or obj.Name == "Filter"
+                        or obj.Name == "Dwell" or obj.Name == "Radius" or obj.Name == "Discover"
+                        or obj.Name == "SaveStatus" or obj.Name == "DiscoveryStatus" then
+                        obj.TextColor3 = frostMuted
+                    else
+                        obj.TextColor3 = frostBright
+                    end
+                end
+            elseif obj:IsA("Frame") then
+                -- Every icon in Frost gets the same crystalline language.
+                if obj.Name == "Icon" then
+                    obj.BackgroundColor3 = P.surface
+                    obj.BackgroundTransparency = .16
+                    local st = obj:FindFirstChildOfClass("UIStroke")
+                    if st then
+                        st.Color = frostStroke
+                        st.Transparency = .34
+                    end
+                    for _, d in ipairs(obj:GetDescendants()) do
+                        if d:IsA("Frame") then
+                            d.BackgroundColor3 = frostIconBright
+                            d.BackgroundTransparency = math.min(d.BackgroundTransparency, .08)
+                        elseif d:IsA("UIStroke") then
+                            d.Color = frostIcon
+                            d.Transparency = .22
+                        end
+                    end
+                elseif obj.Name == "Core" or obj.Name == "Pupil" or obj.Name == "Center"
+                    or obj.Name == "Void" then
+                    obj.BackgroundColor3 = frostIconBright
+                end
+            elseif obj:IsA("UIStroke") then
+                -- Purple strokes that survived from the constructor are
+                -- converted unless they belong to the external utility layer.
+                if obj.Parent and obj.Parent:IsDescendantOf(page) then
+                    obj.Color = frostStroke
+                end
+            end
+        end
+    end
+
+    -- Skill loadout gets a distinct frosted-crystal selected state.
+    local loadout = skillsPage and skillsPage:FindFirstChild("KeyLoadout")
+    if loadout then
+        loadout.BackgroundColor3 = P.surface
+        for _, obj in ipairs(loadout:GetDescendants()) do
+            if obj:IsA("TextButton") then
+                obj.BackgroundColor3 = P.panel2
+                obj.BackgroundTransparency = .02
+                obj.TextColor3 = frostBright
+                local st = obj:FindFirstChildOfClass("UIStroke")
+                if st then st.Color = frostLine; st.Transparency = .34 end
+            end
+        end
+    end
+
+    -- Control Center / Core buttons are explicitly Frost, including buttons
+    -- whose constructor color came from Blackhole V1.
+    local corePage = pageMap.Core
+    if corePage then
+        for _, obj in ipairs(corePage:GetDescendants()) do
+            if obj:IsA("TextButton") then
+                obj.BackgroundColor3 = P.panel2
+                obj.TextColor3 = frostBright
+                obj.AutoButtonColor = false
+                local st = obj:FindFirstChildOfClass("UIStroke")
+                if st then st.Color = frostLine; st.Transparency = .42 end
+            end
+        end
+    end
+
+    -- Theme preset icons are intentionally allowed to depict their own theme,
+    -- but the surrounding Frost controls never inherit Blackhole purple.
+    if ThemeUI then
+        for _, row in ipairs({ThemeUI.defaultRow, ThemeUI.blackholeRow, ThemeUI.empyreanRow, ThemeUI.frostRow}) do
+            if row then
+                row.BackgroundColor3 = P.surface
+                row.BackgroundTransparency = .08
+                for _, obj in ipairs(row:GetDescendants()) do
+                    if obj:IsA("TextButton") then
+                        obj.BackgroundColor3 = P.panel2
+                        obj.TextColor3 = frostMuted
+                        obj.AutoButtonColor = false
+                        local st = obj:FindFirstChildOfClass("UIStroke")
+                        if st then st.Color = frostLine; st.Transparency = .42 end
+                    end
+                end
+            end
+        end
+    end
+
+    -- The sidebar symbols and labels are Frost-only; no legacy purple remains.
+    for _, key in ipairs(navNames) do
+        local tab = navButtons[key]
+        if tab then
+            FrostNav.paintTab(tab, State.tab == key, false)
+            local icon = tab:FindFirstChild("Icon")
+            if icon then
+                for _, d in ipairs(icon:GetDescendants()) do
+                    if d:IsA("Frame") then
+                        d.BackgroundColor3 = (State.tab == key) and frostIconBright or frostMuted
+                    elseif d:IsA("UIStroke") then
+                        d.Color = frostIcon
+                    end
+                end
+            end
+        end
+    end
+
     if UI.staticScanButton then UI.staticScanButton.BackgroundColor3=P.panel2; UI.staticScanButton.TextColor3=frostBright end
     if UI.privateMapBox then UI.privateMapBox.BackgroundColor3=P.panel2; UI.privateMapBox.TextColor3=frostBright end
     if resizeGrip then
@@ -7699,7 +7997,13 @@ end
 function Theme.apply(themeName)
     if themeName~="Blackhole" and themeName~="Empyrean" and themeName~="Frost" then themeName="Default" end
     Theme.stopSpecialVisuals(); System.theme=themeName
-    if themeName=="Frost" then FrostNav.ensure() else FrostNav.restore() end
+    if themeName=="Frost" then
+        FrostNav.ensure()
+        FrostFX.ensure()
+    else
+        FrostNav.restore()
+        if FrostFX.layer then FrostFX.layer.Visible=false end
+    end
     local bh=themeName=="Blackhole"; local emp=themeName=="Empyrean"; local frost=themeName=="Frost"
     Theme.current=bh and Theme.Blackhole or(emp and Theme.Empyrean or(frost and Theme.Frost or Theme.Default)); Theme.copy(Theme.current)
     if bh then

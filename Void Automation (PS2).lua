@@ -3518,20 +3518,9 @@ do
             CoreUI.safetyLabel.TextColor3=(System.safetyStatus=="SAFE" and C.green or C.amber)
         end
 
-        if CoreUI.miniStats then
-            CoreUI.miniStats.Text = string.format("%02d:%02d:%02d  •  %d Kills  •  %d Bosses", h,m,ss,System.stats.kills,System.stats.bosses)
-        end
-        if CoreUI.miniTarget then
-            local targetName = tostring((target and target.name) or System.stats.lastTarget or "No target")
-            CoreUI.miniTarget.Text = targetName
-        end
-        if CoreUI.miniStatus then
-            CoreUI.miniStatus.Text = tostring((Farm and Farm.status) or "IDLE")
-            CoreUI.miniStatus.TextColor3 = (Settings.AutoBoss or Settings.FarmEnabled or State.farming) and C.green or C.faint
-        end
-        if CoreUI.miniDot then
-            CoreUI.miniDot.BackgroundColor3 = (Settings.AutoBoss or Settings.FarmEnabled or State.farming) and C.green or C.faint
-        end
+        -- Mini Mode has a dedicated updater so it cannot become stale when
+        -- the main Control Center is hidden or not rendered.
+        pcall(function() MiniMode.updateLive() end)
     end
 
     local function statsRecordIsBoss(record)
@@ -6193,6 +6182,51 @@ CoreUI.miniStatus = miniStatus
 CoreUI.miniFrame = miniFrame
 CoreUI.miniDot = miniDot
 
+-- Mini Mode has its own live updater.  It must not depend on the main
+-- analytics page being rendered or visible; otherwise the compact dashboard
+-- can remain at its boot-time zeros while the real session counters change.
+function MiniMode.updateLive()
+    if not State.alive or not CoreUI.miniFrame or not CoreUI.miniFrame.Parent then return end
+    local stats = System and System.stats
+    if type(stats) ~= "table" then return end
+
+    local now = time()
+    local started = tonumber(stats.startedAt) or now
+    local runtime = math.max(0, now - started)
+    local sec = math.floor(runtime)
+    local h = math.floor(sec / 3600)
+    local m = math.floor((sec % 3600) / 60)
+    local ss = sec % 60
+
+    -- Prefer the currently engaged target, then the last confirmed target.
+    local target = Farm and Farm.selected or nil
+    local targetName = target and target.name
+    if not targetName or targetName == "" then
+        targetName = stats.lastTarget
+    end
+    if not targetName or targetName == "" or targetName == "--" then
+        targetName = "No target"
+    end
+
+    local farming = State.farming == true
+    local active = Settings.AutoBoss == true or Settings.FarmEnabled == true or farming
+    local status = Farm and Farm.status
+    if not status or status == "" then
+        status = active and "ACTIVE" or "IDLE"
+    end
+
+    CoreUI.miniStats.Text = string.format(
+        "%02d:%02d:%02d  •  %d Kills  •  %d Bosses",
+        h, m, ss,
+        tonumber(stats.kills) or 0,
+        tonumber(stats.bosses) or 0
+    )
+    CoreUI.miniTarget.Text = tostring(targetName)
+    CoreUI.miniStatus.Text = tostring(status)
+    CoreUI.miniStatus.TextColor3 = active and C.green or C.faint
+    CoreUI.miniDot.BackgroundColor3 = active and C.green or C.faint
+end
+
 local miniDragging = nil
 connect(miniFrame.InputBegan, function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -6239,7 +6273,7 @@ function MiniMode.show()
     miniFrame.Visible = true
     root.Enabled = true
     MiniMode.applyTheme()
-    System.refreshStatsUI()
+    MiniMode.updateLive()
 end
 
 function MiniMode.hide()
@@ -6260,6 +6294,18 @@ end
 connect(miniExpand.Activated, function() MiniMode.hide() end)
 connect(miniClose.Activated, function() MiniMode.hide() end)
 MiniMode.applyTheme()
+
+-- Keep Mini Mode live even if the main Control Center page is not being
+-- rendered.  This intentionally reads the same authoritative System.stats
+-- object used by Session Analytics instead of maintaining a second counter.
+task.spawn(function()
+    while State.alive do
+        task.wait(0.10)
+        if State.miniMode then
+            pcall(function() MiniMode.updateLive() end)
+        end
+    end
+end)
 
 function Theme.copy(source)
     for key, value in pairs(source) do C[key] = value end

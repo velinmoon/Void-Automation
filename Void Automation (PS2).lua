@@ -445,7 +445,7 @@ do
 
         character:PivotTo(character:GetPivot() + Vector3.new(0, 70, 0))
         if System and type(System.recordTeleport) == "function" then
-            pcall(function() System.recordTeleport("Health Escape", 70) end)
+            pcall(function() System.recordTeleport("Health Escape", 70, true) end)
         end
         pauseFarmForEscape()
         if Settings.HealthLock then
@@ -3155,7 +3155,7 @@ System = {
     commandOpen = false,
     safetyStatus = "SAFE",
     safetyDetail = "Recovery monitor armed.",
-    stats = {runtime=0, kills=0, targets=0, loots=0, teleports=0, bosses=0, lastTarget="--", startedAt=os.clock()},
+    stats = {runtime=0, kills=0, targets=0, loots=0, teleports=0, bosses=0, lastTarget="--", startedAt=time()},
     statsLastCycles = 0,
     statsLastTarget = nil,
     statsKillSeen = setmetatable({}, {__mode="k"}),
@@ -3535,16 +3535,52 @@ do
         return true
     end
 
-    function System.recordTeleport(reason, distance)
+    -- Teleport analytics use a two-stage model.  Farm code calls recordTeleport
+    -- immediately before/after a PivotTo, so the call itself is only a hint.
+    -- The realtime movement observer below confirms the actual displacement.
+    System.statsTeleportPending = nil
+    System.statsLastTeleportAt = 0
+    System.statsLastTeleportPosition = nil
+
+    function System.recordTeleport(reason, distance, alreadyMoved)
+        distance = tonumber(distance) or 0
+        if distance < 5 then return false end
+
+        -- Some paths (Health Escape) call this after PivotTo has already happened.
+        -- Those are explicitly confirmed by the caller and can be counted now.
+        if alreadyMoved == true then
+            System.stats.teleports = System.stats.teleports + 1
+            System.statsLastTeleportAt = time()
+            System.statsTeleportPending = nil
+            System.refreshStatsUI()
+            return true
+        end
+
+        -- Otherwise remember the expected movement and let the observer confirm
+        -- that the character actually changed position.
+        local char = Player and Player.Character
+        local root = char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart)
+        System.statsTeleportPending = {
+            reason = tostring(reason or "Automation"),
+            distance = distance,
+            at = time(),
+            origin = root and root.Position or nil,
+        }
+        return true
+    end
+
+    function System.confirmTeleport(reason, distance)
         distance = tonumber(distance) or 0
         if distance < 5 then return false end
         System.stats.teleports = System.stats.teleports + 1
+        System.statsLastTeleportAt = time()
+        System.statsTeleportPending = nil
         System.refreshStatsUI()
         return true
     end
 
     function System.resetStats()
-        System.stats={runtime=0,kills=0,targets=0,loots=0,teleports=0,bosses=0,lastTarget="--",startedAt=os.clock()}
+        System.stats={runtime=0,kills=0,targets=0,loots=0,teleports=0,bosses=0,lastTarget="--",startedAt=time()}
         System.statsLastCycles=0
         System.statsLastTarget=nil
         System.statsLastObservedTarget=nil
@@ -3553,6 +3589,9 @@ do
         System.statsLootSeen=setmetatable({}, {__mode="k"})
         System.statsHealthSeen=setmetatable({}, {__mode="k"})
         System.statsBossTargetSeen=setmetatable({}, {__mode="k"})
+        System.statsTeleportPending=nil
+        System.statsLastTeleportAt=0
+        System.statsLastTeleportPosition=nil
         System.refreshStatsUI()
         System.notify("Session statistics reset")
         render()
@@ -3604,26 +3643,26 @@ do
     task.spawn(function()
         local previousFarming = false
         local previousHumanoid = nil
-        local lastRenderAt = 0
+        local lastRenderAt = time()
+        local lastPosition = nil
+        local lastPositionAt = time()
         while State.alive do
-            task.wait(0.08)
+            task.wait(0.05)
             if not State.alive then break end
 
+            local now = time()
             local farming = State.farming == true
             local selected = Farm and Farm.selected or nil
             local humanoid = selected and selected.humanoid or nil
 
             if farming and humanoid and humanoid.Parent then
-                -- New target or a fresh farming engagement.
                 if humanoid ~= previousHumanoid or not previousFarming then
                     pcall(function() System.recordTarget(selected) end)
                     previousHumanoid = humanoid
                 end
 
                 local hp = tonumber(humanoid.Health) or 0
-                local previousHP = System.statsHealthSeen[humanoid]
                 System.statsHealthSeen[humanoid] = hp
-
                 if hp <= 0 and not System.statsKillSeen[humanoid] then
                     pcall(function() System.recordKill(selected) end)
                 end
@@ -3631,13 +3670,50 @@ do
                 previousHumanoid = nil
             end
 
+            -- Confirm actual automation teleports from real root-part displacement.
+            -- This catches PivotTo paths that do not go through recordTeleport and
+            -- prevents counting the repeated PivotTo calls while holding position.
+            local char = Player and Player.Character
+            local root = char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart)
+            if root and root:IsA("BasePart") then
+                local pos = root.Position
+                if lastPosition then
+                    local delta = (pos - lastPosition).Magnitude
+                    local dt = math.max(0.001, now - lastPositionAt)
+                    local pending = System.statsTeleportPending
+                    local automationMovement = Settings.AutoBoss == true or Settings.FarmEnabled == true or State.farming == true or State.discovering == true
+
+                    -- A displacement of 15+ studs in a single observer interval is
+                    -- treated as an automation teleport only when automation is active.
+                    -- Normal walking cannot realistically satisfy this threshold.
+                    if automationMovement then
+                        -- Pending automation movement can be small (for example a
+                        -- saved boss point that is only a few studs away), while an
+                        -- unhinted jump must be large enough to distinguish it from
+                        -- normal movement.
+                        if pending and now - pending.at <= 1.5 and delta >= 5 then
+                            System.confirmTeleport(pending.reason, math.max(delta, pending.distance or 0))
+                        elseif (not pending or now - pending.at > 1.5)
+                            and delta >= 15 and now - (System.statsLastTeleportAt or 0) > 0.75 then
+                            System.confirmTeleport("Detected automation teleport", delta)
+                        end
+                    end
+                    if pending and now - pending.at > 1.5 then
+                        -- The hint expired without actual movement; never count it.
+                        System.statsTeleportPending = nil
+                    end
+                end
+                lastPosition = pos
+                lastPositionAt = now
+            else
+                lastPosition = nil
+            end
+
             previousFarming = farming
 
-            -- Keep the display responsive without making the event counters
-            -- depend on render() being called elsewhere.
-            if os.clock() - lastRenderAt >= 0.20 then
+            if now - lastRenderAt >= 0.20 then
                 System.refreshStatsUI()
-                lastRenderAt = os.clock()
+                lastRenderAt = now
             end
         end
     end)
@@ -3651,7 +3727,7 @@ do
             -- Runtime is always maintained; StatsEnabled should only control
             -- whether optional statistics collection is desired, not whether the
             -- visible session clock freezes.
-            System.stats.runtime=os.clock()-System.stats.startedAt
+            System.stats.runtime=math.max(0,time()-(System.stats.startedAt or time()))
             if Settings.SafetyEnabled and Settings.SafetyAutoRecover and State.enabled then
                 local char=Player.Character; local hrp=char and char:FindFirstChild("HumanoidRootPart")
                 if hrp then

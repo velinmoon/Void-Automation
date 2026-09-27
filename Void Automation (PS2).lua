@@ -443,6 +443,9 @@ do
         Guard.latched, Guard.lastTeleport = true, os.clock()
 
         character:PivotTo(character:GetPivot() + Vector3.new(0, 70, 0))
+        if System and type(System.recordTeleport) == "function" then
+            pcall(function() System.recordTeleport("Health Escape") end)
+        end
         pauseFarmForEscape()
         if Settings.HealthLock then
             Guard.held = {root = rootPart, anchored = rootPart.Anchored, pivot = character:GetPivot()}
@@ -1509,8 +1512,20 @@ do
         if watched == record.humanoid then return end
         if deathConnection then deathConnection:Disconnect() end
         watched = record.humanoid
+
+        -- Session Analytics: a target is counted when a new humanoid is actually
+        -- engaged, not when the route merely selects/visits a saved location.
+        if System and type(System.recordTarget) == "function" then
+            pcall(function() System.recordTarget(record) end)
+        end
+
         deathConnection = watched.HealthChanged:Connect(function(hp)
             if hp <= 0 then
+                -- Count each humanoid exactly once. HealthChanged can fire more
+                -- than once at 0 and must never inflate kill/boss statistics.
+                if System and type(System.recordKill) == "function" then
+                    pcall(function() System.recordKill(record) end)
+                end
                 if Settings.AutoBoss then Farm.autoDefeated = true end
                 if lastTargetPosition then beginLoot(lastTargetPosition) end
             end
@@ -1692,7 +1707,11 @@ do
                 rootPart.AssemblyLinearVelocity = Vector3.new(0,-8,0)
             end
         end)
-        if not ok and loot then endPrompt(); loot.message = "Pickup failed: " .. tostring(err) end
+        if not ok and loot then
+            endPrompt(); loot.message = "Pickup failed: " .. tostring(err)
+        elseif ok and System and type(System.recordLoot) == "function" then
+            pcall(function() System.recordLoot(item) end)
+        end
         return true
     end
     local function resetAutoBossRoute(clearLast)
@@ -1990,6 +2009,9 @@ do
         if returnToStart and origin and farmCharacter and farmCharacter.Parent
             and farmCharacter == Player.Character then
             local ok, err = pcall(function() farmCharacter:PivotTo(origin) end)
+            if ok and System and type(System.recordTeleport) == "function" then
+                pcall(function() System.recordTeleport("Farm Return") end)
+            end
             if not ok then warn("AutoSkills: could not return from farming: " .. tostring(err)) end
         end
         for part, original in pairs(collisionState) do
@@ -2159,6 +2181,11 @@ do
                         Farm.autoArrivedAt = os.clock()
                         Farm.autoCombatAt, Farm.autoLastProgressAt, Farm.autoLastHP = 0, 0, nil
                         Farm.autoEngaged = false
+                    end
+                    -- One count per actual route teleport. Do not count the
+                    -- repeated PivotTo calls that follow while holding position.
+                    if System and type(System.recordTeleport) == "function" then
+                        pcall(function() System.recordTeleport(entry.name) end)
                     end
                 end
                 character:PivotTo(character:GetPivot() + (Farm.travelDestination - rootPart.Position))
@@ -2766,6 +2793,9 @@ do
             local point=table.remove(run.queue,best)
             run.destination=point.position+Vector3.new(0,12,0)
             run.nextStep=os.clock()+Settings.BossDwell
+            if System and type(System.recordTeleport) == "function" then
+                pcall(function() System.recordTeleport("Discovery: " .. tostring(point.label)) end)
+            end
             Farm.discoveryStatus=string.format("%d visited / %d queued | %s",run.completed,#run.queue+1,point.label)
 
             if not run.requestBusy then
@@ -3070,6 +3100,9 @@ System = {
     stats = {runtime=0, kills=0, targets=0, loots=0, teleports=0, bosses=0, lastTarget="--", startedAt=os.clock()},
     statsLastCycles = 0,
     statsLastTarget = nil,
+    statsKillSeen = setmetatable({}, {__mode="k"}),
+    statsTargetSeen = setmetatable({}, {__mode="k"}),
+    statsLootSeen = setmetatable({}, {__mode="k"}),
     locationsFilter = "",
     keybinds = {
         ToggleAutomation = Enum.KeyCode.F6, StopAutomation = Enum.KeyCode.F7, ToggleUI = Enum.KeyCode.RightShift,
@@ -3358,7 +3391,58 @@ do
         metadata.name=name; System.themeRegistry[name]=metadata; return true
     end
     function System.getThemes() local out={}; for name,data in pairs(System.themeRegistry) do out[#out+1]={name=name,metadata=data} end; table.sort(out,function(a,b) return a.name<b.name end); return out end
-    function System.resetStats() System.stats={runtime=0,kills=0,targets=0,loots=0,teleports=0,bosses=0,lastTarget="--",startedAt=os.clock()}; System.statsLastCycles=0; System.notify("Session statistics reset"); render() end
+    -- Session Analytics event API. These counters are driven by real farm
+    -- lifecycle events instead of polling route-cycle numbers, so skipped
+    -- targets, repeated health events, and saved-location loops cannot inflate
+    -- the statistics.
+    function System.recordTarget(record)
+        if not record or not record.humanoid then return end
+        local humanoid = record.humanoid
+        if System.statsTargetSeen[humanoid] then return end
+        System.statsTargetSeen[humanoid] = true
+        System.stats.targets = System.stats.targets + 1
+        System.stats.lastTarget = tostring(record.name or "Unknown target")
+    end
+
+    function System.recordKill(record)
+        if not record or not record.humanoid then return end
+        local humanoid = record.humanoid
+        if System.statsKillSeen[humanoid] then return end
+        System.statsKillSeen[humanoid] = true
+        System.stats.kills = System.stats.kills + 1
+        System.stats.lastTarget = tostring(record.name or System.stats.lastTarget or "--")
+
+        local isBoss = Settings.AutoBoss == true
+        if not isBoss and record.path and Farm and Farm.catalog then
+            isBoss = Farm.catalog[record.path] ~= nil
+        end
+        if isBoss then
+            System.stats.bosses = System.stats.bosses + 1
+        end
+    end
+
+    function System.recordLoot(item)
+        if not item then return end
+        local key = item.entity or item.object
+        if key and System.statsLootSeen[key] then return end
+        if key then System.statsLootSeen[key] = true end
+        System.stats.loots = System.stats.loots + 1
+    end
+
+    function System.recordTeleport(reason)
+        System.stats.teleports = System.stats.teleports + 1
+    end
+
+    function System.resetStats()
+        System.stats={runtime=0,kills=0,targets=0,loots=0,teleports=0,bosses=0,lastTarget="--",startedAt=os.clock()}
+        System.statsLastCycles=0
+        System.statsLastTarget=nil
+        System.statsKillSeen=setmetatable({}, {__mode="k"})
+        System.statsTargetSeen=setmetatable({}, {__mode="k"})
+        System.statsLootSeen=setmetatable({}, {__mode="k"})
+        System.notify("Session statistics reset")
+        render()
+    end
     function System.emergencyStop()
         pcall(setEnabled,false); pcall(Farm.setEnabled,false); pcall(Farm.setAutoBoss,false); pcall(stopMovement); pcall(stopHealthGuard); System.safetyStatus="EMERGENCY STOP"; System.safetyDetail="All automation modules were stopped."; System.notify("EMERGENCY STOP"); render()
     end
@@ -3405,14 +3489,9 @@ do
             task.wait(1)
             if not State.alive then break end
             if Settings.StatsEnabled then
+                -- Runtime is the actual lifetime of this script session. The
+                -- event counters themselves are updated at their source events.
                 System.stats.runtime=os.clock()-System.stats.startedAt
-                local cycles=tonumber(Farm.autoCycles or 0) or 0
-                if cycles>lastCycles then System.stats.kills=System.stats.kills+(cycles-lastCycles); System.stats.targets=System.stats.targets+(cycles-lastCycles); lastCycles=cycles end
-                if Farm.autoCurrent and Farm.autoCurrent.name then
-                    if System.statsLastTarget~=Farm.autoCurrent.path then System.stats.targets=System.stats.targets+1; System.statsLastTarget=Farm.autoCurrent.path end
-                    System.stats.lastTarget=Farm.autoCurrent.name
-                    if Settings.AutoBoss then System.stats.bosses=math.max(System.stats.bosses, Farm.autoCycles or 0) end
-                end
             end
             if Settings.SafetyEnabled and Settings.SafetyAutoRecover and State.enabled then
                 local char=Player.Character; local hrp=char and char:FindFirstChild("HumanoidRootPart")
@@ -3421,7 +3500,9 @@ do
                     if lastPos and (pos-lastPos).Magnitude>3 then lastMove=os.clock() end
                     lastPos=pos
                     if os.clock()-lastMove>=Settings.SafetyStuckTimeout then
-                        System.safetyStatus="RECOVERY"; System.safetyDetail="Movement appears stuck; attempting safe pause."; System.stats.teleports=System.stats.teleports+1
+                        System.safetyStatus="RECOVERY"; System.safetyDetail="Movement appears stuck; attempting safe pause."
+                        -- A stuck detection is not itself a teleport. Only actual
+                        -- PivotTo reposition events increment Teleports.
                         if Settings.SafetyPauseOnUnexpected then pcall(setEnabled,false) end
                         lastMove=os.clock(); System.notify("Safety recovery triggered")
                     else System.safetyStatus="SAFE"; System.safetyDetail="Recovery monitor armed." end
@@ -5563,19 +5644,22 @@ function EMP.startVisuals()
     EMP.last=EMP.clock
     EMP.lastWidth=0
 
+    -- IMPORTANT: use the logical window size, not AbsoluteSize. AbsoluteSize is
+    -- multiplied by the holder UIScale. During hide/show that UIScale moves from
+    -- 1 -> .90 -> 1 and the old renderer treated those animation frames as real
+    -- layout changes. That could leave the celestial composition offset after
+    -- reopening the menu.
     local okLayout = pcall(function()
-        EMP.layoutResponsive(
-            math.max(300, EMP.hero.AbsoluteSize.X > 0 and EMP.hero.AbsoluteSize.X or windowWidth),
-            math.max(160, EMP.hero.AbsoluteSize.Y > 0 and EMP.hero.AbsoluteSize.Y or 160)
-        )
+        EMP.layoutResponsive(windowWidth, 160)
     end)
     if not okLayout then
-        pcall(function() EMP.layoutResponsive(windowWidth,160) end)
+        pcall(function() EMP.layoutResponsive(math.max(W, windowWidth), 160) end)
     end
-    EMP.lastWidth=EMP.hero.AbsoluteSize.X
+    EMP.lastWidth=windowWidth
+    EMP.lastHeight=160
 
     local function animateCelestial()
-        if not State.alive or System.theme ~= "Empyrean" or not EMP.hero.Parent then return end
+        if not State.alive or System.theme ~= "Empyrean" or State.minimized or not EMP.hero.Parent then return end
         local ok, err = pcall(function()
             -- Never let another visual pass hide the celestial composition.
             EMP.hero.Visible=true
@@ -5588,8 +5672,11 @@ function EMP.startVisuals()
             local now=os.clock()
             EMP.last=now
             local t=now-EMP.clock
-            local heroWidth=math.max(300,EMP.hero.AbsoluteSize.X)
-            local heroHeight=math.max(160,EMP.hero.AbsoluteSize.Y)
+            -- The renderer follows the logical UI dimensions. Do not use
+            -- AbsoluteSize here because the menu hide/show animation uses a
+            -- UIScale on holder, which intentionally changes AbsoluteSize.
+            local heroWidth=math.max(MIN_WINDOW_WIDTH, windowWidth)
+            local heroHeight=160
 
             if math.abs(heroWidth-(EMP.lastWidth or 0)) > 0.5 or math.abs(heroHeight-(EMP.lastHeight or 0)) > 0.5 then
                 EMP.lastWidth=heroWidth
@@ -5661,10 +5748,12 @@ function EMP.ensureVisuals()
     EMP.rayGroup.Visible=true; EMP.wingL.Visible=true; EMP.wingR.Visible=true
     EMP.haloA.Visible=true; EMP.haloB.Visible=true; EMP.core.Visible=true
     EMP.dot.Visible=true; EMP.scan.Visible=true; EMP.glow.Visible=true
+    -- Rebind from the logical window dimensions. AbsoluteSize is intentionally
+    -- ignored because it includes holder UIScale during menu transitions.
     pcall(function()
-        EMP.layoutResponsive(math.max(300,EMP.hero.AbsoluteSize.X),math.max(160,EMP.hero.AbsoluteSize.Y))
-        EMP.lastWidth=EMP.hero.AbsoluteSize.X
-        EMP.lastHeight=EMP.hero.AbsoluteSize.Y
+        EMP.layoutResponsive(math.max(MIN_WINDOW_WIDTH, windowWidth), 160)
+        EMP.lastWidth=windowWidth
+        EMP.lastHeight=160
     end)
 end
 
@@ -5675,7 +5764,7 @@ end
 -- It does not animate anything itself; it only guarantees that the active
 -- EMPYREAN renderer exists whenever EMPYREAN is selected.
 EMP.watchdog = EMP.watchdog or RunService.RenderStepped:Connect(function()
-    if not State.alive or System.theme ~= "Empyrean" or not EMP.hero or not EMP.hero.Parent then return end
+    if not State.alive or System.theme ~= "Empyrean" or State.minimized or not EMP.hero or not EMP.hero.Parent then return end
     local connected=false
     if EMP.connection then
         local ok, value=pcall(function() return EMP.connection.Connected end)
@@ -5691,6 +5780,31 @@ if EMP.watchdog then
     if not alreadyTracked then connections[#connections+1]=EMP.watchdog end
 end
 
+-- Visibility recovery for EMPYREAN. Hiding the ScreenGui is intentionally a
+-- presentation operation only; it must never become a theme/layout operation.
+-- On reopen we wait for the UIScale tween to settle, then rebuild the celestial
+-- composition from the authoritative logical window size.
+function EMP.recoverAfterShow()
+    if not State.alive or System.theme ~= "Empyrean" or State.minimized then return end
+    task.spawn(function()
+        for _ = 1, 3 do
+            if not State.alive or System.theme ~= "Empyrean" or State.minimized then return end
+            RunService.RenderStepped:Wait()
+        end
+        if not State.alive or System.theme ~= "Empyrean" or State.minimized then return end
+        pcall(function()
+            -- Ensure the window has its normal scale before measuring/rebinding.
+            local scale = holder:FindFirstChildOfClass("UIScale")
+            if scale then scale.Scale = 1 end
+            fitWindow(false)
+            EMP.hero.Visible = true
+            EMP.layoutResponsive(math.max(MIN_WINDOW_WIDTH, windowWidth), 160)
+            EMP.lastWidth = windowWidth
+            EMP.lastHeight = 160
+            EMP.ensureVisuals()
+        end)
+    end)
+end
 
 local Theme = {
     Default = {
@@ -7111,15 +7225,16 @@ connect(Input.InputEnded, function(input)
     end
 end)
 connect(canvas:GetPropertyChangedSignal("AbsoluteSize"), function() fitWindow(false) end)
+-- Do NOT use EMP.hero.AbsoluteSize as a layout source. The menu's hide/show
+-- animation applies UIScale to holder, which changes AbsoluteSize without
+-- changing the actual logical window dimensions. The old handler therefore
+-- raced the show animation and could leave EMPYREAN artwork offset to one side.
 connect(EMP.hero:GetPropertyChangedSignal("AbsoluteSize"), function()
-    if System.theme=="Empyrean" and EMP.hero.Visible then
-        pcall(function()
-            EMP.layoutResponsive(math.max(300,EMP.hero.AbsoluteSize.X),math.max(160,EMP.hero.AbsoluteSize.Y))
-            EMP.lastWidth=EMP.hero.AbsoluteSize.X
-            EMP.lastHeight=EMP.hero.AbsoluteSize.Y
-        end)
+    if System.theme=="Empyrean" and not State.minimized and EMP.hero.Visible then
         task.defer(function()
-            if State.alive and System.theme=="Empyrean" then EMP.ensureVisuals() end
+            if State.alive and System.theme=="Empyrean" and not State.minimized then
+                pcall(function() EMP.ensureVisuals() end)
+            end
         end)
     end
 end)
@@ -7827,6 +7942,13 @@ connect(Input.InputBegan, function(input, gameProcessed)
                 showScale.Scale = 0.90
                 local tween = TweenService:Create(showScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1})
                 tween:Play()
+
+                -- EMPYREAN needs an explicit post-visibility rebind because its
+                -- hero contains a responsive composition. Other themes are left
+                -- completely untouched.
+                if System.theme == "Empyrean" and EMP.recoverAfterShow then
+                    EMP.recoverAfterShow()
+                end
             end
         end
         return

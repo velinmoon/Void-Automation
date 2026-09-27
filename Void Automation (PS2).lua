@@ -1350,7 +1350,10 @@ do
             return
         end
 
-        local point = Vector2.new(math.floor(viewport.X / 2), math.floor(viewport.Y / 2))
+        local point = Vector2.new(
+            math.floor(viewport.X * (1600 / 1920)),
+            math.floor(viewport.Y * 0.5)
+        )
         local blocked = Farm.inventoryOrBlockingUIOpen(false)
 
         if blocked then

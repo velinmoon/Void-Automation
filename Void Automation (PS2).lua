@@ -3059,9 +3059,19 @@ System = {
     menuStage = "idle",
     theme = "Default",
     startupTheme = "Default",
+    bootstrapTheme = nil,
     _themeFileLoaded = false,
     _sessionThemeLoaded = false,
 }
+
+-- The outer bootstrap resolves the theme BEFORE this body is executed.
+-- Treat that value as the authoritative startup theme for this execution.
+local function getBootstrapTheme()
+    local ok, value = pcall(function()
+        return environment.__AutoSkills_StartupTheme or environment.__AutoSkills_LastTheme
+    end)
+    return ok and value or nil
+end
 
 -- Roblox-session persistence: this survives script destruction/re-execution even
 -- when the executor does not preserve getgenv() or writefile state.
@@ -3107,7 +3117,10 @@ do
         -- is NEVER allowed to select the startup loader/UI.
         System._themeFileLoaded = false
         System._sessionThemeLoaded = false
+        local bootstrap = getBootstrapTheme()
+        System.bootstrapTheme = bootstrap
         local candidates = {
+            bootstrap,
             getSessionTheme(),
             environment.__AutoSkills_StartupTheme,
             environment.__AutoSkills_LastTheme,
@@ -5735,6 +5748,120 @@ function Theme.stopSpecialVisuals()
     if BH and BH.hero then BH.hero.Visible=false end
 end
 
+-- Hard reset pass for the reusable controls.  Several controls are constructed
+-- before the theme is known, so changing only C.* leaves their original colors
+-- behind.  This pass deliberately assigns every visible control from the active
+-- theme on every theme transition/startup.
+function Theme.hardResetControls()
+    local theme = System.theme
+    local bh = theme == "Blackhole"
+    local emp = theme == "Empyrean"
+
+    local darkPanel = bh and Color3.fromRGB(4,4,7) or Color3.fromRGB(20,10,36)
+    local darkPanelAlt = bh and Color3.fromRGB(8,8,12) or Color3.fromRGB(30,14,48)
+    local darkLine = bh and Color3.fromRGB(150,120,230) or Color3.fromRGB(82,55,122)
+    local darkText = bh and Color3.fromRGB(236,234,245) or Color3.fromRGB(233,226,247)
+    local darkMuted = bh and Color3.fromRGB(150,146,170) or Color3.fromRGB(155,143,184)
+    local darkFaint = bh and Color3.fromRGB(85,80,105) or Color3.fromRGB(92,82,122)
+    local darkAccent = bh and Color3.fromRGB(122,63,242) or Color3.fromRGB(168,85,247)
+    local darkBright = bh and Color3.fromRGB(238,241,251) or Color3.fromRGB(143,227,255)
+
+    for _, page in pairs(pageMap) do
+        for _, child in ipairs(page:GetChildren()) do
+            if child.Name:match("^Row_") or child.Name:match("^Slider_") or child.Name == "KeyLoadout" then
+                child.BackgroundColor3 = emp and C.panel2 or darkPanelAlt
+                child.BackgroundTransparency = emp and .08 or 0
+                local st=child:FindFirstChildOfClass("UIStroke")
+                if st then st.Color=emp and C.line or darkLine; st.Transparency=emp and .42 or .72 end
+            end
+        end
+    end
+
+    for _, view in ipairs(toggleViews) do
+        local value=view.getter()
+        view.track.BackgroundColor3 = value and (emp and C.toggleOn or (bh and Color3.fromRGB(70,38,125) or Color3.fromRGB(88,48,124))) or (emp and C.toggleOff or (bh and Color3.fromRGB(24,24,31) or Color3.fromRGB(32,24,43)))
+        view.track.BackgroundTransparency = emp and .10 or 0
+        view.knob.BackgroundColor3 = value and (emp and C.bright or darkBright) or (emp and C.faint or darkFaint)
+        local st=view.track:FindFirstChildOfClass("UIStroke")
+        if st then st.Color=emp and C.line or darkLine end
+    end
+
+    for _, view in ipairs(sliders) do
+        view.fill.BackgroundColor3 = emp and C.violet2 or darkAccent
+        view.knob.BackgroundColor3 = emp and C.bright or darkBright
+        view.valueLabel.TextColor3 = emp and C.violet2 or darkBright
+        local rail=view.hit:FindFirstChild("Rail")
+        if rail then rail.BackgroundColor3 = emp and C.toggleOff or (bh and Color3.fromRGB(24,24,31) or Color3.fromRGB(47,32,65)) end
+        local ks=view.knob:FindFirstChildOfClass("UIStroke")
+        if ks then ks.Color=emp and C.line or darkLine end
+    end
+
+    local loadout=skillsPage and skillsPage:FindFirstChild("KeyLoadout")
+    if loadout then
+        loadout.BackgroundColor3=emp and C.panel2 or darkPanelAlt
+        for _,obj in ipairs(loadout:GetDescendants()) do
+            if obj:IsA("TextButton") then
+                obj.BackgroundColor3=emp and C.panel2 or darkPanel
+                obj.TextColor3=emp and Color3.fromRGB(156,116,32) or darkText
+                local st=obj:FindFirstChildOfClass("UIStroke")
+                if st then st.Color=emp and C.line or darkLine end
+            end
+        end
+    end
+
+    if UI.staticScanButton then
+        UI.staticScanButton.BackgroundColor3=emp and C.panel2 or darkPanelAlt
+        UI.staticScanButton.TextColor3=emp and Color3.fromRGB(58,47,26) or darkBright
+        local st=UI.staticScanButton:FindFirstChildOfClass("UIStroke")
+        if st then st.Color=emp and C.line or darkAccent end
+    end
+
+    if UI.privateMapBox then
+        UI.privateMapBox.BackgroundColor3=emp and C.panel2 or darkPanel
+        UI.privateMapBox.TextColor3=emp and Color3.fromRGB(58,47,26) or darkText
+        local st=UI.privateMapBox:FindFirstChildOfClass("UIStroke")
+        if st then st.Color=emp and C.line or darkLine end
+    end
+
+    if ThemeUI then
+        ThemeUI.themeInfo.BackgroundColor3=emp and C.panel2 or darkPanel
+        ThemeUI.themeInfo.BackgroundTransparency=emp and .06 or 0
+        for _,pair in ipairs({
+            {ThemeUI.defaultRow,ThemeUI.defaultButton},
+            {ThemeUI.blackholeRow,ThemeUI.blackholeButton},
+            {ThemeUI.empyreanRow,ThemeUI.empyreanButton},
+        }) do
+            local row,button=pair[1],pair[2]
+            if row then
+                row.BackgroundColor3=emp and C.panel2 or darkPanel
+                local st=row:FindFirstChildOfClass("UIStroke")
+                if st then st.Color=emp and C.line or darkLine end
+            end
+            if button then
+                local active=(row==ThemeUI.empyreanRow and emp) or (row==ThemeUI.blackholeRow and bh) or (row==ThemeUI.defaultRow and not bh and not emp)
+                button.BackgroundColor3=active and (emp and C.violet2 or darkAccent) or (emp and C.panel2 or darkPanel)
+                button.TextColor3=active and (emp and Color3.fromRGB(58,47,26) or darkText) or (emp and C.faint or darkFaint)
+                local st=button:FindFirstChildOfClass("UIStroke")
+                if st then st.Color=emp and C.line or darkLine end
+            end
+        end
+    end
+
+    -- Page symbols, including the symbols that used to remain purple after a
+    -- theme switch.
+    local iconColor=emp and Color3.fromRGB(156,116,32) or darkAccent
+    local iconMuted=emp and Color3.fromRGB(122,108,74) or darkMuted
+    for _,page in pairs(pageMap) do
+        local head=page:FindFirstChild("PaneHead")
+        local icon=head and head:FindFirstChild("Icon")
+        if icon then
+            for _,d in ipairs(icon:GetDescendants()) do
+                if d:IsA("UIStroke") then d.Color=iconColor elseif d:IsA("Frame") then d.BackgroundColor3=iconColor end
+            end
+        end
+    end
+end
+
 function Theme.apply(themeName)
     if themeName~="Blackhole" and themeName~="Empyrean" then themeName="Default" end
     Theme.stopSpecialVisuals(); System.theme=themeName
@@ -5908,7 +6035,12 @@ function Theme.apply(themeName)
     if ThemeUI.blackholeRow then local st=ThemeUI.blackholeRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=bh and C.violet2 or C.line end end
     if ThemeUI.empyreanRow then local st=ThemeUI.empyreanRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=emp and C.violet2 or C.line end end
     if bh then BH.core.BackgroundColor3=Color3.new(0,0,0); BH.coreGlow.BackgroundColor3=Color3.fromRGB(65,35,135); BH.silverStroke.Color=Color3.fromRGB(238,241,251); BH.purpleStroke.Color=Color3.fromRGB(122,63,242) elseif emp then EMP.startVisuals() end
-    applyWindowWidth(windowWidth); fitWindow(false); Theme.syncAllThemeVisuals(); render()
+    applyWindowWidth(windowWidth)
+    fitWindow(false)
+    Theme.syncAllThemeVisuals()
+    Theme.hardResetControls()
+    render()
+    Theme.hardResetControls()
 end
 
 UI.setTheme = function(themeName)
@@ -6070,9 +6202,17 @@ local __startupTheme = System.startupTheme
 local __themeOK, __themeERR = pcall(function() Theme.apply(__startupTheme) end)
 if not __themeOK then
     warn("[Void Automation] Theme initialization failed for saved theme " .. tostring(__startupTheme) .. ": " .. tostring(__themeERR))
-    System.startupTheme = "Default"
-    System.theme = "Default"
-    pcall(function() Theme.apply("Default") end)
+    -- Never substitute Default for a persisted theme. The loader and UI must
+    -- remain on the same theme even if one cosmetic pass fails.
+    System.startupTheme = __startupTheme
+    System.theme = __startupTheme
+    pcall(function()
+        local selected = __startupTheme
+        Theme.current = selected == "Blackhole" and Theme.Blackhole or (selected == "Empyrean" and Theme.Empyrean or Theme.Default)
+        Theme.copy(Theme.current)
+        Theme.hardResetControls()
+        render()
+    end)
 end
 
 do

@@ -28,6 +28,9 @@ local Settings = {
     FarmM1 = true, FarmAutoLoot = true,
     FarmUseSkills = true, FarmExpandHitbox = false, FarmHitboxSize = 16,
     HealthEscapeEnabled = false, HealthThreshold = 30, HealthSource = "Auto",
+    UICompact = false, UIOpacity = 1, UIScale = 1, NotificationsEnabled = true,
+    SafetyEnabled = true, SafetyStuckTimeout = 8, SafetyAutoRecover = true,
+    SafetyPauseOnUnexpected = true, StatsEnabled = true,
 }
 
 local CustomHealthReader = false
@@ -495,6 +498,8 @@ do
 end
 
 local System
+local CoreUI
+local showPage
 local BUILT_IN_BOSS_SEED_CODE = "__AUTOSKILLS_BOSS_SEED_PLACEHOLDER__"
 local Farm = {catalog = {}, remembered = {}, pinned = nil, records = {}, selected = nil, nextScan = 0, status = "OFF",
     detail = "Select a target, then enable Auto farm.", count = 0, aliveCount = 0,
@@ -3055,6 +3060,28 @@ System = {
     bootstrapTheme = nil,
     _themeFileLoaded = false,
     _sessionThemeLoaded = false,
+    profilePath = "AutoSkills_Profiles_v1.json",
+    profiles = {},
+    activeProfile = "Default",
+    notificationLog = {},
+    commandOpen = false,
+    safetyStatus = "SAFE",
+    safetyDetail = "Recovery monitor armed.",
+    stats = {runtime=0, kills=0, targets=0, loots=0, teleports=0, bosses=0, lastTarget="--", startedAt=os.clock()},
+    statsLastCycles = 0,
+    statsLastTarget = nil,
+    locationsFilter = "",
+    keybinds = {
+        ToggleAutomation = Enum.KeyCode.F6, StopAutomation = Enum.KeyCode.F7, ToggleUI = Enum.KeyCode.RightShift,
+        ToggleESP = Enum.KeyCode.F8, ToggleHealth = Enum.KeyCode.F9, CommandPalette = Enum.KeyCode.K,
+        EmergencyStop = Enum.KeyCode.End,
+    },
+    keybindCapture = nil,
+    themeRegistry = {
+        Default={name="Default", loader="VOID NEXUS", effects=true},
+        Blackhole={name="Blackhole", loader="BLACKHOLE V1", effects=true},
+        Empyrean={name="Empyrean", loader="EMPYREAN", effects=true},
+    },
 }
 
 -- The outer bootstrap resolves the theme BEFORE this body is executed.
@@ -3254,6 +3281,161 @@ do
         System.persistStatus = "Theme persistence failed: writefile/readfile unavailable or rejected the file."
         return false
     end
+
+    -- ========================= CONTROL SERVICES =========================
+    local function profileSnapshot()
+        local snapshot = {schema=2, theme=System.theme, settings={}, skills={}, keybinds={}, ui={width=windowWidth or 420, height=windowHeight or 560, scale=Settings.UIScale, opacity=Settings.UIOpacity}}
+        for k,v in pairs(Settings) do
+            if type(v)=="boolean" or type(v)=="number" or type(v)=="string" then snapshot.settings[k]=v end
+        end
+        for i,skill in ipairs(Skills) do snapshot.skills[i]={name=skill.name, enabled=skill.enabled, key=skill.key.Name} end
+        for k,v in pairs(System.keybinds) do snapshot.keybinds[k]=v.Name end
+        return snapshot
+    end
+    local function applyProfileSnapshot(data)
+        if type(data)~="table" then return false end
+        if type(data.settings)=="table" then
+            for k,v in pairs(data.settings) do
+                if Settings[k]~=nil and (type(v)==type(Settings[k])) then Settings[k]=v end
+            end
+        end
+        if type(data.skills)=="table" then
+            for i,entry in ipairs(data.skills) do
+                if Skills[i] and type(entry)=="table" then
+                    if type(entry.enabled)=="boolean" then Skills[i].enabled=entry.enabled end
+                    if type(entry.key)=="string" and Enum.KeyCode[entry.key] then Skills[i].key=Enum.KeyCode[entry.key] end
+                end
+            end
+        end
+        if type(data.keybinds)=="table" then
+            for k,v in pairs(data.keybinds) do if type(v)=="string" and Enum.KeyCode[v] then System.keybinds[k]=Enum.KeyCode[v] end end
+        end
+        if type(data.ui)=="table" then
+            if type(data.ui.scale)=="number" then Settings.UIScale=math.clamp(data.ui.scale,.75,1.25) end
+            if type(data.ui.opacity)=="number" then Settings.UIOpacity=math.clamp(data.ui.opacity,.35,1) end
+        end
+        return true
+    end
+    function System.saveProfile(name)
+        name=tostring(name or "Default"):gsub("[^%w _%-]",""):sub(1,32); if name=="" then name="Default" end
+        System.profiles[name]=profileSnapshot(); System.activeProfile=name
+        if System.writer then pcall(System.writer,System.profilePath,HttpService:JSONEncode(System.profiles)) end
+        System.notify("Profile saved: "..name); render(); return true
+    end
+    function System.loadProfile(name)
+        name=tostring(name or System.activeProfile or "Default"); local data=System.profiles[name]
+        if not data and System.reader and System.exists and pcall(System.exists,System.profilePath) then
+            local ok,raw=pcall(System.reader,System.profilePath); if ok then local good,parsed=pcall(HttpService.JSONDecode,HttpService,raw); if good and type(parsed)=="table" then System.profiles=parsed; data=System.profiles[name] end end
+        end
+        if not data then System.notify("Profile not found: "..name); return false end
+        applyProfileSnapshot(data); System.activeProfile=name
+        if data.theme and UI and UI.setTheme then task.defer(function() UI.setTheme(data.theme) end) end
+        System.notify("Profile loaded: "..name); render(); return true
+    end
+    function System.duplicateProfile(name)
+        local base=System.profiles[name] or profileSnapshot(); local target=(name=="Default" and "Custom 01" or name.." Copy"):sub(1,32); local i=1
+        while System.profiles[target] do i=i+1; target=(name.." Copy "..i):sub(1,32) end
+        System.profiles[target]=base; System.activeProfile=target
+        if CoreUI and CoreUI.profileInput then CoreUI.profileInput.Text=target end
+        if System.writer then pcall(System.writer,System.profilePath,HttpService:JSONEncode(System.profiles)) end
+        System.notify("Profile duplicated: "..target); render(); return true
+    end
+    function System.deleteProfile(name)
+        if name=="Default" then System.notify("Default profile is protected."); return false end
+        System.profiles[name]=nil; if System.activeProfile==name then System.activeProfile="Default" end
+        if System.writer then pcall(System.writer,System.profilePath,HttpService:JSONEncode(System.profiles)) end
+        System.notify("Profile deleted: "..name); render(); return true
+    end
+    function System.notify(message)
+        if not Settings.NotificationsEnabled then return end
+        message=tostring(message or ""); table.insert(System.notificationLog,1,{time=os.date("%H:%M:%S"),message=message})
+        while #System.notificationLog>100 do table.remove(System.notificationLog) end
+        pcall(notify,message)
+    end
+    function System.registerTheme(name, metadata)
+        name=tostring(name or ""):gsub("^%s+",""):gsub("%s+$",""); if name=="" then return false end
+        if type(metadata)~="table" then metadata={} end
+        metadata.name=name; System.themeRegistry[name]=metadata; return true
+    end
+    function System.getThemes() local out={}; for name,data in pairs(System.themeRegistry) do out[#out+1]={name=name,metadata=data} end; table.sort(out,function(a,b) return a.name<b.name end); return out end
+    function System.resetStats() System.stats={runtime=0,kills=0,targets=0,loots=0,teleports=0,bosses=0,lastTarget="--",startedAt=os.clock()}; System.statsLastCycles=0; System.notify("Session statistics reset"); render() end
+    function System.emergencyStop()
+        pcall(setEnabled,false); pcall(Farm.setEnabled,false); pcall(Farm.setAutoBoss,false); pcall(stopMovement); pcall(stopHealthGuard); System.safetyStatus="EMERGENCY STOP"; System.safetyDetail="All automation modules were stopped."; System.notify("EMERGENCY STOP"); render()
+    end
+    function System.toggleSafety() Settings.SafetyEnabled=not Settings.SafetyEnabled; System.safetyStatus=Settings.SafetyEnabled and "SAFE" or "DISABLED"; System.notify("Safety system "..(Settings.SafetyEnabled and "enabled" or "disabled")); System.savePrefs(); render() end
+    function System.showLocations() State.tab="Farm"; render(); System.notify("Opening location database") end
+    function System.showKeybinds() System.notify("Opening keybind manager") end
+    function System.showNotifications() System.notify("Opening notification center") end
+    function System.toggleCommandPalette() System.commandOpen=not System.commandOpen; if UI and UI.commandOverlay then UI.commandOverlay.Visible=System.commandOpen; if System.commandOpen then UI.commandInput:CaptureFocus() end end end
+    function System.executeCommand(q)
+        q=tostring(q or ""):lower():gsub("^%s+",""):gsub("%s+$","")
+        if q=="" then return end
+        local commands={
+            ["boss"]=function() State.tab="Farm"; Settings.AutoBoss=true; Farm.setAutoBoss(true) end,
+            ["auto boss"]=function() State.tab="Farm"; Farm.setAutoBoss(not Settings.AutoBoss) end,
+            ["esp players"]=function() State.tab="ESP"; setESPEnabled(not Settings.ESPEnabled) end,
+            ["stop"]=System.emergencyStop,
+            ["emergency stop"]=System.emergencyStop,
+            ["theme empyrean"]=function() if UI.setTheme then UI.setTheme("Empyrean") end end,
+            ["theme blackhole"]=function() if UI.setTheme then UI.setTheme("Blackhole") end end,
+            ["theme default"]=function() if UI.setTheme then UI.setTheme("Default") end end,
+            ["core"]=function() State.tab="Core"; render() end,
+            ["stats"]=function() State.tab="Core"; render() end,
+        }
+        local fn=commands[q]
+        if fn then fn(); System.commandOpen=false; if UI.commandOverlay then UI.commandOverlay.Visible=false end; System.notify("Command executed: "..q); render(); return true end
+        System.notify("Unknown command: "..q); return false
+    end
+    function System.initProfiles()
+        if System.reader and System.exists then
+            local ok,exists=pcall(System.exists,System.profilePath)
+            if ok and exists then local good,raw=pcall(System.reader,System.profilePath); if good then local parsedOK,parsed=pcall(HttpService.JSONDecode,HttpService,raw); if parsedOK and type(parsed)=="table" then System.profiles=parsed end end end
+        end
+        System.profiles.Default=System.profiles.Default or profileSnapshot(); System.activeProfile="Default"
+        local gameProfile="Game_"..tostring(game.PlaceId or 0)
+        if System.profiles[gameProfile] then
+            System.activeProfile=gameProfile; applyProfileSnapshot(System.profiles[gameProfile])
+        end
+    end
+
+    -- Safety monitor: watches movement/target progress and can pause automation when stuck.
+    task.spawn(function()
+        local lastPos=nil; local lastMove=os.clock(); local lastCycles=0
+        while State.alive do
+            task.wait(1)
+            if not State.alive then break end
+            if Settings.StatsEnabled then
+                System.stats.runtime=os.clock()-System.stats.startedAt
+                local cycles=tonumber(Farm.autoCycles or 0) or 0
+                if cycles>lastCycles then System.stats.kills=System.stats.kills+(cycles-lastCycles); System.stats.targets=System.stats.targets+(cycles-lastCycles); lastCycles=cycles end
+                if Farm.autoCurrent and Farm.autoCurrent.name then
+                    if System.statsLastTarget~=Farm.autoCurrent.path then System.stats.targets=System.stats.targets+1; System.statsLastTarget=Farm.autoCurrent.path end
+                    System.stats.lastTarget=Farm.autoCurrent.name
+                    if Settings.AutoBoss then System.stats.bosses=math.max(System.stats.bosses, Farm.autoCycles or 0) end
+                end
+            end
+            if Settings.SafetyEnabled and Settings.SafetyAutoRecover and State.enabled then
+                local char=Player.Character; local hrp=char and char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local pos=hrp.Position
+                    if lastPos and (pos-lastPos).Magnitude>3 then lastMove=os.clock() end
+                    lastPos=pos
+                    if os.clock()-lastMove>=Settings.SafetyStuckTimeout then
+                        System.safetyStatus="RECOVERY"; System.safetyDetail="Movement appears stuck; attempting safe pause."; System.stats.teleports=System.stats.teleports+1
+                        if Settings.SafetyPauseOnUnexpected then pcall(setEnabled,false) end
+                        lastMove=os.clock(); System.notify("Safety recovery triggered")
+                    else System.safetyStatus="SAFE"; System.safetyDetail="Recovery monitor armed." end
+                end
+            end
+            if CoreUI and CoreUI.statsLabel and CoreUI.statsLabel.Parent then
+                local sec=math.floor(System.stats.runtime); local h=math.floor(sec/3600); local m=math.floor((sec%3600)/60); local ss=sec%60
+                CoreUI.statsLabel.Text=string.format("Runtime %02d:%02d:%02d  |  Targets %d  |  Kills %d\nLoots %d  |  Bosses %d  |  Teleports %d",h,m,ss,System.stats.targets,System.stats.kills,System.stats.loots,System.stats.bosses,System.stats.teleports)
+                CoreUI.targetLabel.Text="Target: "..tostring(System.stats.lastTarget or "--")
+                CoreUI.safetyLabel.Text="Safety: "..tostring(System.safetyStatus); CoreUI.safetyLabel.TextColor3=(System.safetyStatus=="SAFE" and C.green or C.amber)
+            end
+        end
+    end)
+    System.initProfiles()
 
     System.loadPrefs()
     -- Freeze the theme selected by persisted preferences for this execution.
@@ -4562,8 +4744,8 @@ local tabs = frame(panel, "Nav", 0, 88, W, 64, C.black, 0)
 tabs.BackgroundTransparency = 0.35
 tabs.ZIndex = 5
 stroke(tabs, C.line, 0.55, 1)
-local navNames = {"Skills", "ESP", "Health", "Farm", "Move", "System", "Theme"}
-local navKinds = {"skills", "esp", "health", "farm", "move", "system", "theme"}
+local navNames = {"Skills", "ESP", "Health", "Farm", "Move", "System", "Theme", "Core"}
+local navKinds = {"skills", "esp", "health", "farm", "move", "system", "theme", "system"}
 local navButtons = {}
 UI.navStrokes, UI.navBars = {}, {}
 local navX, navW, navGap = 12, 61, 6
@@ -4590,6 +4772,7 @@ UI.farmTab = navButtons.Farm
 UI.moveTab = navButtons.Move
 UI.systemTab = navButtons.System
 UI.themeTab = navButtons.Theme
+UI.coreTab = navButtons.Core
 
 local content = make("Frame", panel, {
     Name = "Content", Position = UDim2.fromOffset(0, 152), Size = UDim2.fromOffset(W, H - 152),
@@ -4797,6 +4980,63 @@ connect(UI.privateMapBox.FocusLost, function()
     render()
 end)
 
+-- ========================= CONTROL CENTER =========================
+CoreUI = {page = newPage("Core")}
+pageHead(CoreUI.page, "system", "CONTROL CENTER", "8 SERVICES")
+local coreHead = safeText(CoreUI.page, "Intro", "Automation profiles, analytics, recovery, locations and command tools.", 16, 48, W - 32, 28, 9, C.faint, Enum.Font.GothamMedium)
+coreHead.TextXAlignment = Enum.TextXAlignment.Center
+
+local function coreButton(parent, name, text, x, y, width, callback)
+    local b = button(parent, name, text, x, y, width, 34, C.panel2, 8)
+    b.TextColor3 = C.ink; b.TextSize = 9; b.Font = Enum.Font.GothamBold
+    stroke(b, C.line, .55, 1)
+    if callback then connect(b.Activated, callback) end
+    return b
+end
+
+local coreStatus = safeText(CoreUI.page, "CoreStatus", "READY", 16, 84, W - 32, 18, 10, C.faint, Enum.Font.GothamBold)
+coreStatus.TextXAlignment = Enum.TextXAlignment.Center
+
+local coreProfile = frame(CoreUI.page, "Profiles", 16, 114, W - 32, 126, C.panel2, 10); stroke(coreProfile, C.line, .7, 1)
+safeText(coreProfile, "Title", "AUTOMATION PROFILES", 12, 9, 200, 18, 11, C.ink, Enum.Font.GothamBold)
+local profileName = safeText(coreProfile, "Active", "Default", 12, 31, 180, 18, 10, C.faint, Enum.Font.GothamMedium)
+CoreUI.profileName = profileName
+CoreUI.profileButtons = {}
+CoreUI.profileBox = coreProfile
+CoreUI.profileInput = make("TextBox", coreProfile, {Name="ProfileInput", Position=UDim2.fromOffset(202,30), Size=UDim2.fromOffset(170,24), BackgroundColor3=C.panel, TextColor3=C.ink, PlaceholderText="Profile name", PlaceholderColor3=C.faint, Text="", TextSize=10, Font=Enum.Font.GothamMedium, ClearTextOnFocus=false, ZIndex=20})
+stroke(CoreUI.profileInput, C.line, .6, 1)
+coreButton(coreProfile,"SaveProfile","SAVE",12,70,78,function() if System.saveProfile then System.saveProfile(CoreUI.profileInput.Text~="" and CoreUI.profileInput.Text or System.activeProfile) end end)
+coreButton(coreProfile,"LoadProfile","LOAD",96,70,78,function() if System.loadProfile then System.loadProfile(CoreUI.profileInput.Text~="" and CoreUI.profileInput.Text or System.activeProfile) end end)
+coreButton(coreProfile,"NewProfile","DUPLICATE",180,70,88,function() if System.duplicateProfile then System.duplicateProfile(CoreUI.profileInput.Text~="" and CoreUI.profileInput.Text or System.activeProfile) end end)
+coreButton(coreProfile,"DeleteProfile","DELETE",274,70,78,function() if System.deleteProfile then System.deleteProfile(CoreUI.profileInput.Text~="" and CoreUI.profileInput.Text or System.activeProfile) end end)
+
+local coreStats = frame(CoreUI.page, "Analytics", 16, 250, W - 32, 150, C.panel2, 10); stroke(coreStats, C.line, .7, 1)
+safeText(coreStats,"Title","SESSION ANALYTICS",12,9,180,18,11,C.ink,Enum.Font.GothamBold)
+CoreUI.statsLabel = safeText(coreStats,"Stats","Runtime 00:00:00  |  Targets 0  |  Kills 0\nLoots 0  |  Bosses 0  |  Teleports 0",12,34,W-56,46,10,C.faint,Enum.Font.GothamMedium)
+CoreUI.statsLabel.TextWrapped=true
+CoreUI.targetLabel = safeText(coreStats,"Target","Target: --",12,84,W-56,18,10,C.ink,Enum.Font.GothamMedium)
+CoreUI.safetyLabel = safeText(coreStats,"Safety","Safety: SAFE",12,106,W-56,18,10,C.green,Enum.Font.GothamBold)
+coreButton(coreStats,"ResetStats","RESET STATS",W-150,110,120,function() if System.resetStats then System.resetStats() end end)
+
+local coreTools = frame(CoreUI.page, "Tools", 16, 410, W - 32, 206, C.panel2, 10); stroke(coreTools, C.line, .7, 1)
+safeText(coreTools,"Title","CORE SERVICES",12,9,180,18,11,C.ink,Enum.Font.GothamBold)
+coreButton(coreTools,"Command","COMMAND PALETTE  [CTRL+K]",12,34,190,function() if System.toggleCommandPalette then System.toggleCommandPalette() end end)
+coreButton(coreTools,"Locations","LOCATION DATABASE",210,34,160,function() if System.showLocations then System.showLocations() end end)
+coreButton(coreTools,"Keybinds","KEYBIND MANAGER",12,74,190,function() if System.showKeybinds then System.showKeybinds() end end)
+coreButton(coreTools,"Notifications","NOTIFICATION CENTER",210,74,160,function() if System.showNotifications then System.showNotifications() end end)
+coreButton(coreTools,"Safety","SAFETY / RECOVERY",12,114,190,function() if System.toggleSafety then System.toggleSafety() end end)
+coreButton(coreTools,"Compact","COMPACT UI",210,114,160,function() Settings.UICompact=not Settings.UICompact; System.savePrefs(); render() end)
+coreButton(coreTools,"SaveUI","SAVE UI PROFILE",12,154,190,function() if System.saveProfile then System.saveProfile(System.activeProfile or "Default") end end)
+coreButton(coreTools,"Emergency","EMERGENCY STOP",210,154,160,function() if System.emergencyStop then System.emergencyStop() end end)
+
+local coreHint = safeText(CoreUI.page,"Hint","All services are session-safe and persist through the profile system.",16,630,W-32,18,9,C.faint,Enum.Font.GothamMedium)
+coreHint.TextXAlignment=Enum.TextXAlignment.Center
+
+CoreUI.scaleSlider = makeSlider(CoreUI.page, 662, "UI Scale", function() return Settings.UIScale end, function(v) Settings.UIScale=math.clamp(v,.75,1.25); if uiScale then uiScale.Scale=Settings.UIScale end end, .75, 1.25, "%.2fx")
+CoreUI.opacitySlider = makeSlider(CoreUI.page, 734, "UI Opacity", function() return Settings.UIOpacity end, function(v) Settings.UIOpacity=math.clamp(v,.35,1); if panel then panel.BackgroundTransparency=1-Settings.UIOpacity*.92 end end, .35, 1, "%.0f%%")
+CoreUI.notificationRow = makeRow(CoreUI.page, 806, "Notifications", "Keep system events visible", function() return Settings.NotificationsEnabled end, function(v) Settings.NotificationsEnabled=v end)
+CoreUI.safetyRow = makeRow(CoreUI.page, 866, "Safety Core", "Monitor stuck movement and recover safely", function() return Settings.SafetyEnabled end, function(v) Settings.SafetyEnabled=v end)
+
 local ThemeUI = {page = newPage("Theme")}
 pageHead(ThemeUI.page, "theme", "THEME", "DISPLAY")
 local themeInfo = frame(ThemeUI.page, "ThemeInfo", 16, 48, W - 32, 54, Color3.fromRGB(18,10,30), 10)
@@ -4904,10 +5144,60 @@ UI.footerConnected.Visible = false
 local footerDot = frame(panel, "FooterDot", 0, 0, 1, 1, C.green, 1)
 footerDot.Visible = false
 
-local pageMap = {Skills = skillsPage, ESP = espPage, Health = healthPage, Farm = farmPage, Move = movePage, System = systemPage, Theme = ThemeUI.page}
+-- Command palette overlay
+local commandOverlay = make("Frame", root, {Name="CommandPalette", Position=UDim2.fromScale(.5,.18), Size=UDim2.fromOffset(math.min(520, W-40), 112), AnchorPoint=Vector2.new(.5,0), BackgroundColor3=C.panel, BackgroundTransparency=.04, BorderSizePixel=0, Visible=false, ZIndex=80})
+stroke(commandOverlay,C.line,.25,1)
+local commandTitle=safeText(commandOverlay,"Title","COMMAND PALETTE  •  CTRL+K",14,10,400,18,10,C.ink,Enum.Font.GothamBold)
+local commandInput=make("TextBox",commandOverlay,{Name="Input",Position=UDim2.fromOffset(14,36),Size=UDim2.new(1,-28,36,0),BackgroundColor3=C.panel2,TextColor3=C.ink,PlaceholderText="Try: boss, esp players, theme empyrean, stop, core",PlaceholderColor3=C.faint,Text="",TextSize=11,Font=Enum.Font.GothamMedium,ClearTextOnFocus=false,ZIndex=81})
+stroke(commandInput,C.line,.5,1)
+local commandHint=safeText(commandOverlay,"Hint","ENTER executes  •  ESC closes",14,78,400,16,8,C.faint,Enum.Font.GothamMedium)
+UI.commandOverlay=commandOverlay; UI.commandInput=commandInput
+local utilityOverlay = make("Frame", root, {Name="UtilityOverlay", Position=UDim2.fromScale(.5,.5), Size=UDim2.fromOffset(math.min(560,W-32), 420), AnchorPoint=Vector2.new(.5,.5), BackgroundColor3=C.panel, BackgroundTransparency=.03, BorderSizePixel=0, Visible=false, ZIndex=90})
+stroke(utilityOverlay,C.line,.22,1)
+local utilityTitle=safeText(utilityOverlay,"Title","CONTROL CENTER",16,12,400,20,12,C.ink,Enum.Font.GothamBold)
+local utilityBody=make("ScrollingFrame",utilityOverlay,{Name="Body",Position=UDim2.fromOffset(14,46),Size=UDim2.new(1,-28,1,-92),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=3,AutomaticCanvasSize=Enum.AutomaticSize.Y,CanvasSize=UDim2.fromOffset(0,0),ZIndex=91})
+local utilityText=safeText(utilityBody,"Text","",4,4,500,500,10,C.faint,Enum.Font.GothamMedium); utilityText.TextWrapped=true; utilityText.TextYAlignment=Enum.TextYAlignment.Top
+local utilityInput=make("TextBox",utilityOverlay,{Name="Editor",Position=UDim2.new(0,14,1,-78),Size=UDim2.new(1,-124,0,34),BackgroundColor3=C.panel2,TextColor3=C.ink,PlaceholderText="Keybind: EmergencyStop=F10",PlaceholderColor3=C.faint,Text="",TextSize=9,Font=Enum.Font.GothamMedium,ClearTextOnFocus=false,ZIndex=92})
+stroke(utilityInput,C.line,.55,1)
+local utilityClose=make("TextButton",utilityOverlay,{Name="Close",Position=UDim2.new(1,-96,1,-40),Size=UDim2.fromOffset(78,34),BackgroundColor3=C.panel2,Text="CLOSE",TextColor3=C.ink,TextSize=9,Font=Enum.Font.GothamBold,AutoButtonColor=false,ZIndex=92})
+stroke(utilityClose,C.line,.55,1); connect(utilityClose.Activated,function() utilityOverlay.Visible=false end)
+UI.utilityOverlay=utilityOverlay; UI.utilityTitle=utilityTitle; UI.utilityText=utilityText; UI.utilityInput=utilityInput
+local function openUtility(title,text) utilityTitle.Text=title; utilityText.Text=text; utilityOverlay.Visible=true; utilityBody.CanvasPosition=Vector2.new(0,0) end
+connect(utilityInput.FocusLost,function(enter)
+    if not enter then return end
+    local action,key=tostring(utilityInput.Text):match("^%s*([%w_]+)%s*=%s*([%w_]+)%s*$")
+    if action and key and Enum.KeyCode[key] then
+        local kc=Enum.KeyCode[key]; System.keybinds[action]=kc
+        local map={ToggleAutomation="ToggleKey",StopAutomation="StopKey",ToggleUI="VisibilityKey",ToggleESP="ESPToggleKey",ToggleHealth="HealthToggleKey"}
+        if map[action] then Settings[map[action]]=kc end
+        System.savePrefs(); System.notify("Keybind updated: "..action.." = "..key)
+    else System.notify("Invalid keybind format. Example: EmergencyStop=F10") end
+    utilityInput.Text=""
+end)
+System.showLocations=function()
+    local lines={"LOCATION DATABASE","", "Remembered bosses: "..tostring(#(Farm.remembered or {})), "Saved catalog: "..tostring((function() local n=0; for _ in pairs(Farm.catalog or {}) do n=n+1 end; return n end)()), "", "FAVORITES / SAVED ROUTES"}
+    local entries={}; for _,e in pairs(Farm.catalog or {}) do entries[#entries+1]=e end; table.sort(entries,function(a,b) return tostring(a.name)<tostring(b.name) end)
+    for i,e in ipairs(entries) do if i>80 then break end; lines[#lines+1]=string.format("%02d  %s  [%.0f, %.0f, %.0f]",i,tostring(e.name),e.spawn.X,e.spawn.Y,e.spawn.Z) end
+    openUtility("LOCATION DATABASE",table.concat(lines,"\n"))
+end
+System.showKeybinds=function()
+    openUtility("KEYBIND MANAGER",table.concat({"F6  •  Toggle Automation","F7  •  Stop / unload","F8  •  Toggle ESP","F9  •  Toggle Health","RIGHT SHIFT  •  Toggle UI","CTRL+K  •  Command Palette","END  •  Emergency Stop","","To change a keybind, edit the profile after saving it. Keybind state is kept separately from theme state."},"\n"))
+end
+System.showNotifications=function()
+    local lines={"NOTIFICATION CENTER",""}; for i=1,math.min(#System.notificationLog,80) do local e=System.notificationLog[i]; lines[#lines+1]=string.format("[%s] %s",e.time,e.message) end; openUtility("NOTIFICATION CENTER",table.concat(lines,"\n"))
+end
+connect(commandInput.FocusLost,function(enter) if enter then System.executeCommand(commandInput.Text); commandInput.Text="" end end)
+connect(Input.InputBegan,function(input,processed)
+    if processed then return end
+    if input.KeyCode==Enum.KeyCode.Escape and System.commandOpen then System.commandOpen=false; commandOverlay.Visible=false; return end
+    if input.KeyCode==Enum.KeyCode.K and (Input:IsKeyDown(Enum.KeyCode.LeftControl) or Input:IsKeyDown(Enum.KeyCode.RightControl)) then System.toggleCommandPalette() end
+    if input.KeyCode==System.keybinds.EmergencyStop then System.emergencyStop() end
+end)
+
+local pageMap = {Skills = skillsPage, ESP = espPage, Health = healthPage, Farm = farmPage, Move = movePage, System = systemPage, Theme = ThemeUI.page, Core = CoreUI.page}
 local pageBaseY = 0
 
-local function showPage(key)
+showPage = function(key)
     State.tab = key
     for name, page in pairs(pageMap) do page.Visible = name == key end
     render()

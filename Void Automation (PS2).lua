@@ -3073,7 +3073,7 @@ do
         if type(data.StaticMapScan) == "boolean" then Settings.StaticMapScan = data.StaticMapScan end
         if type(data.AutoRejoin) == "boolean" then Settings.AutoRejoin = data.AutoRejoin end
         if type(data.AutoExecute) == "boolean" then Settings.AutoExecute = data.AutoExecute end
-        if data.Theme == "Blackhole" or data.Theme == "Default" then System.theme = data.Theme end
+        if data.Theme == "Blackhole" or data.Theme == "Default" or data.Theme == "Empyrean" then System.theme = data.Theme end
         if finiteText(data.PrivateServerMap, 80) then Settings.PrivateServerMap = data.PrivateServerMap end
         if finiteText(data.TargetGameId, 40) then System.targetGameId = data.TargetGameId end
         if finiteText(data.LastPrivateJob, 120) then System.lastPrivateJob = data.LastPrivateJob end
@@ -4666,6 +4666,11 @@ function ThemeUI.makePreset(y, title, desc, themeName)
         orbit.BackgroundTransparency = 1
         orbit.Rotation = -16
         stroke(orbit, C.violet2, 0.30, 1)
+    elseif themeName == "Empyrean" then
+        local halo = frame(icon, "Halo", 7, 7, 22, 22, Color3.new(1,1,1), 11)
+        halo.BackgroundTransparency = 1; stroke(halo, Color3.fromRGB(217,169,78), 0.18, 2)
+        local core = frame(icon, "Core", 12, 12, 12, 12, Color3.fromRGB(255,243,200), 6)
+        core.BackgroundTransparency = 0.05; stroke(core, Color3.fromRGB(156,116,32), 0.42, 1)
     else
         local core = frame(icon, "Core", 11, 11, 14, 14, C.violet2, 7)
         core.BackgroundTransparency = 0.25
@@ -4688,7 +4693,10 @@ ThemeUI.defaultRow, ThemeUI.defaultButton = ThemeUI.makePreset(
 ThemeUI.blackholeRow, ThemeUI.blackholeButton = ThemeUI.makePreset(
     186, "Blackhole V1", "HTML-matched black-hole reactor interface", "Blackhole"
 )
-ThemeUI.hint = safeText(ThemeUI.page, "Hint", "Theme changes are saved immediately.", 16, 258, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+ThemeUI.empyreanRow, ThemeUI.empyreanButton = ThemeUI.makePreset(
+    258, "EMPYREAN", "Celestial gold / heaven-inspired interface", "Empyrean"
+)
+ThemeUI.hint = safeText(ThemeUI.page, "Hint", "Theme changes are saved immediately.", 16, 330, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
 ThemeUI.hint.TextXAlignment = Enum.TextXAlignment.Center
 
 UI.count = safeText(skillsPage, "Count", "4 / 4 ENABLED", 0, 0, 1, 1, 1, C.dim)
@@ -4916,6 +4924,50 @@ local function fitWindow(centerIfNeeded)
     windowPlaced = true
 end
 
+-- EMPYREAN visual preset hero. Isolated from all other theme visuals.
+local EMP = {}
+EMP.hero = frame(panel, "EmpyreanHero", 0, 64, W, 152, Color3.fromRGB(255,250,235), 0)
+EMP.hero.ZIndex = 4; EMP.hero.ClipsDescendants = true; EMP.hero.Visible = false
+EMP.heroStroke = stroke(EMP.hero, Color3.fromRGB(217,169,78), 0.58, 1)
+EMP.sky = frame(EMP.hero, "Sky", 0, 0, W, 152, Color3.fromRGB(255,250,235), 0)
+EMP.sky.ZIndex = 1
+EMP.skyGradient = make("UIGradient", EMP.sky, {Rotation=90, Color=ColorSequence.new({
+    ColorSequenceKeypoint.new(0,Color3.fromRGB(255,253,247)), ColorSequenceKeypoint.new(0.48,Color3.fromRGB(253,238,199)), ColorSequenceKeypoint.new(1,Color3.fromRGB(238,226,194))
+})})
+EMP.glow = frame(EMP.hero,"Glow",0,0,150,150,Color3.fromRGB(255,243,200),75); EMP.glow.AnchorPoint=Vector2.new(.5,.5); EMP.glow.Position=UDim2.fromOffset(W*.5,78); EMP.glow.BackgroundTransparency=.88; EMP.glow.ZIndex=2
+EMP.glowStroke=stroke(EMP.glow,Color3.fromRGB(255,224,150),.76,1)
+EMP.rayGroup=frame(EMP.hero,"GodRays",0,0,W,152,Color3.new(1,1,1),0); EMP.rayGroup.BackgroundTransparency=1; EMP.rayGroup.AnchorPoint=Vector2.new(.5,.5); EMP.rayGroup.Position=UDim2.fromOffset(W*.5,76); EMP.rayGroup.ZIndex=2
+EMP.rays={}
+for i=1,10 do local ray=frame(EMP.rayGroup,"Ray"..i,0,0,math.max(80,W*.10),2,Color3.fromRGB(255,244,214),1); ray.AnchorPoint=Vector2.new(.5,.5); ray.Position=UDim2.fromOffset(W*.5,76); ray.Rotation=(i-1)*36; ray.BackgroundTransparency=.84; ray.ZIndex=2; EMP.rays[#EMP.rays+1]=ray end
+EMP.wingL=frame(EMP.hero,"WingL",0,0,150,90,Color3.new(1,1,1),0); EMP.wingL.BackgroundTransparency=1; EMP.wingL.AnchorPoint=Vector2.new(1,.5); EMP.wingL.Position=UDim2.fromOffset(W*.5-5,84); EMP.wingL.ZIndex=5
+EMP.wingR=frame(EMP.hero,"WingR",0,0,150,90,Color3.new(1,1,1),0); EMP.wingR.BackgroundTransparency=1; EMP.wingR.AnchorPoint=Vector2.new(0,.5); EMP.wingR.Position=UDim2.fromOffset(W*.5+5,84); EMP.wingR.ZIndex=5
+EMP.wingStrokes={}
+local wingColors={Color3.fromRGB(217,169,78),Color3.fromRGB(255,243,200),Color3.fromRGB(196,151,64)}
+for side,group in ipairs({EMP.wingL,EMP.wingR}) do for i=1,4 do local f=frame(group,"Feather"..i,0,0,78-i*7,2,wingColors[(i%#wingColors)+1],1); f.AnchorPoint=Vector2.new(.5,.5); f.Position=UDim2.fromOffset(side==1 and 54+i*3 or 96-i*3,22+i*12); f.Rotation=side==1 and(-12-i*4)or(12+i*4); f.BackgroundTransparency=.35+i*.08; f.ZIndex=5; EMP.wingStrokes[#EMP.wingStrokes+1]=f end end
+EMP.haloA=frame(EMP.hero,"HaloA",0,0,172,40,Color3.new(1,1,1),20); EMP.haloA.AnchorPoint=Vector2.new(.5,.5); EMP.haloA.Position=UDim2.fromOffset(W*.5,80); EMP.haloA.BackgroundTransparency=1; EMP.haloA.ZIndex=6; EMP.haloAStroke=stroke(EMP.haloA,Color3.fromRGB(217,169,78),.28,2)
+EMP.haloB=frame(EMP.hero,"HaloB",0,0,104,104,Color3.new(1,1,1),52); EMP.haloB.AnchorPoint=Vector2.new(.5,.5); EMP.haloB.Position=UDim2.fromOffset(W*.5,80); EMP.haloB.BackgroundTransparency=1; EMP.haloB.ZIndex=6; EMP.haloBStroke=stroke(EMP.haloB,Color3.fromRGB(242,193,78),.46,1); EMP.haloBStroke.Transparency=.46
+EMP.core=frame(EMP.hero,"Core",0,0,70,70,Color3.fromRGB(255,243,200),35); EMP.core.AnchorPoint=Vector2.new(.5,.5); EMP.core.Position=UDim2.fromOffset(W*.5,80); EMP.core.BackgroundTransparency=.76; EMP.core.ZIndex=7; EMP.coreStroke=stroke(EMP.core,Color3.fromRGB(255,224,150),.22,1)
+EMP.dot=frame(EMP.hero,"CoreDot",0,0,8,8,Color3.fromRGB(255,254,248),4); EMP.dot.AnchorPoint=Vector2.new(.5,.5); EMP.dot.Position=UDim2.fromOffset(W*.5,80); EMP.dot.ZIndex=8
+EMP.sparkles={}
+for i,d in ipairs({{.23,42,1.8},{.77,48,1.6},{.18,118,1.5},{.82,116,1.8},{.5,18,1.3}}) do local sp=frame(EMP.hero,"Spark"..i,0,0,d[3]*2,d[3]*2,Color3.fromRGB(255,243,200),d[3]); sp.AnchorPoint=Vector2.new(.5,.5); sp.Position=UDim2.fromOffset(W*d[1],d[2]); sp.ZIndex=9; sp.BackgroundTransparency=.35; EMP.sparkles[#EMP.sparkles+1]={object=sp,phase=(i-1)*.5} end
+EMP.scan=frame(EMP.hero,"Scan",0,-58,W,54,Color3.fromRGB(255,255,255),0); EMP.scan.BackgroundTransparency=.97; EMP.scan.ZIndex=10
+EMP.scanGradient=make("UIGradient",EMP.scan,{Rotation=90,Color=ColorSequence.new(Color3.fromRGB(255,255,255),Color3.fromRGB(255,224,150)),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,1),NumberSequenceKeypoint.new(.5,.22),NumberSequenceKeypoint.new(1,1)})})
+EMP.clock=os.clock(); EMP.last=EMP.clock; EMP.connection=nil
+function EMP.startVisuals()
+    if EMP.connection then EMP.connection:Disconnect(); EMP.connection=nil end
+    EMP.clock=os.clock(); EMP.last=EMP.clock
+    EMP.connection=connect(RunService.RenderStepped,function()
+        if not State.alive or not EMP.hero.Parent or not EMP.hero.Visible or System.theme~="Empyrean" then return end
+        local now=os.clock(); local dt=math.min(now-EMP.last,.05); EMP.last=now; local t=now-EMP.clock; local heroWidth=math.max(420,EMP.hero.AbsoluteSize.X); local cx=heroWidth*.5
+        EMP.glow.Position=UDim2.fromOffset(cx,78); EMP.rayGroup.Position=UDim2.fromOffset(cx,76); EMP.wingL.Position=UDim2.fromOffset(cx-5,84); EMP.wingR.Position=UDim2.fromOffset(cx+5,84); EMP.haloA.Position=UDim2.fromOffset(cx,80); EMP.haloB.Position=UDim2.fromOffset(cx,80); EMP.core.Position=UDim2.fromOffset(cx,80); EMP.dot.Position=UDim2.fromOffset(cx,80)
+        local breath=(math.sin(t*math.pi*2/4.5)+1)*.5; EMP.core.BackgroundTransparency=.84-breath*.18; EMP.glow.BackgroundTransparency=.92-breath*.10; EMP.haloA.Rotation=math.sin(t*math.pi*2/44)*5+t*8.18; EMP.haloB.Rotation=-t*6; EMP.rayGroup.Rotation=t*4
+        for i,ray in ipairs(EMP.rays) do ray.BackgroundTransparency=.90-((math.sin(t*.9+i*.6)+1)*.5)*.16 end
+        for i,f in ipairs(EMP.wingStrokes) do f.BackgroundTransparency=.28+((i%4)*.07)+((math.sin(t*1.2+i)+1)*.5)*.10 end
+        for _,info in ipairs(EMP.sparkles) do local pulse=(math.sin((t+info.phase)*math.pi*2/3)+1)*.5; info.object.BackgroundTransparency=.86-pulse*.68; info.object.Size=UDim2.fromOffset(2+3*pulse,2+3*pulse) end
+        EMP.scan.Position=UDim2.fromOffset(0,-58+((t/7)%1)*210); EMP.scan.BackgroundTransparency=.965
+    end)
+end
+
 local Theme = {
     Default = {
         black = C.black, deep = C.deep, panel = C.panel, panel2 = C.panel2,
@@ -4946,6 +4998,18 @@ local Theme = {
         toggleOn = Color3.fromRGB(70,38,125),
         toggleOff = Color3.fromRGB(24,24,31),
     },
+    Empyrean = {
+        black = Color3.fromRGB(248, 244, 232), deep = Color3.fromRGB(238, 232, 213),
+        panel = Color3.fromRGB(255, 253, 247), panel2 = Color3.fromRGB(255, 248, 232),
+        violet = Color3.fromRGB(196, 151, 64), violet2 = Color3.fromRGB(217, 169, 78),
+        magenta = Color3.fromRGB(232, 198, 126), cyan = Color3.fromRGB(207, 230, 255),
+        ink = Color3.fromRGB(58, 47, 26), dim = Color3.fromRGB(122, 108, 74),
+        faint = Color3.fromRGB(171, 157, 120), line = Color3.fromRGB(217, 169, 78),
+        accent = Color3.fromRGB(217, 169, 78), bright = Color3.fromRGB(255, 243, 200),
+        muted = Color3.fromRGB(171, 157, 120), surface = Color3.fromRGB(255, 250, 235),
+        text = Color3.fromRGB(74, 58, 28), voidDeep = Color3.fromRGB(245, 238, 218),
+        toggleOn = Color3.fromRGB(217, 169, 78), toggleOff = Color3.fromRGB(226, 220, 202),
+    },
     height = H,
     current = nil,
 }
@@ -4956,6 +5020,7 @@ end
 
 function Theme.restyleText()
     local bh = System.theme == "Blackhole"
+    local emp = System.theme == "Empyrean"
     for _, obj in ipairs(panel:GetDescendants()) do
         if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
             if obj.Name == "Desc" or obj.Name == "Sub" or obj.Name == "Modules" or obj.Name == "Hint"
@@ -4967,12 +5032,13 @@ function Theme.restyleText()
             elseif obj.Name ~= "Status" then
                 obj.TextColor3 = C.ink
             end
-            if bh and obj:IsA("TextButton") and obj.Name ~= "Status" then obj.AutoButtonColor = false end
+            if (bh or emp) and obj:IsA("TextButton") and obj.Name ~= "Status" then obj.AutoButtonColor = false end
         end
     end
 end
 
 function Theme.restyleRows()
+    local emp = System.theme == "Empyrean"
     for _, page in pairs(pageMap) do
         for _, child in ipairs(page:GetChildren()) do
             if child.Name:match("^Row_") or child.Name:match("^Slider_") or child.Name == "KeyLoadout"
@@ -4985,138 +5051,51 @@ function Theme.restyleRows()
     end
     for _, view in ipairs(toggleViews) do
         view.track.BackgroundColor3 = view.getter() and C.toggleOn or C.toggleOff
-        view.knob.BackgroundColor3 = view.getter() and C.cyan or C.faint
+        view.knob.BackgroundColor3 = view.getter() and (emp and C.bright or C.cyan) or C.faint
         local st = view.track:FindFirstChildOfClass("UIStroke")
         if st then st.Color = C.line end
     end
     for _, view in ipairs(sliders) do
         view.fill.BackgroundColor3 = C.violet2
-        view.knob.BackgroundColor3 = C.cyan
+        view.knob.BackgroundColor3 = emp and C.bright or C.cyan
         local rail = view.hit:FindFirstChild("Rail")
         if rail then rail.BackgroundColor3 = C.toggleOff end
     end
 end
 
+function Theme.stopSpecialVisuals()
+    if EMP and EMP.connection then EMP.connection:Disconnect(); EMP.connection=nil end
+    if EMP and EMP.hero then EMP.hero.Visible=false end
+    if BH and BH.hero then BH.hero.Visible=false end
+end
+
 function Theme.apply(themeName)
-    if themeName ~= "Blackhole" then themeName = "Default" end
-    System.theme = themeName
-    local bh = themeName == "Blackhole"
-    Theme.current = bh and Theme.Blackhole or Theme.Default
-    Theme.copy(Theme.current)
-
+    if themeName~="Blackhole" and themeName~="Empyrean" then themeName="Default" end
+    Theme.stopSpecialVisuals(); System.theme=themeName
+    local bh=themeName=="Blackhole"; local emp=themeName=="Empyrean"
+    Theme.current=bh and Theme.Blackhole or(emp and Theme.Empyrean or Theme.Default); Theme.copy(Theme.current)
     if bh then
-        Theme.height = 600
-        windowHeight = Theme.height
-        holder.Size = UDim2.fromOffset(windowWidth, windowHeight)
-        shadow.Size = UDim2.fromOffset(windowWidth + 12, windowHeight + 12)
-        panel.Size = UDim2.fromOffset(windowWidth, windowHeight)
-        panel.BackgroundColor3 = C.panel
-        panel.BackgroundTransparency = 0.18
-        panelStroke.Color = C.line
-        panelStroke.Transparency = 0.72
-        panelBackdrop.Visible = false
-        voidFX.Visible = false
-        ticker.Visible = false
-        header.Position = UDim2.fromOffset(0, 0)
-        header.Size = UDim2.fromOffset(windowWidth, 64)
-        headerLine.BackgroundColor3 = C.line
-        headerLine.BackgroundTransparency = 0.70
-        brandTitle.Text = "BLACKHOLE V1"
-        brandTitle.TextColor3 = C.ink
-        header:FindFirstChild("Sub").Text = "REACTOR ONLINE"
-        BH.hero.Visible = true
-        BH.hero.Position = UDim2.fromOffset(0, 64)
-        BH.hero.Size = UDim2.fromOffset(windowWidth, 152)
-        BH.hero.BackgroundColor3 = C.black
-        BH.heroStroke.Color = C.line
-        BH.heroStroke.Transparency = 0.82
-        tabs.Position = UDim2.fromOffset(0, 216)
-        tabs.BackgroundColor3 = C.black
-        tabs.BackgroundTransparency = 0.28
-        content.Position = UDim2.fromOffset(0, 280)
-        content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
-        edgeSheen.BackgroundColor3 = C.cyan
-        BH.atmosphere.BackgroundColor3 = Color3.fromRGB(12,8,20)
+        Theme.height=600; windowHeight=Theme.height; holder.Size=UDim2.fromOffset(windowWidth,windowHeight); shadow.Size=UDim2.fromOffset(windowWidth+12,windowHeight+12); panel.Size=UDim2.fromOffset(windowWidth,windowHeight); panel.BackgroundColor3=C.panel; panel.BackgroundTransparency=.18; panelStroke.Color=C.line; panelStroke.Transparency=.72; panelBackdrop.Visible=false; voidFX.Visible=false; ticker.Visible=false
+        header.Position=UDim2.fromOffset(0,0); header.Size=UDim2.fromOffset(windowWidth,64); headerLine.BackgroundColor3=C.line; headerLine.BackgroundTransparency=.70; brandTitle.Text="BLACKHOLE V1"; brandTitle.TextColor3=C.ink; header:FindFirstChild("Sub").Text="REACTOR ONLINE"; BH.hero.Visible=true; BH.hero.Position=UDim2.fromOffset(0,64); BH.hero.Size=UDim2.fromOffset(windowWidth,152); BH.hero.BackgroundColor3=C.black; BH.heroStroke.Color=C.line; BH.heroStroke.Transparency=.82; tabs.Position=UDim2.fromOffset(0,216); tabs.BackgroundColor3=C.black; tabs.BackgroundTransparency=.28; content.Position=UDim2.fromOffset(0,280); content.Size=UDim2.fromOffset(windowWidth,windowHeight-280); edgeSheen.BackgroundColor3=C.cyan; BH.atmosphere.BackgroundColor3=Color3.fromRGB(12,8,20)
+    elseif emp then
+        Theme.height=600; windowHeight=Theme.height; holder.Size=UDim2.fromOffset(windowWidth,windowHeight); shadow.Size=UDim2.fromOffset(windowWidth+12,windowHeight+12); panel.Size=UDim2.fromOffset(windowWidth,windowHeight); panel.BackgroundColor3=C.panel; panel.BackgroundTransparency=.28; panelStroke.Color=C.line; panelStroke.Transparency=.38; panelBackdrop.Visible=false; voidFX.Visible=false; ticker.Visible=false
+        header.Position=UDim2.fromOffset(0,0); header.Size=UDim2.fromOffset(windowWidth,64); headerLine.BackgroundColor3=C.line; headerLine.BackgroundTransparency=.54; brandTitle.Text="EMPYREAN"; brandTitle.TextColor3=C.ink; header:FindFirstChild("Sub").Text="GRACE ATTAINED"; EMP.hero.Visible=true; EMP.hero.Position=UDim2.fromOffset(0,64); EMP.hero.Size=UDim2.fromOffset(windowWidth,152); EMP.hero.BackgroundColor3=C.surface; EMP.heroStroke.Color=C.line; EMP.heroStroke.Transparency=.58; tabs.Position=UDim2.fromOffset(0,216); tabs.BackgroundColor3=C.surface; tabs.BackgroundTransparency=.30; content.Position=UDim2.fromOffset(0,280); content.Size=UDim2.fromOffset(windowWidth,windowHeight-280); edgeSheen.BackgroundColor3=C.line
     else
-        Theme.height = H
-        windowHeight = Theme.height
-        holder.Size = UDim2.fromOffset(windowWidth, windowHeight)
-        shadow.Size = UDim2.fromOffset(windowWidth + 12, windowHeight + 12)
-        panel.Size = UDim2.fromOffset(windowWidth, windowHeight)
-        panel.BackgroundColor3 = C.panel
-        panel.BackgroundTransparency = 0.40
-        panelStroke.Color = C.violet2
-        panelStroke.Transparency = 0.28
-        panelBackdrop.Visible = true
-        voidFX.Visible = true
-        ticker.Visible = true
-        header.Position = UDim2.fromOffset(0, 0)
-        header.Size = UDim2.fromOffset(windowWidth, 64)
-        headerLine.BackgroundColor3 = C.violet
-        headerLine.BackgroundTransparency = 0.48
-        brandTitle.Text = "VOID NEXUS"
-        brandTitle.TextColor3 = C.ink
-        header:FindFirstChild("Sub").Text = "CORE LINK STABLE"
-        BH.hero.Visible = false
-        tabs.Position = UDim2.fromOffset(0, 88)
-        tabs.BackgroundColor3 = C.black
-        tabs.BackgroundTransparency = 0.35
-        content.Position = UDim2.fromOffset(0, 152)
-        content.Size = UDim2.fromOffset(windowWidth, windowHeight - 152)
-        edgeSheen.BackgroundColor3 = C.cyan
+        Theme.height=H; windowHeight=Theme.height; holder.Size=UDim2.fromOffset(windowWidth,windowHeight); shadow.Size=UDim2.fromOffset(windowWidth+12,windowHeight+12); panel.Size=UDim2.fromOffset(windowWidth,windowHeight); panel.BackgroundColor3=C.panel; panel.BackgroundTransparency=.40; panelStroke.Color=C.violet2; panelStroke.Transparency=.28; panelBackdrop.Visible=true; voidFX.Visible=true; ticker.Visible=true
+        header.Position=UDim2.fromOffset(0,0); header.Size=UDim2.fromOffset(windowWidth,64); headerLine.BackgroundColor3=C.violet; headerLine.BackgroundTransparency=.48; brandTitle.Text="VOID NEXUS"; brandTitle.TextColor3=C.ink; header:FindFirstChild("Sub").Text="CORE LINK STABLE"; tabs.Position=UDim2.fromOffset(0,88); tabs.BackgroundColor3=C.black; tabs.BackgroundTransparency=.35; content.Position=UDim2.fromOffset(0,152); content.Size=UDim2.fromOffset(windowWidth,windowHeight-152); edgeSheen.BackgroundColor3=C.cyan
     end
-
-    brandmark.BackgroundColor3 = C.panel2
-    local brandStroke = brandmark:FindFirstChildOfClass("UIStroke")
-    if brandStroke then brandStroke.Color = C.violet2 end
-    markCore.BackgroundColor3 = C.violet2
-    markH.BackgroundColor3 = C.violet2
-    markV.BackgroundColor3 = C.cyan
-    ticker.BackgroundColor3 = C.black
-    tickerText.TextColor3 = C.faint
-    tabs:FindFirstChildOfClass("UIStroke").Color = C.line
-    edgeSheenGradient.Color = ColorSequence.new(C.cyan, C.violet2)
-
-    for key, tab in pairs(navButtons) do
-        tab.BackgroundColor3 = bh and C.panel2 or Color3.fromRGB(8,4,16)
-        local st = UI.navStrokes[key]
-        if st then st.Color = C.line end
-        local bar = UI.navBars[key]
-        if bar then bar.BackgroundColor3 = C.violet2 end
-    end
-    Theme.restyleRows()
-    Theme.restyleText()
-
-    if ThemeUI.activeLabel then
-        ThemeUI.activeLabel.Text = bh and "BLACKHOLE V1" or "DEFAULT"
-        ThemeUI.activeLabel.TextColor3 = C.ink
-    end
-    if ThemeUI.defaultButton then
-        ThemeUI.defaultButton.BackgroundColor3 = bh and C.panel2 or C.violet2
-        ThemeUI.defaultButton.TextColor3 = bh and C.faint or C.ink
-    end
-    if ThemeUI.blackholeButton then
-        ThemeUI.blackholeButton.BackgroundColor3 = bh and C.violet2 or C.panel2
-        ThemeUI.blackholeButton.TextColor3 = bh and C.ink or C.faint
-    end
-    if ThemeUI.defaultRow then
-        local st = ThemeUI.defaultRow:FindFirstChildOfClass("UIStroke")
-        if st then st.Color = bh and C.line or C.violet2 end
-    end
-    if ThemeUI.blackholeRow then
-        local st = ThemeUI.blackholeRow:FindFirstChildOfClass("UIStroke")
-        if st then st.Color = bh and C.violet2 or C.line end
-    end
-    if bh then
-        BH.core.BackgroundColor3 = Color3.new(0,0,0)
-        BH.coreGlow.BackgroundColor3 = Color3.fromRGB(65,35,135)
-        BH.silverStroke.Color = Color3.fromRGB(238,241,251)
-        BH.purpleStroke.Color = Color3.fromRGB(122,63,242)
-    end
-
-    applyWindowWidth(windowWidth)
-    fitWindow(false)
-    render()
+    brandmark.BackgroundColor3=C.panel2; local brandStroke=brandmark:FindFirstChildOfClass("UIStroke"); if brandStroke then brandStroke.Color=C.violet2 end; markCore.BackgroundColor3=C.violet2; markH.BackgroundColor3=C.violet2; markV.BackgroundColor3=C.cyan; ticker.BackgroundColor3=C.black; tickerText.TextColor3=C.faint; tabs:FindFirstChildOfClass("UIStroke").Color=C.line; edgeSheenGradient.Color=emp and ColorSequence.new(Color3.fromRGB(255,243,200),Color3.fromRGB(207,230,255)) or ColorSequence.new(C.cyan,C.violet2)
+    for key,tab in pairs(navButtons) do tab.BackgroundColor3=emp and C.panel2 or(bh and C.panel2 or Color3.fromRGB(8,4,16)); local st=UI.navStrokes[key]; if st then st.Color=C.line end; local bar=UI.navBars[key]; if bar then bar.BackgroundColor3=C.violet2 end end
+    Theme.restyleRows(); Theme.restyleText()
+    if ThemeUI.activeLabel then ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or(emp and "EMPYREAN" or "DEFAULT"); ThemeUI.activeLabel.TextColor3=C.ink end
+    if ThemeUI.defaultButton then ThemeUI.defaultButton.BackgroundColor3=(not bh and not emp) and C.violet2 or C.panel2; ThemeUI.defaultButton.TextColor3=(not bh and not emp) and C.ink or C.faint end
+    if ThemeUI.blackholeButton then ThemeUI.blackholeButton.BackgroundColor3=bh and C.violet2 or C.panel2; ThemeUI.blackholeButton.TextColor3=bh and C.ink or C.faint end
+    if ThemeUI.empyreanButton then ThemeUI.empyreanButton.BackgroundColor3=emp and C.violet2 or C.panel2; ThemeUI.empyreanButton.TextColor3=emp and C.ink or C.faint end
+    if ThemeUI.defaultRow then local st=ThemeUI.defaultRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=(not bh and not emp) and C.violet2 or C.line end end
+    if ThemeUI.blackholeRow then local st=ThemeUI.blackholeRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=bh and C.violet2 or C.line end end
+    if ThemeUI.empyreanRow then local st=ThemeUI.empyreanRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=emp and C.violet2 or C.line end end
+    if bh then BH.core.BackgroundColor3=Color3.new(0,0,0); BH.coreGlow.BackgroundColor3=Color3.fromRGB(65,35,135); BH.silverStroke.Color=Color3.fromRGB(238,241,251); BH.purpleStroke.Color=Color3.fromRGB(122,63,242) elseif emp then EMP.startVisuals() end
+    applyWindowWidth(windowWidth); fitWindow(false); render()
 end
 
 UI.setTheme = function(themeName)
@@ -5137,7 +5116,7 @@ local function renderPageState()
         or State.tab == "ESP" and (Settings.ESPEnabled and "ESP" or "SYNCED")
         or State.tab == "Health" and (Settings.HealthEscapeEnabled and "HP" or "SYNCED")
         or State.tab == "Move" and (Settings.FlyEnabled and "FLY" or Settings.NoClip and "MOVE" or "SYNCED")
-        or State.tab == "Theme" and (System.theme == "Blackhole" and "BLACKHOLE" or "DEFAULT")
+        or State.tab == "Theme" and (System.theme == "Blackhole" and "BLACKHOLE" or (System.theme == "Empyrean" and "EMPYREAN" or "DEFAULT"))
         or "SYNCED")
     UI.badge.TextColor3 = mainColor
     statusDot.BackgroundColor3 = mainColor
@@ -5278,6 +5257,44 @@ do
             BorderSizePixel = 0, Active = true, ZIndex = 100,
         })
         local loadingLayer = __loaderLayer
+
+        if System.theme == "Empyrean" then
+            loadingLayer.BackgroundColor3 = Color3.fromRGB(247,242,226); loadingLayer.BackgroundTransparency=0.02
+            local loadCard=frame(loadingLayer,"LoadingCard",0,0,326,402,Color3.fromRGB(255,253,247),18); loadCard.AnchorPoint=Vector2.new(.5,.5); loadCard.Position=UDim2.fromScale(.5,.5); loadCard.BackgroundTransparency=.08; loadCard.ZIndex=101; stroke(loadCard,Color3.fromRGB(217,169,78),.34,1)
+            local loadScale=make("UIScale",loadCard,{Scale=.88}); TweenService:Create(loadScale,TweenInfo.new(.62,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Scale=1}):Play()
+            local loadTitle=safeText(loadCard,"Title","EMPYREAN",0,16,326,22,17,Color3.fromRGB(58,47,26),Enum.Font.GothamBold); loadTitle.TextXAlignment=Enum.TextXAlignment.Center; loadTitle.ZIndex=103
+            local loadSub=safeText(loadCard,"Sub","GRACE ATTAINED",0,40,326,16,8,Color3.fromRGB(122,108,74),Enum.Font.GothamBold); loadSub.TextXAlignment=Enum.TextXAlignment.Center; loadSub.ZIndex=103
+            local symbol=frame(loadCard,"Symbol",0,0,220,220,Color3.new(1,1,1),110); symbol.AnchorPoint=Vector2.new(.5,.5); symbol.Position=UDim2.new(.5,0,0,156); symbol.BackgroundTransparency=1; symbol.ZIndex=102
+            local bloom=frame(symbol,"Bloom",0,0,140,140,Color3.fromRGB(255,224,150),70); bloom.AnchorPoint=Vector2.new(.5,.5); bloom.Position=UDim2.fromScale(.5,.5); bloom.BackgroundTransparency=.90; bloom.ZIndex=102
+            local guide=frame(symbol,"Guide",0,0,160,160,Color3.new(1,1,1),80); guide.AnchorPoint=Vector2.new(.5,.5); guide.Position=UDim2.fromScale(.5,.5); guide.BackgroundTransparency=1; guide.ZIndex=103; stroke(guide,Color3.fromRGB(242,193,78),.82,1)
+            local ticks={}; for i=1,8 do local tick=frame(symbol,"Tick"..i,0,0,2,14,Color3.fromRGB(217,169,78),1); tick.AnchorPoint=Vector2.new(.5,.5); tick.Position=UDim2.fromScale(.5,.5); tick.Rotation=(i-1)*45; tick.ZIndex=105; ticks[#ticks+1]=tick end
+            local outer=frame(symbol,"OuterArc",0,0,126,126,Color3.new(1,1,1),63); outer.AnchorPoint=Vector2.new(.5,.5); outer.Position=UDim2.fromScale(.5,.5); outer.BackgroundTransparency=1; outer.ZIndex=106
+            local outerSegments={}; for i=1,24 do local a=((i-1)/24)*math.pi*2; local seg=frame(outer,"Seg"..i,0,0,18,3.2,Color3.fromRGB(217,169,78),1); seg.AnchorPoint=Vector2.new(.5,.5); seg.Position=UDim2.fromScale(.5,.5); seg.Rotation=math.deg(a); seg.BackgroundTransparency=(i<=7 and .08 or .96); seg.ZIndex=106; outerSegments[#outerSegments+1]=seg end
+            local inner=frame(symbol,"InnerArc",0,0,94,94,Color3.new(1,1,1),47); inner.AnchorPoint=Vector2.new(.5,.5); inner.Position=UDim2.fromScale(.5,.5); inner.BackgroundTransparency=1; inner.ZIndex=107
+            local innerSegments={}; for i=1,24 do local a=((i-1)/24)*math.pi*2; local seg=frame(inner,"Seg"..i,0,0,12,1.4,Color3.fromRGB(255,243,200),1); seg.AnchorPoint=Vector2.new(.5,.5); seg.Position=UDim2.fromScale(.5,.5); seg.Rotation=math.deg(a); seg.BackgroundTransparency=(i<=5 and .24 or .96); seg.ZIndex=107; innerSegments[#innerSegments+1]=seg end
+            local dot=frame(symbol,"CoreDot",0,0,10,10,Color3.fromRGB(255,254,248),5); dot.AnchorPoint=Vector2.new(.5,.5); dot.Position=UDim2.fromScale(.5,.5); dot.ZIndex=108
+            local sparks={}; for i,pos in ipairs({{.5,.17},{.83,.5},{.5,.83},{.17,.5}}) do local sp=frame(symbol,"Spark"..i,0,0,4,4,Color3.fromRGB(255,243,200),2); sp.AnchorPoint=Vector2.new(.5,.5); sp.Position=UDim2.fromScale(pos[1],pos[2]); sp.ZIndex=109; sparks[#sparks+1]={object=sp,phase=(i-1)*.4} end
+            local loadStatus=safeText(loadCard,"Status","ASCENDING...",0,286,326,18,9,Color3.fromRGB(156,116,32),Enum.Font.GothamBold); loadStatus.TextXAlignment=Enum.TextXAlignment.Center; loadStatus.ZIndex=121
+            local loadRail=frame(loadCard,"Rail",39,318,248,4,Color3.fromRGB(231,224,205),2); loadRail.ZIndex=121; local loadFill=frame(loadRail,"Fill",0,0,0,4,Color3.fromRGB(217,169,78),2); loadFill.ZIndex=122
+            local loadPercent=safeText(loadCard,"Percent","0%",0,330,326,16,8,Color3.fromRGB(122,108,74),Enum.Font.GothamMedium); loadPercent.TextXAlignment=Enum.TextXAlignment.Center; loadPercent.ZIndex=121
+            local loadHint=safeText(loadCard,"Hint","EMPYREAN // CELESTIAL LINK",0,365,326,14,7,Color3.fromRGB(171,157,120),Enum.Font.GothamMedium); loadHint.TextXAlignment=Enum.TextXAlignment.Center; loadHint.ZIndex=121
+            local loadStart=os.clock(); local loadDuration=2.65; local loadAnimConn
+            loadAnimConn=connect(RunService.RenderStepped,function()
+                if not State.alive or not loadingLayer.Parent then if loadAnimConn then loadAnimConn:Disconnect() end; return end
+                local elapsed=os.clock()-loadStart; local progress=math.clamp(elapsed/loadDuration,0,1); local pulse=(math.sin(elapsed*math.pi*2/1.8)+1)*.5
+                bloom.BackgroundTransparency=.95-pulse*.10; outer.Rotation=elapsed*(360/1.4); inner.Rotation=-elapsed*(360/3.6); guide.Rotation=-elapsed*2
+                local arcHead=(math.floor(elapsed*24/1.4)%24)+1; for i,seg in ipairs(outerSegments) do local d=(i-arcHead)%24; seg.BackgroundTransparency=d<7 and(.06+d*.035)or .97 end
+                local innerHead=(math.floor(elapsed*24/3.6)%24)+1; for i,seg in ipairs(innerSegments) do local d=(i-innerHead)%24; seg.BackgroundTransparency=d<5 and(.22+d*.06)or .97 end
+                for i,tick in ipairs(ticks) do tick.BackgroundTransparency=.70-((math.sin(elapsed*math.pi*2/1.8+i)+1)*.5)*.45 end
+                for _,info in ipairs(sparks) do local q=(math.sin((elapsed+info.phase)*math.pi*2/1.6)+1)*.5; info.object.BackgroundTransparency=.80-q*.65; info.object.Size=UDim2.fromOffset(2+3*q,2+3*q) end
+                local stages={{0,"ASCENDING..."},{.18,"AWAKENING CELESTIAL CORE..."},{.37,"ALIGNING HALO RINGS..."},{.56,"OPENING THE EMPYREAN..."},{.75,"SYNCHRONIZING GRACE..."},{.90,"EMPYREAN ONLINE"}}; loadStatus.Text=stages[1][2]; for i=#stages,1,-1 do if progress>=stages[i][1] then loadStatus.Text=stages[i][2]; break end end
+                loadFill.Size=UDim2.new(progress,0,1,0); loadPercent.Text=string.format("%d%%",math.floor(progress*100+.5))
+                if progress>=1 then
+                    loadAnimConn:Disconnect(); loadStatus.Text="EMPYREAN ONLINE"; task.wait(.10); if not State.alive then return end; TweenService:Create(loadScale,TweenInfo.new(.25,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{Scale=.78}):Play(); TweenService:Create(loadingLayer,TweenInfo.new(.32,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{BackgroundTransparency=1}):Play()
+                    task.delay(.36,function() if not State.alive then return end; if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled=false end; if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end; holder.Visible=true; root.Enabled=true; local bootScale=make("UIScale",holder,{Scale=.94}); local bootStroke=panel:FindFirstChildOfClass("UIStroke"); TweenService:Create(bootScale,TweenInfo.new(.48,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Scale=1}):Play(); if bootStroke then bootStroke.Transparency=1; TweenService:Create(bootStroke,TweenInfo.new(.55,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Transparency=.38}):Play() end; if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end end)
+                end
+            end)
+        else
 
         -- BLACKHOLE / VOID NEXUS loader rebuilt from the supplied animated SVG:
         -- 220x220 singularity, deep-space bloom, accretion disk, lens arc,
@@ -5549,6 +5566,7 @@ do
                 end)
             end
         end)
+        end
     end)
 
     if not __loaderOK then

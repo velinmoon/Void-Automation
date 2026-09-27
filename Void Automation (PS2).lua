@@ -5617,6 +5617,145 @@ end
 -- Frost renderer handle is declared before every navigation callback that can reference it.
 local FrostNav = {sidebar=nil, crest=nil, realm=nil, sanctum=nil, control=nil, lore=nil}
 
+-- ============================================================
+-- FROSTBOUND TRANSITION BASELINE
+--
+-- Frost is allowed to change the shared UI while it is active, but none of
+-- those mutations may become permanent.  This is the same principle that
+-- fixed the old EMPYREAN hide/show and theme-switch bugs.
+--
+-- We deliberately snapshot ONLY properties Frost actually changes.  We do NOT
+-- snapshot live gameplay-driven positions such as slider knob positions or
+-- runtime visibility state, because restoring those from startup would itself
+-- create a new bug.
+-- ============================================================
+local FrostBaseline = {captured=false, nav={}, pages={}}
+
+local function frostCaptureObject(obj, visual)
+    if not obj or not obj:IsA("GuiObject") then return nil end
+    local s = {
+        Position=obj.Position,
+        Size=obj.Size,
+        AnchorPoint=obj.AnchorPoint,
+        Rotation=obj.Rotation,
+        ZIndex=obj.ZIndex,
+    }
+    if visual then
+        s.BackgroundTransparency=obj.BackgroundTransparency
+        s.BorderSizePixel=obj.BorderSizePixel
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+            s.TextXAlignment=obj.TextXAlignment
+            s.TextYAlignment=obj.TextYAlignment
+            s.TextSize=obj.TextSize
+            s.Font=obj.Font
+            s.TextStrokeTransparency=obj.TextStrokeTransparency
+            if obj:IsA("TextButton") then s.AutoButtonColor=obj.AutoButtonColor end
+            if obj:IsA("TextBox") then s.PlaceholderColor3=obj.PlaceholderColor3 end
+        end
+    end
+    return s
+end
+
+local function frostRestoreObject(obj, s, visual)
+    if not obj or not obj.Parent or not s then return end
+    pcall(function()
+        obj.Position=s.Position
+        obj.Size=s.Size
+        obj.AnchorPoint=s.AnchorPoint
+        obj.Rotation=s.Rotation
+        obj.ZIndex=s.ZIndex
+        if visual then
+            obj.BackgroundTransparency=s.BackgroundTransparency
+            obj.BorderSizePixel=s.BorderSizePixel
+            if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+                obj.TextXAlignment=s.TextXAlignment
+                obj.TextYAlignment=s.TextYAlignment
+                obj.TextSize=s.TextSize
+                obj.Font=s.Font
+                obj.TextStrokeTransparency=s.TextStrokeTransparency
+                if obj:IsA("TextButton") and s.AutoButtonColor~=nil then obj.AutoButtonColor=s.AutoButtonColor end
+                if obj:IsA("TextBox") and s.PlaceholderColor3 then obj.PlaceholderColor3=s.PlaceholderColor3 end
+            end
+        end
+    end)
+end
+
+function FrostBaseline.capture()
+    if FrostBaseline.captured then return end
+    FrostBaseline.captured=true
+
+    for key,tab in pairs(navButtons) do
+        FrostBaseline.nav[key]={
+            parent=tab.Parent,
+            tab=frostCaptureObject(tab,true),
+            icon=frostCaptureObject(tab:FindFirstChild("Icon"),true),
+            bar=frostCaptureObject(UI.navBars[key],true),
+        }
+        local st=UI.navStrokes[key]
+        if st then FrostBaseline.nav[key].stroke={Transparency=st.Transparency} end
+    end
+
+    for key,page in pairs(pageMap) do
+        local entry={page=frostCaptureObject(page,false), layout={}, visual={}}
+        -- Frost changes the geometry of these direct layout containers.
+        for _,child in ipairs(page:GetChildren()) do
+            if child.Name=="PaneHead" or child.Name:match("^Row_")
+                or child.Name:match("^Slider_") or child.Name=="KeyLoadout" then
+                entry.layout[child]=frostCaptureObject(child,false)
+                local toggle=child:FindFirstChild("Toggle")
+                if toggle then entry.layout[toggle]=frostCaptureObject(toggle,false) end
+                local value=child:FindFirstChild("Value")
+                if value then entry.layout[value]=frostCaptureObject(value,false) end
+                local hit=child:FindFirstChild("Slider")
+                if hit then
+                    entry.layout[hit]=frostCaptureObject(hit,false)
+                    local rail=hit:FindFirstChild("Rail")
+                    if rail then entry.layout[rail]=frostCaptureObject(rail,false) end
+                end
+            end
+        end
+        -- Frost changes visual transparency/alignment on nested controls. Save
+        -- those presentation properties, but never save their colors because
+        -- the next theme must be allowed to paint its own palette.
+        for _,obj in ipairs(page:GetDescendants()) do
+            if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+                entry.visual[obj]=frostCaptureObject(obj,true)
+            elseif obj:IsA("Frame") then
+                entry.visual[obj]=frostCaptureObject(obj,true)
+            end
+        end
+        FrostBaseline.pages[key]=entry
+    end
+end
+
+function FrostBaseline.restore()
+    if not FrostBaseline.captured then return end
+
+    for key,entry in pairs(FrostBaseline.pages) do
+        for obj,state in pairs(entry.layout) do
+            frostRestoreObject(obj,state,false)
+        end
+        frostRestoreObject(pageMap[key],entry.page,false)
+        for obj,state in pairs(entry.visual) do
+            frostRestoreObject(obj,state,true)
+        end
+    end
+
+    for key,entry in pairs(FrostBaseline.nav) do
+        local tab=navButtons[key]
+        if tab then
+            pcall(function() tab.Parent=entry.parent end)
+            frostRestoreObject(tab,entry.tab,true)
+            frostRestoreObject(tab:FindFirstChild("Icon"),entry.icon,true)
+            frostRestoreObject(UI.navBars[key],entry.bar,true)
+            local st=UI.navStrokes[key]
+            if st and entry.stroke then pcall(function() st.Transparency=entry.stroke.Transparency end) end
+        end
+    end
+end
+
+FrostBaseline.capture()
+
 for key, tab in pairs(navButtons) do
     connect(tab.MouseEnter, function()
         if State.tab ~= key then
@@ -5646,6 +5785,9 @@ local function updateTabVisuals()
     local frost = System.theme == "Frost"
     if frost then
         FrostNav.ensure()
+        if FrostNav.buttons then
+            for key in pairs(FrostNav.buttons) do FrostNav.paintProxy(key,false) end
+        end
         return
     end
     for key, tab in pairs(navButtons) do
@@ -5717,9 +5859,11 @@ end
 -- ============================================================
 function FrostNav.paintTab(tab, selected, hover)
     if not tab then return end
-    tab.BackgroundColor3 = hover and Color3.fromRGB(40,76,87) or (selected and Color3.fromRGB(48,87,98) or Color3.fromRGB(23,54,64))
+    tab.BackgroundColor3 = hover and Color3.fromRGB(40,76,87)
+        or (selected and Color3.fromRGB(48,87,98) or Color3.fromRGB(23,54,64))
     tab.BackgroundTransparency = hover and .56 or (selected and .34 or .78)
-    tab.TextColor3 = selected and Color3.fromRGB(240,253,255) or (hover and Color3.fromRGB(223,249,255) or Color3.fromRGB(151,192,202))
+    tab.TextColor3 = selected and Color3.fromRGB(240,253,255)
+        or (hover and Color3.fromRGB(223,249,255) or Color3.fromRGB(151,192,202))
     tab.TextSize = 9
     tab.TextXAlignment = Enum.TextXAlignment.Left
     tab.TextYAlignment = Enum.TextYAlignment.Center
@@ -5748,7 +5892,10 @@ function FrostNav.paintTab(tab, selected, hover)
 end
 
 function FrostNav.ensure()
-    -- Hide the old container FIRST. This prevents a frame of stale Nexus geometry.
+    -- IMPORTANT: the Frost sidebar NEVER reparents the real navigation buttons.
+    -- The old implementation did that, which allowed legacy MouseEnter/Leave,
+    -- render and resize code to mutate the shared buttons and caused symbols to
+    -- jump, stick, or remain in the wrong theme after switching away.
     tabs.Visible=false
     tabs.Active=false
 
@@ -5759,9 +5906,7 @@ function FrostNav.ensure()
         local st=stroke(FrostNav.sidebar,Color3.fromRGB(153,211,222),.72,1)
         st.Name="FrostSidebarStroke"
         FrostNav.crest=frame(FrostNav.sidebar,"Crest",61,18,48,48,Color3.fromRGB(223,249,255),8)
-        FrostNav.crest.BackgroundTransparency=.91
-        FrostNav.crest.Rotation=45
-        FrostNav.crest.ZIndex=41
+        FrostNav.crest.BackgroundTransparency=.91; FrostNav.crest.Rotation=45; FrostNav.crest.ZIndex=41
         stroke(FrostNav.crest,Color3.fromRGB(153,211,222),.34,1)
         local core=frame(FrostNav.crest,"Core",15,15,18,18,Color3.fromRGB(240,253,255),4)
         core.BackgroundTransparency=.03; core.Rotation=-45; core.ZIndex=42
@@ -5776,6 +5921,35 @@ function FrostNav.ensure()
         divider.BackgroundTransparency=.78; divider.ZIndex=41
         FrostNav.lore=safeText(FrostNav.sidebar,"Lore","A quiet interface forged\nfrom winter glass.\n\nLet the frost remain still.",15,486,140,62,8,Color3.fromRGB(113,157,168),Enum.Font.GothamMedium)
         FrostNav.lore.TextWrapped=true; FrostNav.lore.ZIndex=42
+        FrostNav.buttons={}
+
+        -- Visual proxy buttons. They call the same page controller as the real
+        -- tabs, but never touch the shared navigation instances.
+        for i,key in ipairs(navNames) do
+            local proxy=button(FrostNav.sidebar,"FrostTab_"..key,string.upper(key),15,132+(i-1)*42,140,36,Color3.fromRGB(23,54,64),8)
+            proxy.Name="FrostTab_"..key
+            proxy.ZIndex=42
+            proxy.AutoButtonColor=false
+            proxy.TextXAlignment=Enum.TextXAlignment.Left
+            proxy.TextYAlignment=Enum.TextYAlignment.Center
+            proxy.TextColor3=Color3.fromRGB(151,192,202)
+            proxy.Font=Enum.Font.GothamBold
+            proxy.TextSize=9
+            navIcon(proxy,navKinds[i],12,8,Color3.fromRGB(151,192,202))
+            local stp=stroke(proxy,Color3.fromRGB(153,211,222),.84,1)
+            local bar=frame(proxy,"FrostActiveBar",4,5,2,26,Color3.fromRGB(173,224,235),2)
+            bar.Visible=false
+            FrostNav.buttons[key]={button=proxy,stroke=stp,bar=bar}
+            connect(proxy.MouseEnter,function()
+                if State.alive and System.theme=="Frost" then FrostNav.paintProxy(key,true) end
+            end)
+            connect(proxy.MouseLeave,function()
+                if State.alive and System.theme=="Frost" then FrostNav.paintProxy(key,false) end
+            end)
+            connect(proxy.Activated,function()
+                if State.alive and System.theme=="Frost" then showPage(key) end
+            end)
+        end
     end
 
     FrostNav.sidebar.Position=UDim2.fromOffset(0,64)
@@ -5784,58 +5958,49 @@ function FrostNav.ensure()
     FrostNav.sidebar.BackgroundColor3=Color3.fromRGB(13,34,41)
     FrostNav.sidebar.BackgroundTransparency=.02
 
-    -- Functional navigation buttons are the original buttons; only their parent
-    -- changes. Their Activated callbacks therefore remain untouched.
     for i,key in ipairs(navNames) do
-        local tab=navButtons[key]
-        if tab then
-            if tab.Parent~=FrostNav.sidebar then tab.Parent=FrostNav.sidebar end
-            tab.Position=UDim2.fromOffset(15,132+(i-1)*42)
-            tab.Size=UDim2.fromOffset(140,36)
-            FrostNav.paintTab(tab,State.tab==key,false)
+        local item=FrostNav.buttons and FrostNav.buttons[key]
+        if item and item.button then
+            item.button.Position=UDim2.fromOffset(15,132+(i-1)*42)
+            item.button.Size=UDim2.fromOffset(140,36)
+            FrostNav.paintProxy(key,false)
         end
     end
+end
+
+function FrostNav.paintProxy(key,hover)
+    local item=FrostNav.buttons and FrostNav.buttons[key]
+    if not item or not item.button then return end
+    local selected=State.tab==key
+    local b=item.button
+    b.BackgroundColor3=hover and Color3.fromRGB(40,76,87) or (selected and Color3.fromRGB(48,87,98) or Color3.fromRGB(23,54,64))
+    b.BackgroundTransparency=hover and .56 or (selected and .34 or .78)
+    b.TextColor3=selected and Color3.fromRGB(240,253,255) or (hover and Color3.fromRGB(223,249,255) or Color3.fromRGB(151,192,202))
+    b.TextXAlignment=Enum.TextXAlignment.Left; b.TextYAlignment=Enum.TextYAlignment.Center
+    local icon=b:FindFirstChild("Icon")
+    if icon then
+        icon.Position=UDim2.fromOffset(12,8)
+        for _,d in ipairs(icon:GetDescendants()) do
+            if d:IsA("Frame") then d.BackgroundColor3=selected and Color3.fromRGB(223,249,255) or Color3.fromRGB(151,192,202)
+            elseif d:IsA("UIStroke") then d.Color=Color3.fromRGB(173,224,235) end
+        end
+    end
+    item.stroke.Color=Color3.fromRGB(153,211,222); item.stroke.Transparency=selected and .42 or .84
+    item.bar.Visible=selected; item.bar.BackgroundColor3=Color3.fromRGB(173,224,235)
 end
 
 function FrostNav.restore()
-    -- Fully restore the legacy horizontal navigation when leaving Frost.
     if FrostNav.sidebar then FrostNav.sidebar.Visible=false end
+    -- Real navigation buttons were never reparented. Only restore the legacy
+    -- container and its exact baseline state.
     tabs.Visible=true
     tabs.Active=true
-    local navCount=#navNames
-    local availableNav=math.max(240,windowWidth-24-navGap*math.max(0,navCount-1))
-    local dynamicNavW=math.floor(availableNav/navCount)
-    for i,key in ipairs(navNames) do
-        local tab=navButtons[key]
-        if tab then
-            if tab.Parent~=tabs then tab.Parent=tabs end
-            tab.Position=UDim2.fromOffset(navX+(i-1)*(dynamicNavW+navGap),10)
-            tab.Size=UDim2.fromOffset(dynamicNavW,44)
-            tab.ZIndex=6
-            tab.TextXAlignment=Enum.TextXAlignment.Center
-            tab.TextYAlignment=Enum.TextYAlignment.Bottom
-            tab.TextSize=8.6
-            tab.Font=Enum.Font.GothamBold
-            tab.AutoButtonColor=false
-            local icon=tab:FindFirstChild("Icon")
-            if icon then
-                icon.Position=UDim2.fromOffset(math.floor((dynamicNavW-19)/2),5)
-                icon.ZIndex=7
-            end
-            local bar=UI.navBars[key]
-            if bar then
-                bar.Position=UDim2.fromOffset(8,40)
-                bar.Size=UDim2.fromOffset(math.max(12,dynamicNavW-16),2)
-            end
-        end
-    end
+    FrostBaseline.restore()
 end
 
 function FrostNav.removeLegacyDecor()
-    for _,name in ipairs({"FrostCrest","FrostRealm","FrostSanctum","FrostLabel","FrostLore"}) do
-        local obj=tabs:FindFirstChild(name)
-        if obj then obj:Destroy() end
-    end
+    -- Legacy Frost decorations are no longer created in tabs. Keep this method
+    -- as a safe no-op for older calls in the renderer.
 end
 
 local function applyWindowWidth(width)
@@ -7685,6 +7850,25 @@ function FrostFX.ensure()
     end
 end
 
+-- Frost lifetime watchdog.  Like the EMPYREAN watchdog, this survives theme
+-- switches and visibility changes.  It sleeps outside Frost and never uses
+-- AbsoluteSize as a layout input.
+local FrostWatchdog=RunService.RenderStepped:Connect(function()
+    if not State.alive or System.theme~="Frost" or State.minimized then return end
+    pcall(function()
+        FrostFX.ensure()
+        FrostNav.ensure()
+        if FrostNav.sidebar then
+            if FrostNav.sidebar.Position ~= UDim2.fromOffset(0,64)
+                or FrostNav.sidebar.Size ~= UDim2.fromOffset(170,math.max(1,windowHeight-64)) then
+                FrostNav.sidebar.Position=UDim2.fromOffset(0,64)
+                FrostNav.sidebar.Size=UDim2.fromOffset(170,math.max(1,windowHeight-64))
+            end
+        end
+    end)
+end)
+if FrostWatchdog then connections[#connections+1]=FrostWatchdog end
+
 function Theme.applyFrostFinal()
     if System.theme ~= "Frost" then return end
     local P = Theme.Frost
@@ -7964,22 +8148,12 @@ function Theme.applyFrostFinal()
         end
     end
 
-    -- The sidebar symbols and labels are Frost-only; no legacy purple remains.
-    for _, key in ipairs(navNames) do
-        local tab = navButtons[key]
-        if tab then
-            FrostNav.paintTab(tab, State.tab == key, false)
-            local icon = tab:FindFirstChild("Icon")
-            if icon then
-                for _, d in ipairs(icon:GetDescendants()) do
-                    if d:IsA("Frame") then
-                        d.BackgroundColor3 = (State.tab == key) and frostIconBright or frostMuted
-                    elseif d:IsA("UIStroke") then
-                        d.Color = frostIcon
-                    end
-                end
-            end
-        end
+    -- The visible Frost sidebar uses proxy controls. The real legacy navigation
+    -- stays hidden in its original container, so no Blackhole/Nexus callback can
+    -- repaint or reposition the Frost controls.
+    FrostNav.ensure()
+    if FrostNav.buttons then
+        for key in pairs(FrostNav.buttons) do FrostNav.paintProxy(key,false) end
     end
 
     if UI.staticScanButton then UI.staticScanButton.BackgroundColor3=P.panel2; UI.staticScanButton.TextColor3=frostBright end
@@ -8030,9 +8204,13 @@ function Theme.apply(themeName)
         FrostNav.ensure()
         FrostFX.ensure()
     else
-        -- Unwind every Frost-only geometry change BEFORE the next theme renderer.
+        -- Unwind EVERY Frost-only mutation before the next theme renderer.
+        -- This mirrors the Empyrean fix: parent restoration alone is not enough;
+        -- all child geometry/text presentation state must be returned first.
+        FrostBaseline.restore()
         FrostNav.restore()
         if FrostFX.layer then FrostFX.layer.Visible=false end
+        if FrostNav.sidebar then FrostNav.sidebar.Visible=false end
         local frostSurface=content:FindFirstChild("FrostSurfaceGradient")
         if frostSurface then frostSurface.Enabled=false end
         for _,page in pairs(pageMap) do

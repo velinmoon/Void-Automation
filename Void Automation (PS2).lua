@@ -6732,9 +6732,10 @@ do
                     task.delay(.36,function() if not State.alive then return end; if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled=false end; if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end; holder.Visible=true; root.Enabled=true; if System.theme=="Empyrean" and EMP.ensureVisuals then EMP.ensureVisuals() end; local bootScale=make("UIScale",holder,{Scale=.94}); local bootStroke=panel:FindFirstChildOfClass("UIStroke"); TweenService:Create(bootScale,TweenInfo.new(.48,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Scale=1}):Play(); if bootStroke then bootStroke.Transparency=1; TweenService:Create(bootStroke,TweenInfo.new(.55,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Transparency=.38}):Play() end; if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end end)
                 end
             end)
-        else
+        elseif startupTheme == "Blackhole" then
 
-        -- BLACKHOLE / VOID NEXUS loader rebuilt from the supplied animated SVG:
+        -- BLACKHOLE V1 loader. This branch is intentionally Blackhole-only.
+        -- VOID NEXUS has its own loader below and never shares this animation.
         -- 220x220 singularity, deep-space bloom, accretion disk, lens arc,
         -- split photon ring, distant stars and slow breathing/flicker motion.
         local loadCard = frame(loadingLayer, "LoadingCard", 0, 0, 326, 402, Color3.fromRGB(5, 3, 11), 18)
@@ -7004,6 +7005,335 @@ do
                 end)
             end
         end)
+
+        else
+            -- ================================================================
+            -- VOID NEXUS LOADER
+            -- Dedicated loader for the Default/Nexus theme.
+            --
+            -- This is a Roblox-native recreation of the supplied
+            -- `void-nexus-symbol-animated(1).svg`:
+            --   * breathing violet atmospheric bloom
+            --   * expanding shock rings
+            --   * 8 rotating corona spikes
+            --   * three independently rotating accretion disks
+            --   * structural/dashed orbital rings
+            --   * cardinal reticle ticks
+            --   * three orbiting comet particles
+            --   * flickering gravitational lens ring
+            --   * breathing black event horizon / core
+            --
+            -- It is deliberately isolated from the Blackhole loader so
+            -- Default/Nexus can never inherit Blackhole's loading animation.
+            -- ================================================================
+
+            loadingLayer.BackgroundColor3 = Color3.fromRGB(2, 5, 16)
+            loadingLayer.BackgroundTransparency = 0.02
+
+            local N = {
+                black = Color3.fromRGB(0, 0, 0),
+                deep = Color3.fromRGB(4, 2, 12),
+                violet = Color3.fromRGB(168, 85, 247),
+                violetDeep = Color3.fromRGB(76, 20, 140),
+                magenta = Color3.fromRGB(239, 79, 208),
+                cyan = Color3.fromRGB(143, 227, 255),
+                lavender = Color3.fromRGB(201, 182, 255),
+                white = Color3.fromRGB(248, 247, 255),
+                text = Color3.fromRGB(235, 231, 250),
+                dim = Color3.fromRGB(145, 132, 178),
+                rail = Color3.fromRGB(26, 17, 43),
+            }
+
+            local loadCard = frame(loadingLayer, "NexusLoadingCard", 0, 0, 326, 402, N.deep, 18)
+            loadCard.AnchorPoint = Vector2.new(0.5, 0.5)
+            loadCard.Position = UDim2.fromScale(0.5, 0.5)
+            loadCard.BackgroundTransparency = 0.05
+            loadCard.ZIndex = 101
+            stroke(loadCard, Color3.fromRGB(123, 47, 247), 0.22, 1)
+
+            local loadScale = make("UIScale", loadCard, {Scale = 0.88})
+            TweenService:Create(loadScale, TweenInfo.new(0.62, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
+
+            local title = safeText(loadCard, "Title", "VOID NEXUS", 0, 16, 326, 22, 17, N.text, Enum.Font.GothamBold)
+            title.TextXAlignment = Enum.TextXAlignment.Center
+            title.ZIndex = 130
+
+            local sub = safeText(loadCard, "Sub", "GALACTIC LINK", 0, 40, 326, 16, 8, N.dim, Enum.Font.GothamBold)
+            sub.TextXAlignment = Enum.TextXAlignment.Center
+            sub.ZIndex = 130
+
+            local symbol = frame(loadCard, "NexusSymbol", 0, 0, 220, 220, N.black, 110)
+            symbol.AnchorPoint = Vector2.new(0.5, 0.5)
+            symbol.Position = UDim2.new(0.5, 0, 0, 156)
+            symbol.BackgroundTransparency = 1
+            symbol.ZIndex = 110
+
+            local function nCircle(parent, name, diameter, color, transparency, z)
+                local f = frame(parent, name, 0, 0, diameter, diameter, color, math.floor(diameter / 2))
+                f.AnchorPoint = Vector2.new(0.5, 0.5)
+                f.Position = UDim2.fromScale(0.5, 0.5)
+                f.BackgroundTransparency = transparency or 0
+                f.ZIndex = z or 112
+                return f
+            end
+
+            local function nLine(parent, name, x, y, w, h, color, transparency, z, rotation)
+                local f = frame(parent, name, x, y, w, h, color, math.max(1, math.floor(math.min(w, h) / 2)))
+                f.AnchorPoint = Vector2.new(0.5, 0.5)
+                f.BackgroundTransparency = transparency or 0
+                f.ZIndex = z or 114
+                f.Rotation = rotation or 0
+                return f
+            end
+
+            -- Atmospheric bloom.
+            local bloom = nCircle(symbol, "AtmosphericBloom", 172, N.violetDeep, 0.91, 111)
+            local bloom2 = nCircle(symbol, "AtmosphericBloom2", 138, N.violet, 0.97, 112)
+
+            -- Shock rings.
+            local shock1 = nCircle(symbol, "ShockRing1", 92, N.lavender, 1, 113)
+            shock1.BackgroundTransparency = 1
+            stroke(shock1, N.lavender, 0.12, 1.4)
+
+            local shock2 = nCircle(symbol, "ShockRing2", 92, N.cyan, 1, 113)
+            shock2.BackgroundTransparency = 1
+            stroke(shock2, N.cyan, 0.28, 1.1)
+
+            -- Corona spikes matching the supplied SVG's eight directions.
+            local spikes = frame(symbol, "CoronaSpikes", 0, 0, 220, 220, N.black, 0)
+            spikes.BackgroundTransparency = 1
+            spikes.ZIndex = 114
+            local spikeList = {}
+            for i = 1, 8 do
+                local rotation = (i - 1) * 45
+                local col = (i % 3 == 1) and N.cyan or ((i % 3 == 2) and N.magenta or N.violet)
+                local sp = nLine(spikes, "Spike" .. i, 157, 110, 94, 2.2, col, 0.35, 114, rotation)
+                sp.AnchorPoint = Vector2.new(0.5, 0.5)
+                spikeList[#spikeList + 1] = sp
+            end
+
+            -- Three broken accretion disks, matching the source SVG's
+            -- different directions and speeds.
+            local diskA = frame(symbol, "DiskA", 0, 0, 220, 220, N.black, 0)
+            diskA.BackgroundTransparency = 1
+            diskA.ZIndex = 115
+
+            local diskB = frame(symbol, "DiskB", 0, 0, 220, 220, N.black, 0)
+            diskB.BackgroundTransparency = 1
+            diskB.ZIndex = 116
+
+            local diskC = frame(symbol, "DiskC", 0, 0, 220, 220, N.black, 0)
+            diskC.BackgroundTransparency = 1
+            diskC.ZIndex = 117
+
+            local diskSets = {}
+            local function buildDisk(parent, count, rx, ry, baseRotation, colorA, colorB, width)
+                local set = {}
+                for i = 1, count do
+                    local t = ((i - 1) / count) * math.pi * 2
+                    local px = 110 + math.cos(t) * rx
+                    local py = 110 + math.sin(t) * ry
+                    local dx = -rx * math.sin(t)
+                    local dy = ry * math.cos(t)
+                    local tangent = math.deg(math.atan2(dy, dx)) + baseRotation
+                    local col = (i / count < 0.5) and colorA or colorB
+                    local dash = nLine(
+                        parent, "D" .. i, px, py,
+                        width + ((i % 3) * 1.3), 2.2,
+                        col, 0.25 + ((i % 5) * 0.05), 118, tangent
+                    )
+                    set[#set + 1] = dash
+                end
+                return set
+            end
+
+            local diskAList = buildDisk(diskA, 38, 90, 32, -18, N.magenta, N.violet, 5)
+            local diskBList = buildDisk(diskB, 32, 90, 32, 162, N.cyan, N.lavender, 4)
+            local diskCList = buildDisk(diskC, 28, 75, 24, 60, N.lavender, N.magenta, 3)
+            diskSets = {diskAList, diskBList, diskCList}
+
+            -- Structural orbital rings.
+            local ringOuter = nCircle(symbol, "RingOuter", 196, N.black, 1, 119)
+            ringOuter.BackgroundTransparency = 1
+            stroke(ringOuter, N.violet, 0.18, 1.5)
+
+            local ringDashed = nCircle(symbol, "RingDashed", 172, N.black, 1, 119)
+            ringDashed.BackgroundTransparency = 1
+            stroke(ringDashed, N.violet, 0.55, 1)
+
+            local ringDashed2 = nCircle(symbol, "RingDashed2", 128, N.black, 1, 119)
+            ringDashed2.BackgroundTransparency = 1
+            stroke(ringDashed2, N.magenta, 0.68, 1)
+
+            -- Cardinal reticle.
+            local ticks = {}
+            for i, rotation in ipairs({0, 90, 180, 270}) do
+                local tick = nLine(symbol, "Tick" .. i, 110, 12, 2, 16, N.lavender, 0.12, 120, rotation)
+                ticks[#ticks + 1] = tick
+            end
+
+            -- Orbiting comet satellites.
+            local orbitA = nCircle(symbol, "OrbitA", 7, N.cyan, 0.04, 121)
+            orbitA.Position = UDim2.fromOffset(110, 24)
+            local orbitB = nCircle(symbol, "OrbitB", 6, N.magenta, 0.08, 121)
+            orbitB.Position = UDim2.fromOffset(184, 110)
+            local orbitC = nCircle(symbol, "OrbitC", 4, N.lavender, 0.12, 121)
+            orbitC.Position = UDim2.fromOffset(110, 42)
+
+            -- Gravitational lens ring.
+            local lens = nCircle(symbol, "LensRing", 88, N.white, 1, 122)
+            lens.BackgroundTransparency = 1
+            stroke(lens, N.white, 0.46, 1.2)
+
+            -- True event horizon / core.
+            local coreBloom = nCircle(symbol, "CoreBloom", 106, N.violetDeep, 0.86, 123)
+            local coreGlow = nCircle(symbol, "CoreGlow", 82, N.violet, 0.92, 124)
+            local eventHorizon = nCircle(symbol, "EventHorizon", 76, N.black, 0, 125)
+            local eventPoint = nCircle(symbol, "EventPoint", 20, N.black, 0, 126)
+
+            -- Center highlight from the SVG's event point.
+            local centerDot = nCircle(symbol, "CenterDot", 3, N.white, 0.05, 127)
+
+            local status = safeText(loadCard, "Status", "OPENING THE NEXUS...", 0, 286, 326, 18, 9, N.cyan, Enum.Font.GothamBold)
+            status.TextXAlignment = Enum.TextXAlignment.Center
+            status.ZIndex = 130
+
+            local rail = frame(loadCard, "Rail", 39, 318, 248, 4, N.rail, 2)
+            rail.ZIndex = 130
+            local fill = frame(rail, "Fill", 0, 0, 0, 4, N.violet, 2)
+            fill.ZIndex = 131
+
+            local percent = safeText(loadCard, "Percent", "0%", 0, 330, 326, 16, 8, N.dim, Enum.Font.GothamMedium)
+            percent.TextXAlignment = Enum.TextXAlignment.Center
+            percent.ZIndex = 130
+
+            local hint = safeText(loadCard, "Hint", "VOID NEXUS // GALACTIC LINK", 0, 365, 326, 14, 7, N.dim, Enum.Font.GothamMedium)
+            hint.TextXAlignment = Enum.TextXAlignment.Center
+            hint.ZIndex = 130
+
+            local loadStart = os.clock()
+            local loadDuration = 2.65
+            local stages = {
+                {0.00, "OPENING THE NEXUS..."},
+                {0.18, "LOCATING SINGULARITY..."},
+                {0.37, "IGNITING ACCRETION DISK..."},
+                {0.56, "BENDING SPACETIME..."},
+                {0.75, "SYNCHRONIZING ORBITAL RINGS..."},
+                {0.90, "VOID NEXUS ONLINE"},
+            }
+
+            local anim
+            anim = connect(RunService.RenderStepped, function()
+                if not State.alive or not loadingLayer.Parent then
+                    if anim then anim:Disconnect() end
+                    return
+                end
+
+                local elapsed = os.clock() - loadStart
+                local progress = math.clamp(elapsed / loadDuration, 0, 1)
+
+                -- Source-SVG-inspired breathing and rotation.
+                local bloomPulse = (math.sin(elapsed * math.pi * 2 / 5) + 1) * 0.5
+                bloom.BackgroundTransparency = 0.96 - bloomPulse * 0.12
+                bloom2.BackgroundTransparency = 0.98 - bloomPulse * 0.10
+
+                local shockScale = 0.55 + ((elapsed % 3.6) / 3.6) * 1.35
+                shock1.Size = UDim2.fromOffset(92 * shockScale, 92 * shockScale)
+                shock2.Size = UDim2.fromOffset(92 * math.max(0.55, shockScale - 0.45), 92 * math.max(0.55, shockScale - 0.45))
+                shock1.BackgroundTransparency = 1
+                shock2.BackgroundTransparency = 1
+                local shockPhase = (elapsed % 3.6) / 3.6
+                local shockAlpha = 0.10 + shockPhase * 0.82
+                local s1 = shock1:FindFirstChildOfClass("UIStroke")
+                local s2 = shock2:FindFirstChildOfClass("UIStroke")
+                if s1 then s1.Transparency = shockAlpha end
+                if s2 then s2.Transparency = math.clamp(shockAlpha + 0.18, 0, 1) end
+
+                spikes.Rotation = elapsed * 6
+                for i, sp in ipairs(spikeList) do
+                    local q = (math.sin(elapsed * math.pi * 2 / 2.2 + i * 0.55) + 1) * 0.5
+                    sp.BackgroundTransparency = 0.68 - q * 0.48
+                    sp.Size = UDim2.fromOffset(72 + q * 30, 2.2)
+                end
+
+                diskA.Rotation = elapsed * (360 / 7.5)
+                diskB.Rotation = -elapsed * (360 / 11.5)
+                diskC.Rotation = elapsed * (360 / 17)
+
+                for setIndex, set in ipairs(diskSets) do
+                    for i, dash in ipairs(set) do
+                        local q = (math.sin(elapsed * (1.4 + setIndex * 0.3) + i * 0.7) + 1) * 0.5
+                        dash.BackgroundTransparency = 0.68 - q * 0.48
+                    end
+                end
+
+                ringOuter.Rotation = elapsed * 2
+                ringDashed.Rotation = -elapsed * 12
+                ringDashed2.Rotation = elapsed * 8
+
+                for i, tick in ipairs(ticks) do
+                    local q = (math.sin(elapsed * 3 + i) + 1) * 0.5
+                    tick.BackgroundTransparency = 0.72 - q * 0.46
+                end
+
+                local oa = elapsed * (math.pi * 2 / 5)
+                local ob = -elapsed * (math.pi * 2 / 8.5)
+                local oc = elapsed * (math.pi * 2 / 13)
+                orbitA.Position = UDim2.fromOffset(110 + math.cos(oa) * 86, 110 + math.sin(oa) * 86)
+                orbitB.Position = UDim2.fromOffset(110 + math.cos(ob) * 74, 110 + math.sin(ob) * 74)
+                orbitC.Position = UDim2.fromOffset(110 + math.cos(oc) * 68, 110 + math.sin(oc) * 68)
+
+                local lensPulse = (math.sin(elapsed * math.pi * 2 / 3) + 1) * 0.5
+                local lensStroke = lens:FindFirstChildOfClass("UIStroke")
+                if lensStroke then
+                    lensStroke.Transparency = 0.68 - lensPulse * 0.48
+                end
+
+                local corePulse = (math.sin(elapsed * math.pi * 2 / 3.2) + 1) * 0.5
+                coreBloom.BackgroundTransparency = 0.92 - corePulse * 0.15
+                coreGlow.BackgroundTransparency = 0.96 - corePulse * 0.20
+                eventHorizon.Size = UDim2.fromOffset(72 + corePulse * 7, 72 + corePulse * 7)
+                eventPoint.Size = UDim2.fromOffset(18 + corePulse * 4, 18 + corePulse * 4)
+                centerDot.BackgroundTransparency = 0.05 + (1 - corePulse) * 0.5
+
+                status.Text = stages[1][2]
+                for i = #stages, 1, -1 do
+                    if progress >= stages[i][1] then
+                        status.Text = stages[i][2]
+                        break
+                    end
+                end
+                fill.Size = UDim2.new(progress, 0, 1, 0)
+                percent.Text = string.format("%d%%", math.floor(progress * 100 + 0.5))
+
+                if progress >= 1 then
+                    anim:Disconnect()
+                    status.Text = "VOID NEXUS ONLINE"
+                    task.wait(0.10)
+                    if not State.alive then return end
+
+                    TweenService:Create(loadScale, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.78}):Play()
+                    TweenService:Create(loadingLayer, TweenInfo.new(0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
+
+                    task.delay(0.36, function()
+                        if not State.alive then return end
+                        if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled = false end
+                        if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end
+
+                        holder.Visible = true
+                        root.Enabled = true
+
+                        local bootScale = make("UIScale", holder, {Scale = 0.94})
+                        local bootStroke = panel:FindFirstChildOfClass("UIStroke")
+                        TweenService:Create(bootScale, TweenInfo.new(0.48, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Scale = 1}):Play()
+                        if bootStroke then
+                            bootStroke.Transparency = 1
+                            TweenService:Create(bootStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 0.28}):Play()
+                        end
+                        if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end
+                    end)
+                end
+            end)
         end
     end)
 

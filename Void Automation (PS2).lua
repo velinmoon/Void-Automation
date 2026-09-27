@@ -3184,6 +3184,7 @@ System = {
         Default={name="Default", loader="VOID NEXUS", effects=true},
         Blackhole={name="Blackhole", loader="BLACKHOLE V1", effects=true},
         Empyrean={name="Empyrean", loader="EMPYREAN", effects=true},
+        Frost={name="Frost", loader="FROSTBOUND", effects=true},
     },
 }
 
@@ -3248,7 +3249,7 @@ do
     local function normalizeTheme(value)
         if type(value) ~= "string" then return nil end
         value = value:gsub("^%s+", ""):gsub("%s+$", "")
-        if value == "Default" or value == "Blackhole" or value == "Empyrean" then
+        if value == "Default" or value == "Blackhole" or value == "Empyrean" or value == "Frost" then
             return value
         end
         return nil
@@ -3668,6 +3669,7 @@ do
             ["theme empyrean"]=function() if UI.setTheme then UI.setTheme("Empyrean") end end,
             ["theme blackhole"]=function() if UI.setTheme then UI.setTheme("Blackhole") end end,
             ["theme default"]=function() if UI.setTheme then UI.setTheme("Default") end end,
+            ["theme frost"]=function() if UI.setTheme then UI.setTheme("Frost") end end,
             ["core"]=function() State.tab="Core"; render() end,
             ["stats"]=function() State.tab="Core"; render() end,
         }
@@ -3803,7 +3805,7 @@ do
     System.loadPrefs()
     -- Freeze the theme selected by persisted preferences for this execution.
     -- The loader and initial UI must use the same startup theme.
-    if System.theme ~= "Blackhole" and System.theme ~= "Empyrean" and System.theme ~= "Default" then
+    if System.theme ~= "Blackhole" and System.theme ~= "Empyrean" and System.theme ~= "Frost" and System.theme ~= "Default" then
         System.theme = "Default"
     end
     System.startupTheme = System.theme
@@ -5454,6 +5456,12 @@ function ThemeUI.makePreset(y, title, desc, themeName)
         halo.BackgroundTransparency = 1; stroke(halo, Color3.fromRGB(217,169,78), 0.18, 2)
         local core = frame(icon, "Core", 12, 12, 12, 12, Color3.fromRGB(255,243,200), 6)
         core.BackgroundTransparency = 0.05; stroke(core, Color3.fromRGB(156,116,32), 0.42, 1)
+    elseif themeName == "Frost" then
+        local crystal = frame(icon, "Crystal", 10, 10, 16, 16, Color3.fromRGB(223,249,255), 4)
+        crystal.Rotation = 45; crystal.BackgroundTransparency = .08
+        stroke(crystal, Color3.fromRGB(173,224,235), .16, 1)
+        local core = frame(icon, "Core", 14, 14, 8, 8, Color3.fromRGB(240,253,255), 4)
+        core.BackgroundTransparency = .02
     else
         local core = frame(icon, "Core", 11, 11, 14, 14, C.violet2, 7)
         core.BackgroundTransparency = 0.25
@@ -5490,7 +5498,10 @@ ThemeUI.blackholeRow, ThemeUI.blackholeButton = ThemeUI.makePreset(
 ThemeUI.empyreanRow, ThemeUI.empyreanButton = ThemeUI.makePreset(
     258, "EMPYREAN", "Celestial gold / heaven-inspired interface", "Empyrean"
 )
-ThemeUI.hint = safeText(ThemeUI.page, "Hint", "Theme changes are saved immediately.", 16, 330, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+ThemeUI.frostRow, ThemeUI.frostButton = ThemeUI.makePreset(
+    330, "FROSTBOUND", "Frozen sanctum / glacial glass interface", "Frost"
+)
+ThemeUI.hint = safeText(ThemeUI.page, "Hint", "Theme changes are saved immediately.", 16, 402, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
 ThemeUI.hint.TextXAlignment = Enum.TextXAlignment.Center
 
 UI.count = safeText(skillsPage, "Count", "4 / 4 ENABLED", 0, 0, 1, 1, 1, C.dim)
@@ -6151,6 +6162,18 @@ local Theme = {
         text = Color3.fromRGB(74, 58, 28), voidDeep = Color3.fromRGB(245, 238, 218),
         toggleOn = Color3.fromRGB(217, 169, 78), toggleOff = Color3.fromRGB(226, 220, 202),
     },
+    Frost = {
+        black = Color3.fromRGB(8, 24, 30), deep = Color3.fromRGB(18, 43, 51),
+        panel = Color3.fromRGB(20, 48, 57), panel2 = Color3.fromRGB(30, 65, 75),
+        violet = Color3.fromRGB(126, 190, 204), violet2 = Color3.fromRGB(173, 224, 235),
+        magenta = Color3.fromRGB(191, 232, 240), cyan = Color3.fromRGB(223, 249, 255),
+        ink = Color3.fromRGB(234, 250, 255), dim = Color3.fromRGB(151, 192, 202),
+        faint = Color3.fromRGB(113, 157, 168), line = Color3.fromRGB(153, 211, 222),
+        accent = Color3.fromRGB(173, 224, 235), bright = Color3.fromRGB(240, 253, 255),
+        muted = Color3.fromRGB(151, 192, 202), surface = Color3.fromRGB(27, 59, 69),
+        text = Color3.fromRGB(234, 250, 255), voidDeep = Color3.fromRGB(15, 37, 44),
+        toggleOn = Color3.fromRGB(116, 190, 204), toggleOff = Color3.fromRGB(47, 79, 87),
+    },
     height = H,
     current = nil,
 }
@@ -6295,17 +6318,20 @@ end)
 function MiniMode.applyTheme()
     local emp = System.theme == "Empyrean"
     local bh = System.theme == "Blackhole"
-    miniFrame.BackgroundColor3 = C.panel
-    miniStroke.Color = C.line
-    miniTitle.TextColor3 = C.ink
-    miniTarget.TextColor3 = C.ink
-    miniStats.TextColor3 = C.faint
-    miniExpand.BackgroundColor3 = C.panel2
-    miniExpand.TextColor3 = C.ink
-    miniClose.BackgroundColor3 = C.panel2
-    miniClose.TextColor3 = C.ink
-    miniDot.BackgroundColor3 = C.green
-    miniTitle.Text = emp and "✦ EMPYREAN" or (bh and "◉ BLACKHOLE V1" or "✦ VOID AUTOMATION")
+    local frost = System.theme == "Frost"
+    local P = frost and Theme.Frost or nil
+    miniFrame.BackgroundColor3 = frost and P.panel or C.panel
+    miniFrame.BackgroundTransparency = frost and .06 or .06
+    miniStroke.Color = frost and P.line or C.line
+    miniTitle.TextColor3 = frost and P.bright or C.ink
+    miniTarget.TextColor3 = frost and P.bright or C.ink
+    miniStats.TextColor3 = frost and P.faint or C.faint
+    miniExpand.BackgroundColor3 = frost and P.panel2 or C.panel2
+    miniExpand.TextColor3 = frost and P.bright or C.ink
+    miniClose.BackgroundColor3 = frost and P.panel2 or C.panel2
+    miniClose.TextColor3 = frost and P.bright or C.ink
+    miniDot.BackgroundColor3 = frost and P.bright or C.green
+    miniTitle.Text = emp and "✦ EMPYREAN" or (bh and "◉ BLACKHOLE V1" or (frost and "✧ FROSTBOUND" or "✦ VOID AUTOMATION"))
 end
 
 function MiniMode.show()
@@ -6871,7 +6897,7 @@ end
 -- prevents EMPYREAN cream controls from surviving a switch back.
 function Theme.canonicalizeControls()
     local theme = System.theme
-    if theme ~= "Default" and theme ~= "Blackhole" and theme ~= "Empyrean" then
+    if theme ~= "Default" and theme ~= "Blackhole" and theme ~= "Empyrean" and theme ~= "Frost" then
         theme = "Default"
     end
 
@@ -7036,7 +7062,7 @@ function Theme.canonicalizeControls()
             end
         end
         if ThemeUI.activeLabel then
-            ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or (emp and "EMPYREAN" or "DEFAULT")
+            ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or (emp and "EMPYREAN" or (System.theme=="Frost" and "FROSTBOUND" or "DEFAULT"))
             ThemeUI.activeLabel.TextColor3=P.text
         end
         if ThemeUI.hint then ThemeUI.hint.TextColor3=P.muted end
@@ -7093,7 +7119,7 @@ function Theme.canonicalizeControls()
     -- Page symbols and header identity.
     local brandAccent=P.accentDeep
     if brandTitle then
-        brandTitle.Text=emp and "EMPYREAN" or (bh and "BLACKHOLE V1" or "VOID NEXUS")
+        brandTitle.Text=emp and "EMPYREAN" or (bh and "BLACKHOLE V1" or (frost and "FROSTBOUND" or "VOID NEXUS"))
         brandTitle.TextColor3=P.text
     end
     local sub=header and header:FindFirstChild("Sub")
@@ -7342,7 +7368,7 @@ function Theme.forceThemeControls()
                 button.AutoButtonColor=false
                 local st=button:FindFirstChildOfClass("UIStroke"); if st then st.Color=line end
             end end
-            if ThemeUI.activeLabel then ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or (emp and "EMPYREAN" or "DEFAULT"); ThemeUI.activeLabel.TextColor3=emp and ink or darkText end
+            if ThemeUI.activeLabel then ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or (emp and "EMPYREAN" or (System.theme=="Frost" and "FROSTBOUND" or "DEFAULT")); ThemeUI.activeLabel.TextColor3=emp and ink or darkText end
             if ThemeUI.hint then ThemeUI.hint.TextColor3=emp and faint or darkMuted end
         end
     end)
@@ -7352,11 +7378,207 @@ function Theme.forceThemeControls()
     end)
 end
 
+function Theme.applyFrostFinal()
+    if System.theme ~= "Frost" then return end
+    local P = Theme.Frost
+    local frostLine = Color3.fromRGB(153,211,222)
+    local frostBright = Color3.fromRGB(240,253,255)
+    local frostMuted = Color3.fromRGB(151,192,202)
+    local frostFaint = Color3.fromRGB(113,157,168)
+
+    -- Frost is a presentation layer only. It does not alter automation state,
+    -- analytics counters, Mini Mode data, farm logic, teleport logic, or input.
+    windowHeight = 630
+    windowWidth = math.max(680, windowWidth or W)
+    holder.Size = UDim2.fromOffset(windowWidth, windowHeight)
+    shadow.Size = UDim2.fromOffset(windowWidth + 12, windowHeight + 12)
+    panel.Size = UDim2.fromOffset(windowWidth, windowHeight)
+    panel.BackgroundColor3 = P.deep
+    panel.BackgroundTransparency = .02
+    panelStroke.Color = frostLine
+    panelStroke.Transparency = .34
+
+    header.Position = UDim2.fromOffset(170,0)
+    header.Size = UDim2.fromOffset(windowWidth-170,64)
+    header.BackgroundColor3 = P.panel
+    header.BackgroundTransparency = .04
+    headerLine.Position = UDim2.fromOffset(0,63)
+    headerLine.Size = UDim2.fromOffset(windowWidth-170,1)
+    headerLine.BackgroundColor3 = frostLine
+    headerLine.BackgroundTransparency = .42
+    brandTitle.Text = "FROSTBOUND"
+    brandTitle.TextColor3 = frostBright
+    header:FindFirstChild("Sub").Text = "THE SANCTUM IS QUIET"
+    header:FindFirstChild("Sub").TextColor3 = frostMuted
+    brandmark.BackgroundColor3 = P.panel2
+    local bs = brandmark:FindFirstChildOfClass("UIStroke")
+    if bs then bs.Color = frostLine; bs.Transparency = .20 end
+    markCore.BackgroundColor3 = frostBright
+    markH.BackgroundColor3 = P.accent
+    markV.BackgroundColor3 = P.cyan
+    statusDot.BackgroundColor3 = frostBright
+    statusGlow.Color = P.accent
+    UI.badge.TextColor3 = frostMuted
+
+    -- Hide the old ticker; Frost uses the quieter sanctum composition.
+    ticker.Visible = false
+    tickerText.Visible = false
+    edgeSheen.BackgroundColor3 = P.cyan
+    edgeSheen.BackgroundTransparency = .965
+    edgeSheenGradient.Color = ColorSequence.new(P.cyan, P.accent)
+
+    -- Turn the existing navigation container into the Frostbound vertical
+    -- sanctum sidebar. The underlying buttons remain the same functional
+    -- buttons, so no navigation logic is duplicated.
+    tabs.Position = UDim2.fromOffset(0,64)
+    tabs.Size = UDim2.fromOffset(170,windowHeight-64)
+    tabs.BackgroundColor3 = Color3.fromRGB(13,34,41)
+    tabs.BackgroundTransparency = .02
+    local tabStroke = tabs:FindFirstChildOfClass("UIStroke")
+    if tabStroke then tabStroke.Color = frostLine; tabStroke.Transparency = .72 end
+
+    local sidebarCrest = tabs:FindFirstChild("FrostCrest")
+    if not sidebarCrest then
+        sidebarCrest = frame(tabs,"FrostCrest",0,0,48,48,Color3.fromRGB(223,249,255),8)
+        sidebarCrest.Position = UDim2.fromOffset(61,18)
+        sidebarCrest.BackgroundTransparency = .91
+        sidebarCrest.Rotation = 45
+        stroke(sidebarCrest,frostLine,.34,1)
+        local c = frame(sidebarCrest,"Core",15,15,18,18,Color3.fromRGB(240,253,255),4)
+        c.BackgroundTransparency = .03
+        c.Rotation = -45
+        stroke(c,Color3.fromRGB(173,224,235),.25,1)
+        local realm=safeText(tabs,"FrostRealm","FROSTBOUND",15,77,140,18,11,frostBright,Enum.Font.GothamBold)
+        realm.TextXAlignment=Enum.TextXAlignment.Center
+        local sanct=safeText(tabs,"FrostSanctum","SANCTUM",15,98,140,14,7,frostFaint,Enum.Font.GothamBold)
+        sanct.TextXAlignment=Enum.TextXAlignment.Center
+        local lab=safeText(tabs,"FrostLabel","CONTROL",15,120,140,14,7,frostFaint,Enum.Font.GothamBold)
+        lab.TextXAlignment=Enum.TextXAlignment.Left
+        local lore=safeText(tabs,"FrostLore","A quiet interface forged\nfrom winter glass.\n\nLet the frost remain still.",15,486,140,62,8,frostFaint,Enum.Font.GothamMedium)
+        lore.TextWrapped=true
+    end
+
+    for i,key in ipairs(navNames) do
+        local tab=navButtons[key]
+        tab.Position=UDim2.fromOffset(15,132+(i-1)*42)
+        tab.Size=UDim2.fromOffset(140,36)
+        tab.BackgroundColor3 = Color3.fromRGB(23,54,64)
+        tab.BackgroundTransparency = .78
+        tab.TextColor3 = frostMuted
+        tab.TextSize = 9
+        tab.TextXAlignment = Enum.TextXAlignment.Left
+        tab.TextYAlignment = Enum.TextYAlignment.Center
+        tab.Font = Enum.Font.GothamBold
+        local icon=tab:FindFirstChild("Icon")
+        if icon then icon.Position=UDim2.fromOffset(12,8) end
+        local st=UI.navStrokes[key]
+        if st then st.Color=frostLine; st.Transparency=.84 end
+        local bar=UI.navBars[key]
+        if bar then
+            bar.Position=UDim2.fromOffset(4,5)
+            bar.Size=UDim2.fromOffset(2,26)
+            bar.BackgroundColor3=P.accent
+            bar.Visible=(State.tab==key)
+        end
+        if State.tab==key then
+            tab.BackgroundColor3=Color3.fromRGB(48,87,98)
+            tab.BackgroundTransparency=.34
+            tab.TextColor3=frostBright
+        end
+    end
+
+    content.Position=UDim2.fromOffset(170,64)
+    content.Size=UDim2.fromOffset(windowWidth-170,windowHeight-64)
+    content.BackgroundColor3=P.deep
+    content.BackgroundTransparency=.04
+
+    for _,page in pairs(pageMap) do
+        page.ScrollBarImageColor3=P.accent
+        page.ScrollBarImageTransparency=.60
+        for _,obj in ipairs(page:GetDescendants()) do
+            if obj:IsA("Frame") then
+                if obj.Name:match("^Row_") or obj.Name:match("^Slider_") or obj.Name=="KeyLoadout" or obj.Name=="TargetSettings" or obj.Name=="Analytics" or obj.Name=="Profiles" or obj.Name=="ThemeInfo" or obj.Name:match("^Preset_") then
+                    obj.BackgroundColor3=P.surface
+                    obj.BackgroundTransparency=.08
+                end
+                local st=obj:FindFirstChildOfClass("UIStroke")
+                if st and (obj.Name:match("^Row_") or obj.Name:match("^Slider_") or obj.Name=="KeyLoadout" or obj.Name:match("^Preset_") or obj.Name=="ThemeInfo" or obj.Name=="Analytics" or obj.Name=="Profiles") then
+                    st.Color=frostLine; st.Transparency=.72
+                end
+            elseif obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+                if obj.Name=="Modules" or obj.Name=="Hint" or obj.Name=="Desc" or obj.Name=="Sub" or obj.Name=="Status" or obj.Name=="Percent" or obj.Name=="ScanStatus" then
+                    obj.TextColor3=frostMuted
+                else
+                    obj.TextColor3=frostBright
+                end
+                if obj:IsA("TextButton") then obj.AutoButtonColor=false end
+            end
+        end
+    end
+
+    for _,view in ipairs(toggleViews) do
+        local on=view.getter()
+        view.track.BackgroundColor3=on and P.toggleOn or P.toggleOff
+        view.track.BackgroundTransparency=.08
+        view.knob.BackgroundColor3=on and frostBright or frostFaint
+        local st=view.track:FindFirstChildOfClass("UIStroke")
+        if st then st.Color=frostLine; st.Transparency=.45 end
+    end
+    for _,view in ipairs(sliders) do
+        view.fill.BackgroundColor3=P.accent
+        view.knob.BackgroundColor3=frostBright
+        view.valueLabel.TextColor3=P.cyan
+        local rail=view.hit:FindFirstChild("Rail")
+        if rail then rail.BackgroundColor3=P.toggleOff end
+        local ks=view.knob:FindFirstChildOfClass("UIStroke")
+        if ks then ks.Color=frostLine end
+    end
+
+    if UI.staticScanButton then UI.staticScanButton.BackgroundColor3=P.panel2; UI.staticScanButton.TextColor3=frostBright end
+    if UI.privateMapBox then UI.privateMapBox.BackgroundColor3=P.panel2; UI.privateMapBox.TextColor3=frostBright end
+    if resizeGrip then
+        for i=1,3 do local line=resizeGrip:FindFirstChild("Line"..i); if line then line.BackgroundColor3=P.accent end end
+    end
+
+    if ThemeUI then
+        ThemeUI.themeInfo.BackgroundColor3=P.surface
+        ThemeUI.themeInfo.BackgroundTransparency=.08
+        ThemeUI.activeLabel.Text="FROSTBOUND"
+        ThemeUI.activeLabel.TextColor3=frostBright
+        for _,row in ipairs({ThemeUI.defaultRow,ThemeUI.blackholeRow,ThemeUI.empyreanRow,ThemeUI.frostRow}) do
+            if row then row.BackgroundColor3=P.surface; row.BackgroundTransparency=.08 end
+        end
+        for _,btn in ipairs({ThemeUI.defaultButton,ThemeUI.blackholeButton,ThemeUI.empyreanButton,ThemeUI.frostButton}) do
+            if btn then btn.BackgroundColor3=P.panel2; btn.TextColor3=frostMuted end
+        end
+        if ThemeUI.frostButton then ThemeUI.frostButton.BackgroundColor3=P.accent; ThemeUI.frostButton.TextColor3=Color3.fromRGB(18,43,51) end
+    end
+
+    if CoreUI then
+        for _,obj in ipairs({CoreUI.profileBox,CoreUI.statsBox}) do
+            if obj then obj.BackgroundColor3=P.surface end
+        end
+    end
+
+    if miniFrame and miniFrame.Parent then
+        miniFrame.BackgroundColor3=P.panel
+        miniFrame.BackgroundTransparency=.06
+        miniStroke.Color=P.line
+        miniTitle.TextColor3=frostBright
+        miniTarget.TextColor3=frostBright
+        miniStats.TextColor3=frostMuted
+        miniExpand.BackgroundColor3=P.panel2; miniExpand.TextColor3=frostBright
+        miniClose.BackgroundColor3=P.panel2; miniClose.TextColor3=frostBright
+        miniDot.BackgroundColor3=frostBright
+        miniTitle.Text="✧ FROSTBOUND"
+    end
+end
+
 function Theme.apply(themeName)
-    if themeName~="Blackhole" and themeName~="Empyrean" then themeName="Default" end
+    if themeName~="Blackhole" and themeName~="Empyrean" and themeName~="Frost" then themeName="Default" end
     Theme.stopSpecialVisuals(); System.theme=themeName
-    local bh=themeName=="Blackhole"; local emp=themeName=="Empyrean"
-    Theme.current=bh and Theme.Blackhole or(emp and Theme.Empyrean or Theme.Default); Theme.copy(Theme.current)
+    local bh=themeName=="Blackhole"; local emp=themeName=="Empyrean"; local frost=themeName=="Frost"
+    Theme.current=bh and Theme.Blackhole or(emp and Theme.Empyrean or(frost and Theme.Frost or Theme.Default)); Theme.copy(Theme.current)
     if bh then
         Theme.height=600; windowHeight=Theme.height; holder.Size=UDim2.fromOffset(windowWidth,windowHeight); shadow.Size=UDim2.fromOffset(windowWidth+12,windowHeight+12); panel.Size=UDim2.fromOffset(windowWidth,windowHeight); panel.BackgroundColor3=C.panel; panel.BackgroundTransparency=.18; panelStroke.Color=C.line; panelStroke.Transparency=.72; panelBackdrop.Visible=false; voidFX.Visible=false; ticker.Visible=false; content.BackgroundTransparency=1
         local panelGradient=panel:FindFirstChildOfClass("UIGradient"); if panelGradient then panelGradient.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(23,12,39)),ColorSequenceKeypoint.new(.45,Color3.fromRGB(14,7,26)),ColorSequenceKeypoint.new(1,Color3.fromRGB(5,2,12))}); panelGradient.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,.18),NumberSequenceKeypoint.new(.48,.28),NumberSequenceKeypoint.new(1,.12)}) end
@@ -7438,6 +7660,55 @@ function Theme.apply(themeName)
         contentGradient.Transparency=NumberSequence.new(0)
 
         edgeSheen.BackgroundColor3=C.line
+    elseif frost then
+        Theme.height=630
+        windowHeight=Theme.height
+        windowWidth=math.max(680, windowWidth)
+        holder.Size=UDim2.fromOffset(windowWidth,windowHeight)
+        shadow.Size=UDim2.fromOffset(windowWidth+12,windowHeight+12)
+        panel.Size=UDim2.fromOffset(windowWidth,windowHeight)
+        panel.BackgroundColor3=C.deep
+        panel.BackgroundTransparency=.02
+        panelStroke.Color=C.line
+        panelStroke.Transparency=.34
+        panelBackdrop.Visible=false
+        voidFX.Visible=false
+        ticker.Visible=false
+        local panelGradient=panel:FindFirstChildOfClass("UIGradient")
+        if panelGradient then
+            panelGradient.Color=ColorSequence.new({
+                ColorSequenceKeypoint.new(0,Color3.fromRGB(31,67,77)),
+                ColorSequenceKeypoint.new(.48,Color3.fromRGB(18,43,51)),
+                ColorSequenceKeypoint.new(1,Color3.fromRGB(9,27,34))
+            })
+            panelGradient.Transparency=NumberSequence.new({
+                ColorSequenceKeypoint.new(0,.08),ColorSequenceKeypoint.new(.5,.12),ColorSequenceKeypoint.new(1,.04)
+            })
+        end
+        header.Position=UDim2.fromOffset(170,0)
+        header.Size=UDim2.fromOffset(windowWidth-170,64)
+        header.BackgroundColor3=C.panel
+        header.BackgroundTransparency=.04
+        local headerGradient=header:FindFirstChildOfClass("UIGradient")
+        if headerGradient then
+            headerGradient.Color=ColorSequence.new(Color3.fromRGB(68,116,128),Color3.fromRGB(25,57,67))
+            headerGradient.Transparency=NumberSequence.new({ColorSequenceKeypoint.new(0,.22),ColorSequenceKeypoint.new(1,.92)})
+        end
+        headerLine.Position=UDim2.fromOffset(0,63); headerLine.Size=UDim2.fromOffset(windowWidth-170,1)
+        headerLine.BackgroundColor3=C.line; headerLine.BackgroundTransparency=.42
+        brandTitle.Text="FROSTBOUND"; brandTitle.TextColor3=C.ink
+        header:FindFirstChild("Sub").Text="THE SANCTUM IS QUIET"
+        statusDot.BackgroundColor3=C.bright; statusGlow.Color=C.accent
+        tabs.Position=UDim2.fromOffset(0,64)
+        tabs.Size=UDim2.fromOffset(170,windowHeight-64)
+        tabs.BackgroundColor3=Color3.fromRGB(13,34,41)
+        tabs.BackgroundTransparency=.02
+        content.Position=UDim2.fromOffset(170,64)
+        content.Size=UDim2.fromOffset(windowWidth-170,windowHeight-64)
+        content.BackgroundTransparency=0
+        content.BackgroundColor3=C.deep
+        edgeSheen.Visible=true
+        edgeSheen.BackgroundColor3=C.cyan
     else
         local contentGradient=content:FindFirstChild("EmpyreanSurfaceGradient")
         if contentGradient then contentGradient:Destroy() end
@@ -7517,7 +7788,7 @@ function Theme.apply(themeName)
             ThemeUI.empyreanButton.TextColor3=C.ink
         end
     end
-    if ThemeUI.activeLabel then ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or(emp and "EMPYREAN" or "DEFAULT"); ThemeUI.activeLabel.TextColor3=C.ink end
+    if ThemeUI.activeLabel then ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or(emp and "EMPYREAN" or(frost and "FROSTBOUND" or "DEFAULT")); ThemeUI.activeLabel.TextColor3=C.ink end
     if ThemeUI.defaultButton then ThemeUI.defaultButton.BackgroundColor3=(not bh and not emp) and C.violet2 or C.panel2; ThemeUI.defaultButton.TextColor3=(not bh and not emp) and C.ink or C.faint end
     if ThemeUI.blackholeButton then ThemeUI.blackholeButton.BackgroundColor3=bh and C.violet2 or C.panel2; ThemeUI.blackholeButton.TextColor3=bh and C.ink or C.faint end
     if ThemeUI.empyreanButton then ThemeUI.empyreanButton.BackgroundColor3=emp and C.violet2 or C.panel2; ThemeUI.empyreanButton.TextColor3=emp and C.ink or C.faint end
@@ -7546,6 +7817,7 @@ function Theme.apply(themeName)
     render()
     Theme.hardResetControls()
     Theme.canonicalizeControls()
+    if System.theme=="Frost" then pcall(function() Theme.applyFrostFinal() end) end
     -- All synchronous theme passes are finished. Rebind EMPYREAN once more on
     -- the next scheduler turn so no legacy restyler can race the animation.
     if System.theme=="Empyrean" then
@@ -7558,7 +7830,7 @@ function Theme.apply(themeName)
 end
 
 UI.setTheme = function(themeName)
-    local normalized = (themeName == "Blackhole" or themeName == "Empyrean" or themeName == "Default")
+    local normalized = (themeName == "Blackhole" or themeName == "Empyrean" or themeName == "Frost" or themeName == "Default")
         and themeName or "Default"
 
     -- Commit the selection BEFORE touching any visuals. This is the single
@@ -7588,6 +7860,7 @@ UI.setTheme = function(themeName)
     -- final pass regardless of whether the legacy pass threw.
     pcall(function() Theme.forceThemeControls() end)
     pcall(function() Theme.canonicalizeControls() end)
+    if System.theme=="Frost" then pcall(function() Theme.applyFrostFinal() end) end
 
     if not okApply then
         warn("[Void Automation] legacy theme visual pass skipped: " .. tostring(applyErr))
@@ -7611,7 +7884,7 @@ local function renderPageState()
         or State.tab == "ESP" and (Settings.ESPEnabled and "ESP" or "SYNCED")
         or State.tab == "Health" and (Settings.HealthEscapeEnabled and "HP" or "SYNCED")
         or State.tab == "Move" and (Settings.FlyEnabled and "FLY" or Settings.NoClip and "MOVE" or "SYNCED")
-        or State.tab == "Theme" and (System.theme == "Blackhole" and "BLACKHOLE" or (System.theme == "Empyrean" and "EMPYREAN" or "DEFAULT"))
+        or State.tab == "Theme" and (System.theme == "Blackhole" and "BLACKHOLE" or (System.theme == "Empyrean" and "EMPYREAN" or (System.theme == "Frost" and "FROST" or "DEFAULT")))
         or "SYNCED")
     UI.badge.TextColor3 = mainColor
     statusDot.BackgroundColor3 = mainColor
@@ -7754,6 +8027,7 @@ fitWindow(true)
 local __startupTheme = System.startupTheme
 local __themeOK, __themeERR = pcall(function() Theme.apply(__startupTheme) end)
 pcall(function() if Theme.forceThemeControls then Theme.forceThemeControls() end end)
+pcall(function() if System.theme=="Frost" and Theme.applyFrostFinal then Theme.applyFrostFinal() end end)
 if not __themeOK then
     warn("[Void Automation] Theme initialization failed for saved theme " .. tostring(__startupTheme) .. ": " .. tostring(__themeERR))
     -- Never substitute Default for a persisted theme. The loader and UI must
@@ -7762,7 +8036,7 @@ if not __themeOK then
     System.theme = __startupTheme
     pcall(function()
         local selected = __startupTheme
-        Theme.current = selected == "Blackhole" and Theme.Blackhole or (selected == "Empyrean" and Theme.Empyrean or Theme.Default)
+        Theme.current = selected == "Blackhole" and Theme.Blackhole or (selected == "Empyrean" and Theme.Empyrean or (selected == "Frost" and Theme.Frost or Theme.Default))
         Theme.copy(Theme.current)
         Theme.hardResetControls()
         render()
@@ -7814,6 +8088,41 @@ do
                 if progress>=1 then
                     loadAnimConn:Disconnect(); loadStatus.Text="EMPYREAN ONLINE"; task.wait(.10); if not State.alive then return end; TweenService:Create(loadScale,TweenInfo.new(.25,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{Scale=.78}):Play(); TweenService:Create(loadingLayer,TweenInfo.new(.32,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{BackgroundTransparency=1}):Play()
                     task.delay(.36,function() if not State.alive then return end; if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled=false end; if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end; holder.Visible=true; root.Enabled=true; if System.theme=="Empyrean" and EMP.ensureVisuals then EMP.ensureVisuals() end; local bootStroke=panel:FindFirstChildOfClass("UIStroke"); if bootStroke then bootStroke.Transparency=1; TweenService:Create(bootStroke,TweenInfo.new(.55,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Transparency=.38}):Play() end; if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end end)
+                end
+            end)
+        elseif startupTheme == "Frost" then
+            -- FROSTBOUND loader: derived from the Frost Glacial loading reference.
+            loadingLayer.BackgroundTransparency=1
+            local loadCard=frame(loadingLayer,"LoadingCard",0,0,310,370,Color3.fromRGB(20,48,57),18)
+            loadCard.AnchorPoint=Vector2.new(.5,.5); loadCard.Position=UDim2.fromScale(.5,.5); loadCard.BackgroundTransparency=.05; loadCard.ZIndex=101
+            stroke(loadCard,Color3.fromRGB(153,211,222),.34,1)
+            local loadScale=make("UIScale",loadCard,{Scale=.90})
+            TweenService:Create(loadScale,TweenInfo.new(.55,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Scale=1}):Play()
+            local loadTitle=safeText(loadCard,"Title","FROSTBOUND",0,17,310,22,17,Color3.fromRGB(234,250,255),Enum.Font.GothamBold); loadTitle.TextXAlignment=Enum.TextXAlignment.Center; loadTitle.ZIndex=103
+            local loadSub=safeText(loadCard,"Sub","ENTERING THE SANCTUM",0,42,310,16,8,Color3.fromRGB(151,192,202),Enum.Font.GothamBold); loadSub.TextXAlignment=Enum.TextXAlignment.Center; loadSub.ZIndex=103
+            local symbol=frame(loadCard,"Symbol",0,0,190,190,Color3.new(1,1,1),95); symbol.AnchorPoint=Vector2.new(.5,.5); symbol.Position=UDim2.new(.5,0,0,164); symbol.BackgroundTransparency=1; symbol.ZIndex=102
+            local ring=frame(symbol,"Ring",0,0,128,128,Color3.new(1,1,1),64); ring.AnchorPoint=Vector2.new(.5,.5); ring.Position=UDim2.fromScale(.5,.5); ring.BackgroundTransparency=1; ring.ZIndex=103; stroke(ring,Color3.fromRGB(153,211,222),.72,1)
+            local ring2=frame(symbol,"Ring2",0,0,96,96,Color3.new(1,1,1),48); ring2.AnchorPoint=Vector2.new(.5,.5); ring2.Position=UDim2.fromScale(.5,.5); ring2.BackgroundTransparency=1; ring2.ZIndex=103; stroke(ring2,Color3.fromRGB(223,249,255),.80,1)
+            local crystal=frame(symbol,"Crystal",0,0,64,64,Color3.fromRGB(223,249,255),10); crystal.AnchorPoint=Vector2.new(.5,.5); crystal.Position=UDim2.fromScale(.5,.5); crystal.Rotation=45; crystal.BackgroundTransparency=.06; crystal.ZIndex=104; stroke(crystal,Color3.fromRGB(173,224,235),.20,1)
+            local core=frame(symbol,"Core",0,0,17,17,Color3.fromRGB(240,253,255),9); core.AnchorPoint=Vector2.new(.5,.5); core.Position=UDim2.fromScale(.5,.5); core.ZIndex=105
+            local flakes={}; for i,pos in ipairs({{.20,.26},{.80,.35},{.26,.75},{.75,.78}}) do local f=frame(symbol,"Flake"..i,0,0,4,4,Color3.fromRGB(223,249,255),2); f.AnchorPoint=Vector2.new(.5,.5); f.Position=UDim2.fromScale(pos[1],pos[2]); f.ZIndex=106; flakes[#flakes+1]={o=f,p=(i-1)*.45} end
+            local loadStatus=safeText(loadCard,"Status","FROST AWAKENING...",0,278,310,18,9,Color3.fromRGB(173,224,235),Enum.Font.GothamBold); loadStatus.TextXAlignment=Enum.TextXAlignment.Center; loadStatus.ZIndex=121
+            local rail=frame(loadCard,"Rail",40,311,230,3,Color3.fromRGB(47,79,87),2); rail.ZIndex=121; local fill=frame(rail,"Fill",0,0,0,3,Color3.fromRGB(173,224,235),2); fill.ZIndex=122
+            local percent=safeText(loadCard,"Percent","0%",0,324,310,16,8,Color3.fromRGB(151,192,202),Enum.Font.GothamMedium); percent.TextXAlignment=Enum.TextXAlignment.Center; percent.ZIndex=121
+            local hint=safeText(loadCard,"Hint","FROST / GLACIAL",0,350,310,14,7,Color3.fromRGB(113,157,168),Enum.Font.GothamMedium); hint.TextXAlignment=Enum.TextXAlignment.Center; hint.ZIndex=121
+            local start=os.clock(); local duration=2.55; local conn
+            conn=connect(RunService.RenderStepped,function()
+                if not State.alive or not loadingLayer.Parent then if conn then conn:Disconnect() end; return end
+                local elapsed=os.clock()-start; local progress=math.clamp(elapsed/duration,0,1); local pulse=(math.sin(elapsed*math.pi*2/2.2)+1)*.5
+                crystal.Rotation=45+math.sin(elapsed*.75)*7; crystal.BackgroundTransparency=.10-pulse*.035; core.Size=UDim2.fromOffset(13+math.floor(pulse*8),13+math.floor(pulse*8)); core.BackgroundTransparency=.05+pulse*.08
+                ring.Rotation=elapsed*18; ring2.Rotation=-elapsed*28
+                for i,info in ipairs(flakes) do local q=(math.sin(elapsed*2+info.p)+1)*.5; info.o.BackgroundTransparency=.35+q*.5; info.o.Position=UDim2.fromScale(info.o.Position.X.Scale,info.o.Position.Y.Scale+math.sin(elapsed*.8+info.p)*.002) end
+                local stages={{0,"FROST AWAKENING..."},{.20,"ALIGNING CRYSTAL..."},{.42,"OPENING THE SANCTUM..."},{.64,"SYNCHRONIZING ICE..."},{.84,"THE FROST REMAINS STILL..."},{.94,"FROSTBOUND ONLINE"}}; for i=#stages,1,-1 do if progress>=stages[i][1] then loadStatus.Text=stages[i][2]; break end end
+                fill.Size=UDim2.new(progress,0,1,0); percent.Text=string.format("%d%%",math.floor(progress*100+.5))
+                if progress>=1 then
+                    conn:Disconnect(); loadStatus.Text="FROSTBOUND ONLINE"; task.wait(.10); if not State.alive then return end
+                    TweenService:Create(loadScale,TweenInfo.new(.24,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{Scale=.82}):Play(); TweenService:Create(loadingLayer,TweenInfo.new(.30,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{BackgroundTransparency=1}):Play()
+                    task.delay(.34,function() if not State.alive then return end; if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled=false end; if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end; holder.Visible=true; root.Enabled=true; if System.theme=="Frost" then pcall(function() Theme.applyFrostFinal() end) end; if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end end)
                 end
             end)
         elseif startupTheme == "Blackhole" then
@@ -8879,7 +9188,7 @@ local __env = (type(getgenv) == "function" and getgenv()) or _G
 local function __normalizeStartupTheme(v)
     if type(v) ~= "string" then return nil end
     v = v:gsub("^%s+", ""):gsub("%s+$", "")
-    if v == "Default" or v == "Blackhole" or v == "Empyrean" then return v end
+    if v == "Default" or v == "Blackhole" or v == "Empyrean" or v == "Frost" then return v end
     return nil
 end
 local __startupTheme

@@ -5232,77 +5232,150 @@ function EMP.layoutResponsive(heroWidth, heroHeight)
 end
 
 function EMP.startVisuals()
-    -- EMPYREAN animation is isolated from the control/theme restyling system.
-    -- Restyling controls must never be able to remove the celestial effects.
-    if not EMP.hero or not EMP.hero.Parent then return end
-    if EMP.connection then EMP.connection:Disconnect(); EMP.connection=nil end
+    -- Dedicated EMPYREAN visual engine.  This is intentionally independent
+    -- from theme-control recoloring and uses RenderStepped (the same scheduler
+    -- used by the working loaders) so the celestial animation cannot silently
+    -- disappear when the theme bootstrap is rebuilt.
+    if not EMP.hero or not EMP.hero.Parent or not State.alive or System.theme ~= "Empyrean" then return end
+
+    if EMP.connection then
+        pcall(function() EMP.connection:Disconnect() end)
+        EMP.connection = nil
+    end
+
     EMP.hero.Visible=true
+    EMP.hero.ZIndex=4
+    EMP.sky.Visible=true
+    EMP.vignette.Visible=true
     EMP.rayGroup.Visible=true; EMP.wingL.Visible=true; EMP.wingR.Visible=true
     EMP.haloA.Visible=true; EMP.haloB.Visible=true; EMP.core.Visible=true
     EMP.dot.Visible=true; EMP.scan.Visible=true; EMP.glow.Visible=true
-    EMP.clock=os.clock(); EMP.last=EMP.clock; EMP.lastWidth=0
-    EMP.layoutResponsive(math.max(300,EMP.hero.AbsoluteSize.X > 0 and EMP.hero.AbsoluteSize.X or windowWidth), math.max(160,EMP.hero.AbsoluteSize.Y > 0 and EMP.hero.AbsoluteSize.Y or 160))
-    EMP.lastWidth=EMP.hero.AbsoluteSize.X
-    EMP.connection=connect(RunService.Heartbeat,function()
-        if not State.alive or not EMP.hero.Parent or System.theme~="Empyrean" then return end
-        -- Never let a later restyler hide the celestial composition.
-        EMP.hero.Visible=true
-        EMP.rayGroup.Visible=true; EMP.wingL.Visible=true; EMP.wingR.Visible=true
-        EMP.haloA.Visible=true; EMP.haloB.Visible=true; EMP.core.Visible=true
-        EMP.dot.Visible=true; EMP.scan.Visible=true; EMP.glow.Visible=true
-        local now=os.clock(); EMP.last=now; local t=now-EMP.clock
-        local heroWidth=math.max(300,EMP.hero.AbsoluteSize.X)
-        local heroHeight=math.max(160,EMP.hero.AbsoluteSize.Y)
-        -- Re-layout only when the UI actually changes size. This makes the
-        -- HTML-derived celestial composition expand with the Roblox panel.
-        if math.abs(heroWidth-(EMP.lastWidth or 0)) > 0.5 then
-            EMP.lastWidth=heroWidth
-            EMP.layoutResponsive(heroWidth,heroHeight)
-        end
-        local sx=heroWidth/300
-        -- Match the supplied EMPYREAN hero animation timings.
-        local breath=(math.sin(t*math.pi*2/4.5)+1)*.5
-        EMP.core.BackgroundTransparency=.84-breath*.18
-        EMP.glow.BackgroundTransparency=.92-breath*.10
-        EMP.haloA.Rotation=t*(360/44)
-        EMP.haloB.Rotation=-t*(360/60)
-        EMP.rayGroup.Rotation=t*(360/90)
-        EMP.wingL.Rotation=-2 + math.sin(t*math.pi*2/5)*4
-        EMP.wingR.Rotation=2 - math.sin(t*math.pi*2/5.4)*4
-        for i,ray in ipairs(EMP.rays) do
-            ray.BackgroundTransparency=.90-((math.sin(t*.9+i*.6)+1)*.5)*.16
-        end
-        for i,f in ipairs(EMP.wingStrokes) do
-            f.BackgroundTransparency=.28+((i%4)*.07)+((math.sin(t*1.2+i)+1)*.5)*.10
-        end
-        for _,info in ipairs(EMP.sparkles) do
-            local pulse=(math.sin((t+info.phase)*math.pi*2/3)+1)*.5
-            local ss=math.max(2,(2+3*pulse)*sx)
-            info.object.BackgroundTransparency=.86-pulse*.68
-            info.object.Size=UDim2.fromOffset(ss,ss)
-        end
-        local scanH=math.max(42,math.floor(61*sx+.5))
-        EMP.scan.Size=UDim2.fromOffset(heroWidth,scanH)
-        EMP.scan.Position=UDim2.fromOffset(0,-scanH+((t/7)%1)*(math.max(160,heroHeight+scanH)))
-        EMP.scan.BackgroundTransparency=.965
+
+    EMP.clock=os.clock()
+    EMP.last=EMP.clock
+    EMP.lastWidth=0
+
+    local okLayout = pcall(function()
+        EMP.layoutResponsive(
+            math.max(300, EMP.hero.AbsoluteSize.X > 0 and EMP.hero.AbsoluteSize.X or windowWidth),
+            math.max(160, EMP.hero.AbsoluteSize.Y > 0 and EMP.hero.AbsoluteSize.Y or 160)
+        )
     end)
+    if not okLayout then
+        pcall(function() EMP.layoutResponsive(windowWidth,160) end)
+    end
+    EMP.lastWidth=EMP.hero.AbsoluteSize.X
+
+    local function animateCelestial()
+        if not State.alive or System.theme ~= "Empyrean" or not EMP.hero.Parent then return end
+        local ok, err = pcall(function()
+            -- Never let another visual pass hide the celestial composition.
+            EMP.hero.Visible=true
+            EMP.sky.Visible=true
+            EMP.vignette.Visible=true
+            EMP.rayGroup.Visible=true; EMP.wingL.Visible=true; EMP.wingR.Visible=true
+            EMP.haloA.Visible=true; EMP.haloB.Visible=true; EMP.core.Visible=true
+            EMP.dot.Visible=true; EMP.scan.Visible=true; EMP.glow.Visible=true
+
+            local now=os.clock()
+            EMP.last=now
+            local t=now-EMP.clock
+            local heroWidth=math.max(300,EMP.hero.AbsoluteSize.X)
+            local heroHeight=math.max(160,EMP.hero.AbsoluteSize.Y)
+
+            if math.abs(heroWidth-(EMP.lastWidth or 0)) > 0.5 or math.abs(heroHeight-(EMP.lastHeight or 0)) > 0.5 then
+                EMP.lastWidth=heroWidth
+                EMP.lastHeight=heroHeight
+                EMP.layoutResponsive(heroWidth,heroHeight)
+            end
+
+            local sx=heroWidth/300
+            -- EMPYREAN (1).html-derived motion timings.
+            local breath=(math.sin(t*math.pi*2/4.5)+1)*.5
+            EMP.core.BackgroundTransparency=.84-breath*.18
+            EMP.glow.BackgroundTransparency=.92-breath*.10
+            EMP.haloA.Rotation=t*(360/44)
+            EMP.haloB.Rotation=-t*(360/60)
+            EMP.rayGroup.Rotation=t*(360/90)
+            EMP.wingL.Rotation=-2 + math.sin(t*math.pi*2/5)*4
+            EMP.wingR.Rotation=2 - math.sin(t*math.pi*2/5.4)*4
+
+            for i,ray in ipairs(EMP.rays) do
+                ray.BackgroundTransparency=.90-((math.sin(t*.9+i*.6)+1)*.5)*.16
+            end
+            for i,f in ipairs(EMP.wingStrokes) do
+                f.BackgroundTransparency=.28+((i%4)*.07)+((math.sin(t*1.2+i)+1)*.5)*.10
+            end
+            for _,info in ipairs(EMP.sparkles) do
+                local pulse=(math.sin((t+info.phase)*math.pi*2/3)+1)*.5
+                local ss=math.max(2,(2+3*pulse)*sx)
+                info.object.BackgroundTransparency=.86-pulse*.68
+                info.object.Size=UDim2.fromOffset(ss,ss)
+            end
+
+            local scanH=math.max(42,math.floor(61*sx+.5))
+            EMP.scan.Size=UDim2.fromOffset(heroWidth,scanH)
+            EMP.scan.Position=UDim2.fromOffset(0,-scanH+((t/7)%1)*(math.max(160,heroHeight+scanH)))
+            EMP.scan.BackgroundTransparency=.965
+        end)
+        if not ok then
+            -- Keep the engine alive even if an executor/Roblox GUI object is
+            -- temporarily unavailable during a resize or destruction pass.
+            EMP.lastError=tostring(err)
+        end
+    end
+
+    -- RenderStepped is deliberately used instead of Heartbeat because the
+    -- loader and the rest of the UI animation stack already run reliably on it.
+    EMP.connection=RunService.RenderStepped:Connect(animateCelestial)
+    connections[#connections+1]=EMP.connection
+    animateCelestial()
 end
 
 function EMP.ensureVisuals()
-    -- Called after loader teardown and after resizing. It is intentionally
-    -- independent of Theme.canonicalizeControls().
-    if System.theme~="Empyrean" or not State.alive then return end
-    if not EMP.connection or not EMP.hero.Parent then
+    -- Idempotent entry point used after loader teardown, startup and resizing.
+    if System.theme~="Empyrean" or not State.alive or not EMP.hero or not EMP.hero.Parent then return end
+
+    local connected=false
+    if EMP.connection then
+        local ok, value=pcall(function() return EMP.connection.Connected end)
+        connected=ok and value == true
+    end
+
+    if not connected then
         EMP.startVisuals()
-    else
-        EMP.hero.Visible=true
-        EMP.rayGroup.Visible=true; EMP.wingL.Visible=true; EMP.wingR.Visible=true
-        EMP.haloA.Visible=true; EMP.haloB.Visible=true; EMP.core.Visible=true
-        EMP.dot.Visible=true; EMP.scan.Visible=true; EMP.glow.Visible=true
+        return
+    end
+
+    EMP.hero.Visible=true
+    EMP.sky.Visible=true
+    EMP.vignette.Visible=true
+    EMP.rayGroup.Visible=true; EMP.wingL.Visible=true; EMP.wingR.Visible=true
+    EMP.haloA.Visible=true; EMP.haloB.Visible=true; EMP.core.Visible=true
+    EMP.dot.Visible=true; EMP.scan.Visible=true; EMP.glow.Visible=true
+    pcall(function()
         EMP.layoutResponsive(math.max(300,EMP.hero.AbsoluteSize.X),math.max(160,EMP.hero.AbsoluteSize.Y))
         EMP.lastWidth=EMP.hero.AbsoluteSize.X
-    end
+        EMP.lastHeight=EMP.hero.AbsoluteSize.Y
+    end)
 end
+
+-- A tiny watchdog is intentionally separate from the animation connection.
+-- If any theme/bootstrap pass replaces or disconnects the animation connection,
+-- the celestial engine is restored on the next frame without touching controls.
+EMP.watchdog = RunService.RenderStepped:Connect(function()
+    if not State.alive or System.theme ~= "Empyrean" or not EMP.hero or not EMP.hero.Parent then return end
+    local connected=false
+    if EMP.connection then
+        local ok, value=pcall(function() return EMP.connection.Connected end)
+        connected=ok and value == true
+    end
+    if not connected then
+        EMP.startVisuals()
+    end
+end)
+connections[#connections+1]=EMP.watchdog
+
 
 local Theme = {
     Default = {
@@ -6070,7 +6143,8 @@ function Theme.canonicalizeControls()
 end
 
 function Theme.stopSpecialVisuals()
-    if EMP and EMP.connection then EMP.connection:Disconnect(); EMP.connection=nil end
+    if EMP and EMP.connection then pcall(function() EMP.connection:Disconnect() end); EMP.connection=nil end
+    if EMP and EMP.watchdog then pcall(function() EMP.watchdog:Disconnect() end); EMP.watchdog=nil end
     if EMP and EMP.hero then EMP.hero.Visible=false end
     if BH and BH.hero then BH.hero.Visible=false end
 end
@@ -6462,7 +6536,20 @@ function Theme.apply(themeName)
     if ThemeUI.defaultRow then local st=ThemeUI.defaultRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=(not bh and not emp) and C.violet2 or C.line end end
     if ThemeUI.blackholeRow then local st=ThemeUI.blackholeRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=bh and C.violet2 or C.line end end
     if ThemeUI.empyreanRow then local st=ThemeUI.empyreanRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=emp and C.violet2 or C.line end end
-    if bh then BH.core.BackgroundColor3=Color3.new(0,0,0); BH.coreGlow.BackgroundColor3=Color3.fromRGB(65,35,135); BH.silverStroke.Color=Color3.fromRGB(238,241,251); BH.purpleStroke.Color=Color3.fromRGB(122,63,242) elseif emp then EMP.startVisuals() end
+    if bh then
+        BH.core.BackgroundColor3=Color3.new(0,0,0); BH.coreGlow.BackgroundColor3=Color3.fromRGB(65,35,135); BH.silverStroke.Color=Color3.fromRGB(238,241,251); BH.purpleStroke.Color=Color3.fromRGB(122,63,242)
+    elseif emp then
+        EMP.startVisuals()
+        if not EMP.watchdog then
+            EMP.watchdog=RunService.RenderStepped:Connect(function()
+                if not State.alive or System.theme~="Empyrean" or not EMP.hero or not EMP.hero.Parent then return end
+                local connected=false
+                if EMP.connection then local ok,value=pcall(function() return EMP.connection.Connected end); connected=ok and value==true end
+                if not connected then EMP.startVisuals() end
+            end)
+            connections[#connections+1]=EMP.watchdog
+        end
+    end
     applyWindowWidth(windowWidth)
     fitWindow(false)
     Theme.syncAllThemeVisuals()
@@ -6661,8 +6748,14 @@ end)
 connect(canvas:GetPropertyChangedSignal("AbsoluteSize"), function() fitWindow(false) end)
 connect(EMP.hero:GetPropertyChangedSignal("AbsoluteSize"), function()
     if System.theme=="Empyrean" and EMP.hero.Visible then
-        EMP.layoutResponsive(math.max(300,EMP.hero.AbsoluteSize.X),math.max(160,EMP.hero.AbsoluteSize.Y))
-        EMP.lastWidth=EMP.hero.AbsoluteSize.X
+        pcall(function()
+            EMP.layoutResponsive(math.max(300,EMP.hero.AbsoluteSize.X),math.max(160,EMP.hero.AbsoluteSize.Y))
+            EMP.lastWidth=EMP.hero.AbsoluteSize.X
+            EMP.lastHeight=EMP.hero.AbsoluteSize.Y
+        end)
+        task.defer(function()
+            if State.alive and System.theme=="Empyrean" then EMP.ensureVisuals() end
+        end)
     end
 end)
 -- Startup is intentionally ordered: persisted theme -> theme application -> loader.

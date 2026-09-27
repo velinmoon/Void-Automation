@@ -3457,17 +3457,14 @@ do
     function System.getThemes() local out={}; for name,data in pairs(System.themeRegistry) do out[#out+1]={name=name,metadata=data} end; table.sort(out,function(a,b) return a.name<b.name end); return out end
     -- Session Analytics event API.
     --
-    -- The counters represent completed/meaningful events, not route-loop
-    -- activity:
-    --   Targets   = a target that was actually engaged by the farm
-    --   Kills     = a watched target confirmed at 0 HP
-    --   Bosses    = confirmed kills whose record belongs to a remembered boss
-    --   Loots     = a unique loot entity for which the interaction call succeeded
-    --   Teleports = an actual reposition of more than a few studs
-    -- Every event is de-duplicated by its underlying Roblox instance.
+    -- Analytics are deliberately driven by actual farm state transitions rather
+    -- than by Farm's route loop.  A route can scan many times without being a
+    -- new target, and a target can die between two Farm.step() calls.  The
+    -- observer below therefore owns the session event state and Farm calls only
+    -- provide authoritative hints (target acquired / kill / loot / teleport).
     function System.refreshStatsUI()
         if not CoreUI or not CoreUI.statsLabel or not CoreUI.statsLabel.Parent then return end
-        local sec=math.floor(System.stats.runtime or 0)
+        local sec=math.max(0, math.floor(System.stats.runtime or 0))
         local h=math.floor(sec/3600); local m=math.floor((sec%3600)/60); local ss=sec%60
         CoreUI.statsLabel.Text=string.format("Runtime %02d:%02d:%02d  |  Targets %d  |  Kills %d\nLoots %d  |  Bosses %d  |  Teleports %d", h,m,ss,System.stats.targets,System.stats.kills,System.stats.loots,System.stats.bosses,System.stats.teleports)
         if CoreUI.targetLabel then CoreUI.targetLabel.Text="Target: "..tostring(System.stats.lastTarget or "--") end
@@ -3477,77 +3474,86 @@ do
         end
     end
 
+    local function statsRecordIsBoss(record)
+        if not record then return false end
+        if record.isBoss == true then return true end
+        if not Farm then return false end
+        local path = record.path
+        if path and Farm.catalog and Farm.catalog[path] then
+            return Settings.AutoBoss == true or Farm.pinned == path or Farm.autoCurrent == path
+        end
+        return false
+    end
+
     function System.recordTarget(record)
-        if not record or not record.humanoid then return end
+        if not record or not record.humanoid then return false end
         local humanoid = record.humanoid
-        if System.statsTargetSeen[humanoid] then return end
+        if not humanoid.Parent then return false end
+        if System.statsTargetSeen[humanoid] then
+            System.stats.lastTarget = tostring(record.name or System.stats.lastTarget or "--")
+            return false
+        end
         System.statsTargetSeen[humanoid] = true
+        System.statsHealthSeen[humanoid] = tonumber(humanoid.Health) or 0
+        System.statsBossTargetSeen[humanoid] = statsRecordIsBoss(record)
         System.stats.targets = System.stats.targets + 1
         System.stats.lastTarget = tostring(record.name or "Unknown target")
-
-        -- Remember whether THIS humanoid was acquired as an Auto Boss target.
-        -- Farm.autoCurrent can change immediately after a kill, so relying on
-        -- the route pointer at death time is race-prone.
-        local isBoss = false
-        if record.path and Farm then
-            isBoss = Settings.AutoBoss and (Farm.autoCurrent == record.path or Farm.pinned == record.path)
-        end
-        System.statsBossTargetSeen[humanoid] = isBoss
-        System.statsHealthSeen[humanoid] = tonumber(humanoid.Health) or nil
         System.refreshStatsUI()
+        return true
     end
 
     function System.recordKill(record)
-        if not record or not record.humanoid then return end
+        if not record or not record.humanoid then return false end
         local humanoid = record.humanoid
-        if System.statsKillSeen[humanoid] then return end
+        if System.statsKillSeen[humanoid] then return false end
+        local hp = tonumber(humanoid.Health)
+        if hp and hp > 0 then return false end
+
+        -- A kill must always have been a tracked engagement.  If the kill was
+        -- observed before the target-acquisition tick, register the target first.
+        if not System.statsTargetSeen[humanoid] then
+            System.recordTarget(record)
+        end
+
         System.statsKillSeen[humanoid] = true
         System.stats.kills = System.stats.kills + 1
         System.stats.lastTarget = tostring(record.name or System.stats.lastTarget or "--")
-
-        -- Never equate "Auto Boss is enabled" with "this target is a boss".
-        -- A boss kill is tied to a saved catalog path/current Auto Boss route.
-        local isBoss = System.statsBossTargetSeen[humanoid] == true
-        if not isBoss and record.path and Farm then
-            -- Fallback for kills detected before the target-acquisition observer
-            -- has had a tick to stamp the humanoid.
-            isBoss = Settings.AutoBoss and (Farm.autoCurrent == record.path or Farm.pinned == record.path)
-        end
-        if isBoss then
+        if System.statsBossTargetSeen[humanoid] or statsRecordIsBoss(record) then
             System.stats.bosses = System.stats.bosses + 1
         end
         System.refreshStatsUI()
+        return true
     end
 
     function System.recordLoot(item)
-        if not item then return end
-        local key = item.entity or item.object
-        if key and System.statsLootSeen[key] then return end
+        if not item then return false end
+        local key = item.entity or item.object or item.part
+        if key and System.statsLootSeen[key] then return false end
         if key then System.statsLootSeen[key] = true end
         System.stats.loots = System.stats.loots + 1
         System.refreshStatsUI()
+        return true
     end
 
     function System.recordTeleport(reason, distance)
-        -- A missing distance is treated as an unknown/non-teleport event rather
-        -- than blindly incrementing the counter. Callers below pass the exact
-        -- displacement before their PivotTo.
         distance = tonumber(distance) or 0
-        if distance < 5 then return end
+        if distance < 5 then return false end
         System.stats.teleports = System.stats.teleports + 1
         System.refreshStatsUI()
+        return true
     end
 
     function System.resetStats()
         System.stats={runtime=0,kills=0,targets=0,loots=0,teleports=0,bosses=0,lastTarget="--",startedAt=os.clock()}
         System.statsLastCycles=0
         System.statsLastTarget=nil
-        System.statsKillSeen=setmetatable({}, {__mode="k"})
+        System.statsLastObservedTarget=nil
         System.statsTargetSeen=setmetatable({}, {__mode="k"})
+        System.statsKillSeen=setmetatable({}, {__mode="k"})
         System.statsLootSeen=setmetatable({}, {__mode="k"})
         System.statsHealthSeen=setmetatable({}, {__mode="k"})
         System.statsBossTargetSeen=setmetatable({}, {__mode="k"})
-        System.statsLastObservedTarget=nil
+        System.refreshStatsUI()
         System.notify("Session statistics reset")
         render()
     end
@@ -3590,31 +3596,48 @@ do
         end
     end
 
-    -- Realtime Session Analytics observer.  This is deliberately independent
-    -- from Farm.step()/HealthChanged so a missed event cannot leave the panel
-    -- stuck at zero.  It observes the actual selected humanoid and its health.
+    -- Realtime Session Analytics observer.
+    -- This observes the automation state itself, not only HealthChanged.  The
+    -- important transition is: not farming -> farming with a concrete target.
+    -- This makes target acquisition deterministic even when Roblox fires no
+    -- HealthChanged event for the target.
     task.spawn(function()
+        local previousFarming = false
+        local previousHumanoid = nil
+        local lastRenderAt = 0
         while State.alive do
-            task.wait(0.10)
+            task.wait(0.08)
             if not State.alive then break end
 
-            local selected = Farm and Farm.selected
-            local humanoid = selected and selected.humanoid
-            if humanoid and humanoid.Parent then
-                if System.statsLastObservedTarget ~= humanoid then
-                    System.statsLastObservedTarget = humanoid
+            local farming = State.farming == true
+            local selected = Farm and Farm.selected or nil
+            local humanoid = selected and selected.humanoid or nil
+
+            if farming and humanoid and humanoid.Parent then
+                -- New target or a fresh farming engagement.
+                if humanoid ~= previousHumanoid or not previousFarming then
                     pcall(function() System.recordTarget(selected) end)
+                    previousHumanoid = humanoid
                 end
 
                 local hp = tonumber(humanoid.Health) or 0
-                local previous = System.statsHealthSeen[humanoid]
+                local previousHP = System.statsHealthSeen[humanoid]
                 System.statsHealthSeen[humanoid] = hp
 
-                -- Only a real transition from living -> dead counts as a kill.
-                -- This catches deaths even if HealthChanged was missed.
-                if hp <= 0 and previous and previous > 0 then
+                if hp <= 0 and not System.statsKillSeen[humanoid] then
                     pcall(function() System.recordKill(selected) end)
                 end
+            elseif not farming then
+                previousHumanoid = nil
+            end
+
+            previousFarming = farming
+
+            -- Keep the display responsive without making the event counters
+            -- depend on render() being called elsewhere.
+            if os.clock() - lastRenderAt >= 0.20 then
+                System.refreshStatsUI()
+                lastRenderAt = os.clock()
             end
         end
     end)

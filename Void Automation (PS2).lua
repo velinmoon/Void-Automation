@@ -5363,7 +5363,10 @@ end
 -- A tiny watchdog is intentionally separate from the animation connection.
 -- If any theme/bootstrap pass replaces or disconnects the animation connection,
 -- the celestial engine is restored on the next frame without touching controls.
-EMP.watchdog = RunService.RenderStepped:Connect(function()
+-- Lifetime watchdog: this connection deliberately survives theme switches.
+-- It does not animate anything itself; it only guarantees that the active
+-- EMPYREAN renderer exists whenever EMPYREAN is selected.
+EMP.watchdog = EMP.watchdog or RunService.RenderStepped:Connect(function()
     if not State.alive or System.theme ~= "Empyrean" or not EMP.hero or not EMP.hero.Parent then return end
     local connected=false
     if EMP.connection then
@@ -5371,10 +5374,14 @@ EMP.watchdog = RunService.RenderStepped:Connect(function()
         connected=ok and value == true
     end
     if not connected then
-        EMP.startVisuals()
+        pcall(function() EMP.startVisuals() end)
     end
 end)
-connections[#connections+1]=EMP.watchdog
+if EMP.watchdog then
+    local alreadyTracked=false
+    for _,c in ipairs(connections) do if c==EMP.watchdog then alreadyTracked=true break end end
+    if not alreadyTracked then connections[#connections+1]=EMP.watchdog end
+end
 
 
 local Theme = {
@@ -6143,8 +6150,14 @@ function Theme.canonicalizeControls()
 end
 
 function Theme.stopSpecialVisuals()
-    if EMP and EMP.connection then pcall(function() EMP.connection:Disconnect() end); EMP.connection=nil end
-    if EMP and EMP.watchdog then pcall(function() EMP.watchdog:Disconnect() end); EMP.watchdog=nil end
+    -- Only the actual celestial animation connection belongs to the active
+    -- theme. The watchdog is intentionally NEVER disconnected here: it is a
+    -- lifetime UI service which sleeps for Nexus/Blackhole and wakes EMPYREAN
+    -- back up when the user returns to it.
+    if EMP and EMP.connection then
+        pcall(function() EMP.connection:Disconnect() end)
+        EMP.connection=nil
+    end
     if EMP and EMP.hero then EMP.hero.Visible=false end
     if BH and BH.hero then BH.hero.Visible=false end
 end
@@ -6539,16 +6552,16 @@ function Theme.apply(themeName)
     if bh then
         BH.core.BackgroundColor3=Color3.new(0,0,0); BH.coreGlow.BackgroundColor3=Color3.fromRGB(65,35,135); BH.silverStroke.Color=Color3.fromRGB(238,241,251); BH.purpleStroke.Color=Color3.fromRGB(122,63,242)
     elseif emp then
-        EMP.startVisuals()
-        if not EMP.watchdog then
-            EMP.watchdog=RunService.RenderStepped:Connect(function()
-                if not State.alive or System.theme~="Empyrean" or not EMP.hero or not EMP.hero.Parent then return end
-                local connected=false
-                if EMP.connection then local ok,value=pcall(function() return EMP.connection.Connected end); connected=ok and value==true end
-                if not connected then EMP.startVisuals() end
-            end)
-            connections[#connections+1]=EMP.watchdog
-        end
+        -- Restart the active EMPYREAN renderer after every theme transition.
+        -- The lifetime watchdog below remains alive even while another theme is
+        -- selected, so switching away and back cannot permanently kill the
+        -- celestial effects.
+        pcall(function() EMP.startVisuals() end)
+        task.defer(function()
+            if State.alive and System.theme=="Empyrean" then
+                pcall(function() EMP.ensureVisuals() end)
+            end
+        end)
     end
     applyWindowWidth(windowWidth)
     fitWindow(false)
@@ -6557,6 +6570,15 @@ function Theme.apply(themeName)
     render()
     Theme.hardResetControls()
     Theme.canonicalizeControls()
+    -- All synchronous theme passes are finished. Rebind EMPYREAN once more on
+    -- the next scheduler turn so no legacy restyler can race the animation.
+    if System.theme=="Empyrean" then
+        task.defer(function()
+            if State.alive and System.theme=="Empyrean" then
+                pcall(function() EMP.ensureVisuals() end)
+            end
+        end)
+    end
 end
 
 UI.setTheme = function(themeName)

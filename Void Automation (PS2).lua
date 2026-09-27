@@ -5187,6 +5187,54 @@ function Theme.syncAllThemeVisuals()
     local bh = theme == "Blackhole"
     local emp = theme == "Empyrean"
 
+    -- Theme identity must be authoritative too: header title/subtitle and
+    -- every page-heading symbol are rebuilt from the ACTIVE theme instead of
+    -- retaining the colors they had when the UI was first constructed.
+    local accent = emp and Color3.fromRGB(156,116,32) or C.violet2
+    local accentBright = emp and Color3.fromRGB(217,169,78) or C.violet2
+    local symbolMuted = emp and Color3.fromRGB(122,108,74) or C.faint
+
+    if brandTitle then
+        brandTitle.Text = emp and "EMPYREAN" or (bh and "BLACKHOLE V1" or "VOID NEXUS")
+        brandTitle.TextColor3 = emp and Color3.fromRGB(58,47,26) or C.ink
+    end
+    local headerSub = header and header:FindFirstChild("Sub")
+    if headerSub and headerSub:IsA("TextLabel") then
+        headerSub.Text = emp and "GRACE ATTAINED" or (bh and "REACTOR ONLINE" or "CORE LINK STABLE")
+        headerSub.TextColor3 = emp and Color3.fromRGB(122,108,74) or C.faint
+    end
+
+    -- Header emblem: reset every child so the old Blackhole cyan/purple
+    -- strokes cannot survive a theme switch.
+    if brandmark then
+        brandmark.BackgroundColor3 = emp and Color3.fromRGB(255,243,200) or C.panel2
+        local bs = brandmark:FindFirstChildOfClass("UIStroke")
+        if bs then bs.Color = accentBright; bs.Transparency = emp and .22 or .12 end
+        if markCore then markCore.BackgroundColor3 = accentBright end
+        if markH then markH.BackgroundColor3 = accent end
+        if markV then markV.BackgroundColor3 = accent end
+    end
+
+    -- Every page heading uses the active theme's symbol color. pageHead()
+    -- creates these icons once, so palette-only restyling otherwise leaves
+    -- their original Blackhole purple behind forever.
+    for _, page in pairs(pageMap) do
+        local head = page:FindFirstChild("PaneHead")
+        if head then
+            local title = head:FindFirstChild("Title")
+            local modules = head:FindFirstChild("Modules")
+            if title and title:IsA("TextLabel") then title.TextColor3 = emp and Color3.fromRGB(58,47,26) or C.ink end
+            if modules and modules:IsA("TextLabel") then modules.TextColor3 = emp and Color3.fromRGB(122,108,74) or C.faint end
+            local icon = head:FindFirstChild("Icon")
+            if icon then
+                for _, d in ipairs(icon:GetDescendants()) do
+                    if d:IsA("UIStroke") then d.Color = accentBright
+                    elseif d:IsA("Frame") then d.BackgroundColor3 = accentBright end
+                end
+            end
+        end
+    end
+
     -- Navigation container + every navigation button.
     if tabs then
         if emp then
@@ -5223,15 +5271,15 @@ function Theme.syncAllThemeVisuals()
         local bar = UI.navBars[key]
         if bar then
             bar.Visible = selected
-            bar.BackgroundColor3 = emp and C.violet2 or C.violet2
+            bar.BackgroundColor3 = accentBright
         end
         local icon = tab:FindFirstChild("Icon")
         if icon then
             for _, d in ipairs(icon:GetDescendants()) do
                 if d:IsA("UIStroke") then
-                    d.Color = selected and (emp and C.violet2 or C.cyan) or C.faint
+                    d.Color = selected and accentBright or symbolMuted
                 elseif d:IsA("Frame") then
-                    d.BackgroundColor3 = selected and (emp and C.violet2 or C.cyan) or C.faint
+                    d.BackgroundColor3 = selected and accentBright or symbolMuted
                 end
             end
         end
@@ -5597,9 +5645,9 @@ function Theme.apply(themeName)
     brandmark.BackgroundColor3=C.panel2
     local brandStroke=brandmark:FindFirstChildOfClass("UIStroke")
     if brandStroke then brandStroke.Color=C.line end
-    markCore.BackgroundColor3=emp and C.bright or C.violet2
-    markH.BackgroundColor3=C.violet2
-    markV.BackgroundColor3=emp and C.violet2 or C.cyan
+    markCore.BackgroundColor3=emp and Color3.fromRGB(217,169,78) or C.violet2
+    markH.BackgroundColor3=emp and Color3.fromRGB(156,116,32) or C.violet2
+    markV.BackgroundColor3=emp and Color3.fromRGB(156,116,32) or C.cyan
     ticker.BackgroundColor3=emp and C.panel2 or C.black
     tickerText.TextColor3=C.faint
     tabs:FindFirstChildOfClass("UIStroke").Color=C.line
@@ -5616,17 +5664,17 @@ function Theme.apply(themeName)
         local st=UI.navStrokes[key]
         if st then st.Color=C.line end
         local bar=UI.navBars[key]
-        if bar then bar.BackgroundColor3=C.violet2 end
+        if bar then bar.BackgroundColor3=emp and Color3.fromRGB(217,169,78) or C.violet2 end
     end
     Theme.restyleRows(); Theme.restyleText()
     if emp then
         Theme.restyleEmpyreanThemePage()
-        if UI.staticScanButton then UI.staticScanButton.TextColor3=C.violet2; UI.staticScanButton.BackgroundColor3=C.panel2 end
+        if UI.staticScanButton then UI.staticScanButton.TextColor3=Color3.fromRGB(156,116,32); UI.staticScanButton.BackgroundColor3=C.panel2 end
         if UI.privateMapBox then UI.privateMapBox.BackgroundColor3=C.panel2; UI.privateMapBox.TextColor3=C.text end
         if resizeGrip then
             for i=1,3 do
                 local gripLine=resizeGrip:FindFirstChild("Line"..i)
-                if gripLine then gripLine.BackgroundColor3=C.violet2 end
+                if gripLine then gripLine.BackgroundColor3=Color3.fromRGB(156,116,32) end
             end
         end
         for _, view in ipairs(toggleViews) do

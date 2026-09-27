@@ -4779,9 +4779,9 @@ local function updateTabVisuals()
     for key, tab in pairs(navButtons) do
         local selected = State.tab == key
         if emp then
-            tab.BackgroundColor3 = selected and Color3.fromRGB(255,224,150) or Color3.fromRGB(255,255,255)
-            tab.BackgroundTransparency = selected and .12 or .34
-            tab.TextColor3 = selected and C.text or C.faint
+            tab.BackgroundColor3 = selected and Color3.fromRGB(255,243,200) or Color3.fromRGB(255,253,247)
+            tab.BackgroundTransparency = selected and .04 or .18
+            tab.TextColor3 = selected and C.ink or C.faint
         else
             tab.BackgroundColor3 = selected and Color3.fromRGB(30,14,48) or Color3.fromRGB(8,4,16)
             tab.BackgroundTransparency = 0
@@ -4871,24 +4871,24 @@ local function applyWindowWidth(width)
         content.Position = UDim2.fromOffset(0, 280)
         content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
     elseif System.theme == "Empyrean" then
-        -- EMPYREAN owns the same 64/152/64/320 layout every time the window is resized.
+        -- EMPYREAN owns the same 64/160/64/312 layout every time the window is resized.
         -- The old generic branch was resetting these to 88/152, which put the navigation
         -- directly on top of the hero and made the content appear to be from another theme.
-        EMP.hero.Size = UDim2.fromOffset(windowWidth, 152)
-        EMP.sky.Size = UDim2.fromOffset(windowWidth, 152)
-        EMP.rayGroup.Size = UDim2.fromOffset(windowWidth, 152)
-        EMP.scan.Size = UDim2.fromOffset(windowWidth, 54)
+        EMP.hero.Size = UDim2.fromOffset(windowWidth, 160)
+        EMP.sky.Size = UDim2.fromOffset(windowWidth, 160)
+        EMP.rayGroup.Size = UDim2.fromOffset(windowWidth, 160)
+        EMP.scan.Size = UDim2.fromOffset(windowWidth, 61)
         for i, ray in ipairs(EMP.rays) do
-            ray.Size = UDim2.fromOffset(math.max(80, windowWidth * 0.10), 2)
+            ray.Size = UDim2.fromOffset(math.max(80, windowWidth * 0.10), (i % 2 == 1) and 3 or 2)
         end
         for i, info in ipairs(EMP.sparkles) do
             local presets = {{.23,42},{.77,48},{.18,118},{.82,116},{.5,18}}
             local preset = presets[i]
             if preset then info.object.Position = UDim2.fromOffset(windowWidth * preset[1], preset[2]) end
         end
-        tabs.Position = UDim2.fromOffset(0, 216)
-        content.Position = UDim2.fromOffset(0, 280)
-        content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
+        tabs.Position = UDim2.fromOffset(0, 224)
+        content.Position = UDim2.fromOffset(0, 288)
+        content.Size = UDim2.fromOffset(windowWidth, windowHeight - 288)
     else
         tabs.Position = UDim2.fromOffset(0, 88)
         content.Position = UDim2.fromOffset(0, 152)
@@ -4964,31 +4964,36 @@ local function fitWindow(centerIfNeeded)
 end
 
 -- EMPYREAN visual preset hero. Isolated from all other theme visuals.
-EMP.hero = frame(panel, "EmpyreanHero", 0, 64, W, 152, Color3.fromRGB(255,250,235), 0)
+EMP.hero = frame(panel, "EmpyreanHero", 0, 64, W, 160, Color3.fromRGB(255,250,235), 0)
 EMP.hero.ZIndex = 4; EMP.hero.ClipsDescendants = true; EMP.hero.Visible = false
 EMP.heroStroke = stroke(EMP.hero, Color3.fromRGB(217,169,78), 0.58, 1)
-EMP.sky = frame(EMP.hero, "Sky", 0, 0, W, 152, Color3.fromRGB(255,250,235), 0)
+EMP.sky = frame(EMP.hero, "Sky", 0, 0, W, 160, Color3.fromRGB(255,250,235), 0)
 EMP.sky.ZIndex = 1
 EMP.skyGradient = make("UIGradient", EMP.sky, {Rotation=90, Color=ColorSequence.new({
     ColorSequenceKeypoint.new(0,Color3.fromRGB(255,253,247)), ColorSequenceKeypoint.new(0.48,Color3.fromRGB(253,238,199)), ColorSequenceKeypoint.new(1,Color3.fromRGB(238,226,194))
 })})
-EMP.glow = frame(EMP.hero,"Glow",0,0,150,150,Color3.fromRGB(255,243,200),75); EMP.glow.AnchorPoint=Vector2.new(.5,.5); EMP.glow.Position=UDim2.fromOffset(W*.5,78); EMP.glow.BackgroundTransparency=.88; EMP.glow.ZIndex=2
+EMP.glow = frame(EMP.hero,"Glow",0,0,150,150,Color3.fromRGB(255,243,200),75); EMP.glow.AnchorPoint=Vector2.new(.5,.5); EMP.glow.Position=UDim2.fromOffset(W*.5,78); EMP.glow.BackgroundTransparency=.84; EMP.glow.ZIndex=2
 EMP.glowStroke=stroke(EMP.glow,Color3.fromRGB(255,224,150),.76,1)
-EMP.rayGroup=frame(EMP.hero,"GodRays",0,0,W,152,Color3.new(1,1,1),0); EMP.rayGroup.BackgroundTransparency=1; EMP.rayGroup.AnchorPoint=Vector2.new(.5,.5); EMP.rayGroup.Position=UDim2.fromOffset(W*.5,76); EMP.rayGroup.ZIndex=2
+EMP.rayGroup=frame(EMP.hero,"GodRays",0,0,W,160,Color3.new(1,1,1),0); EMP.rayGroup.BackgroundTransparency=1; EMP.rayGroup.AnchorPoint=Vector2.new(.5,.5); EMP.rayGroup.Position=UDim2.fromOffset(W*.5,78); EMP.rayGroup.ZIndex=2
 EMP.rays={}
-for i=1,10 do local ray=frame(EMP.rayGroup,"Ray"..i,0,0,math.max(80,W*.10),2,Color3.fromRGB(255,244,214),1); ray.AnchorPoint=Vector2.new(.5,.5); ray.Position=UDim2.fromOffset(W*.5,76); ray.Rotation=(i-1)*36; ray.BackgroundTransparency=.84; ray.ZIndex=2; EMP.rays[#EMP.rays+1]=ray end
-EMP.wingL=frame(EMP.hero,"WingL",0,0,150,90,Color3.new(1,1,1),0); EMP.wingL.BackgroundTransparency=1; EMP.wingL.AnchorPoint=Vector2.new(1,.5); EMP.wingL.Position=UDim2.fromOffset(W*.5-5,84); EMP.wingL.ZIndex=5
-EMP.wingR=frame(EMP.hero,"WingR",0,0,150,90,Color3.new(1,1,1),0); EMP.wingR.BackgroundTransparency=1; EMP.wingR.AnchorPoint=Vector2.new(0,.5); EMP.wingR.Position=UDim2.fromOffset(W*.5+5,84); EMP.wingR.ZIndex=5
+for i=1,12 do
+    local width=(i%2==1) and 3 or 2
+    local ray=frame(EMP.rayGroup,"Ray"..i,0,0,math.max(80,W*.10),width,Color3.fromRGB(255,243,200),1)
+    ray.AnchorPoint=Vector2.new(.5,.5); ray.Position=UDim2.fromOffset(W*.5,78); ray.Rotation=(i-1)*30; ray.BackgroundTransparency=.50; ray.ZIndex=2
+    EMP.rays[#EMP.rays+1]=ray
+end
+EMP.wingL=frame(EMP.hero,"WingL",0,0,150,90,Color3.new(1,1,1),0); EMP.wingL.BackgroundTransparency=1; EMP.wingL.AnchorPoint=Vector2.new(1,.5); EMP.wingL.Position=UDim2.fromOffset(W*.5-5,90); EMP.wingL.ZIndex=5
+EMP.wingR=frame(EMP.hero,"WingR",0,0,150,90,Color3.new(1,1,1),0); EMP.wingR.BackgroundTransparency=1; EMP.wingR.AnchorPoint=Vector2.new(0,.5); EMP.wingR.Position=UDim2.fromOffset(W*.5+5,90); EMP.wingR.ZIndex=5
 EMP.wingStrokes={}
 local wingColors={Color3.fromRGB(217,169,78),Color3.fromRGB(255,243,200),Color3.fromRGB(196,151,64)}
 for side,group in ipairs({EMP.wingL,EMP.wingR}) do for i=1,4 do local f=frame(group,"Feather"..i,0,0,78-i*7,2,wingColors[(i%#wingColors)+1],1); f.AnchorPoint=Vector2.new(.5,.5); f.Position=UDim2.fromOffset(side==1 and 54+i*3 or 96-i*3,22+i*12); f.Rotation=side==1 and(-12-i*4)or(12+i*4); f.BackgroundTransparency=.35+i*.08; f.ZIndex=5; EMP.wingStrokes[#EMP.wingStrokes+1]=f end end
-EMP.haloA=frame(EMP.hero,"HaloA",0,0,172,40,Color3.new(1,1,1),20); EMP.haloA.AnchorPoint=Vector2.new(.5,.5); EMP.haloA.Position=UDim2.fromOffset(W*.5,80); EMP.haloA.BackgroundTransparency=1; EMP.haloA.ZIndex=6; EMP.haloAStroke=stroke(EMP.haloA,Color3.fromRGB(217,169,78),.28,2)
-EMP.haloB=frame(EMP.hero,"HaloB",0,0,104,104,Color3.new(1,1,1),52); EMP.haloB.AnchorPoint=Vector2.new(.5,.5); EMP.haloB.Position=UDim2.fromOffset(W*.5,80); EMP.haloB.BackgroundTransparency=1; EMP.haloB.ZIndex=6; EMP.haloBStroke=stroke(EMP.haloB,Color3.fromRGB(242,193,78),.46,1); EMP.haloBStroke.Transparency=.46
-EMP.core=frame(EMP.hero,"Core",0,0,70,70,Color3.fromRGB(255,243,200),35); EMP.core.AnchorPoint=Vector2.new(.5,.5); EMP.core.Position=UDim2.fromOffset(W*.5,80); EMP.core.BackgroundTransparency=.76; EMP.core.ZIndex=7; EMP.coreStroke=stroke(EMP.core,Color3.fromRGB(255,224,150),.22,1)
-EMP.dot=frame(EMP.hero,"CoreDot",0,0,8,8,Color3.fromRGB(255,254,248),4); EMP.dot.AnchorPoint=Vector2.new(.5,.5); EMP.dot.Position=UDim2.fromOffset(W*.5,80); EMP.dot.ZIndex=8
+EMP.haloA=frame(EMP.hero,"HaloA",0,0,172,40,Color3.new(1,1,1),20); EMP.haloA.AnchorPoint=Vector2.new(.5,.5); EMP.haloA.Position=UDim2.fromOffset(W*.5,78); EMP.haloA.BackgroundTransparency=1; EMP.haloA.ZIndex=6; EMP.haloAStroke=stroke(EMP.haloA,Color3.fromRGB(217,169,78),.28,2)
+EMP.haloB=frame(EMP.hero,"HaloB",0,0,104,104,Color3.new(1,1,1),52); EMP.haloB.AnchorPoint=Vector2.new(.5,.5); EMP.haloB.Position=UDim2.fromOffset(W*.5,78); EMP.haloB.BackgroundTransparency=1; EMP.haloB.ZIndex=6; EMP.haloBStroke=stroke(EMP.haloB,Color3.fromRGB(242,193,78),.46,1); EMP.haloBStroke.Transparency=.46
+EMP.core=frame(EMP.hero,"Core",0,0,70,70,Color3.fromRGB(255,243,200),35); EMP.core.AnchorPoint=Vector2.new(.5,.5); EMP.core.Position=UDim2.fromOffset(W*.5,78); EMP.core.BackgroundTransparency=.76; EMP.core.ZIndex=7; EMP.coreStroke=stroke(EMP.core,Color3.fromRGB(255,224,150),.22,1)
+EMP.dot=frame(EMP.hero,"CoreDot",0,0,8,8,Color3.fromRGB(255,254,248),4); EMP.dot.AnchorPoint=Vector2.new(.5,.5); EMP.dot.Position=UDim2.fromOffset(W*.5,78); EMP.dot.ZIndex=8
 EMP.sparkles={}
 for i,d in ipairs({{.23,42,1.8},{.77,48,1.6},{.18,118,1.5},{.82,116,1.8},{.5,18,1.3}}) do local sp=frame(EMP.hero,"Spark"..i,0,0,d[3]*2,d[3]*2,Color3.fromRGB(255,243,200),d[3]); sp.AnchorPoint=Vector2.new(.5,.5); sp.Position=UDim2.fromOffset(W*d[1],d[2]); sp.ZIndex=9; sp.BackgroundTransparency=.35; EMP.sparkles[#EMP.sparkles+1]={object=sp,phase=(i-1)*.5} end
-EMP.scan=frame(EMP.hero,"Scan",0,-58,W,54,Color3.fromRGB(255,255,255),0); EMP.scan.BackgroundTransparency=.97; EMP.scan.ZIndex=10
+EMP.scan=frame(EMP.hero,"Scan",0,-61,W,61,Color3.fromRGB(255,255,255),0); EMP.scan.BackgroundTransparency=.97; EMP.scan.ZIndex=10
 EMP.scanGradient=make("UIGradient",EMP.scan,{Rotation=90,Color=ColorSequence.new(Color3.fromRGB(255,255,255),Color3.fromRGB(255,224,150)),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,1),NumberSequenceKeypoint.new(.5,.22),NumberSequenceKeypoint.new(1,1)})})
 EMP.clock=os.clock(); EMP.last=EMP.clock; EMP.connection=nil
 function EMP.startVisuals()
@@ -4997,12 +5002,12 @@ function EMP.startVisuals()
     EMP.connection=connect(RunService.RenderStepped,function()
         if not State.alive or not EMP.hero.Parent or not EMP.hero.Visible or System.theme~="Empyrean" then return end
         local now=os.clock(); local dt=math.min(now-EMP.last,.05); EMP.last=now; local t=now-EMP.clock; local heroWidth=math.max(420,EMP.hero.AbsoluteSize.X); local cx=heroWidth*.5
-        EMP.glow.Position=UDim2.fromOffset(cx,78); EMP.rayGroup.Position=UDim2.fromOffset(cx,76); EMP.wingL.Position=UDim2.fromOffset(cx-5,84); EMP.wingR.Position=UDim2.fromOffset(cx+5,84); EMP.haloA.Position=UDim2.fromOffset(cx,80); EMP.haloB.Position=UDim2.fromOffset(cx,80); EMP.core.Position=UDim2.fromOffset(cx,80); EMP.dot.Position=UDim2.fromOffset(cx,80)
+        EMP.glow.Position=UDim2.fromOffset(cx,78); EMP.rayGroup.Position=UDim2.fromOffset(cx,78); EMP.wingL.Position=UDim2.fromOffset(cx-5,90); EMP.wingR.Position=UDim2.fromOffset(cx+5,90); EMP.haloA.Position=UDim2.fromOffset(cx,78); EMP.haloB.Position=UDim2.fromOffset(cx,78); EMP.core.Position=UDim2.fromOffset(cx,78); EMP.dot.Position=UDim2.fromOffset(cx,78)
         local breath=(math.sin(t*math.pi*2/4.5)+1)*.5; EMP.core.BackgroundTransparency=.84-breath*.18; EMP.glow.BackgroundTransparency=.92-breath*.10; EMP.haloA.Rotation=math.sin(t*math.pi*2/44)*5+t*8.18; EMP.haloB.Rotation=-t*6; EMP.rayGroup.Rotation=t*4
         for i,ray in ipairs(EMP.rays) do ray.BackgroundTransparency=.90-((math.sin(t*.9+i*.6)+1)*.5)*.16 end
         for i,f in ipairs(EMP.wingStrokes) do f.BackgroundTransparency=.28+((i%4)*.07)+((math.sin(t*1.2+i)+1)*.5)*.10 end
         for _,info in ipairs(EMP.sparkles) do local pulse=(math.sin((t+info.phase)*math.pi*2/3)+1)*.5; info.object.BackgroundTransparency=.86-pulse*.68; info.object.Size=UDim2.fromOffset(2+3*pulse,2+3*pulse) end
-        EMP.scan.Position=UDim2.fromOffset(0,-58+((t/7)%1)*210); EMP.scan.BackgroundTransparency=.965
+        EMP.scan.Position=UDim2.fromOffset(0,-61+((t/7)%1)*221); EMP.scan.BackgroundTransparency=.965
     end)
 end
 
@@ -5107,6 +5112,54 @@ function Theme.restyleRows()
     end
 end
 
+function Theme.restyleEmpyreanThemePage()
+    if System.theme ~= "Empyrean" then return end
+    local cream = Color3.fromRGB(255,248,232)
+    local creamBright = Color3.fromRGB(255,253,247)
+    local gold = Color3.fromRGB(217,169,78)
+    local goldLight = Color3.fromRGB(255,243,200)
+    local ink = Color3.fromRGB(58,47,26)
+    local faint = Color3.fromRGB(171,157,120)
+    if ThemeUI.themeInfo then
+        ThemeUI.themeInfo.BackgroundColor3 = cream
+        ThemeUI.themeInfo.BackgroundTransparency = 0.06
+        local st = ThemeUI.themeInfo:FindFirstChildOfClass("UIStroke")
+        if st then st.Color = gold; st.Transparency = .42 end
+    end
+    local rows = {{ThemeUI.defaultRow,ThemeUI.defaultButton},{ThemeUI.blackholeRow,ThemeUI.blackholeButton},{ThemeUI.empyreanRow,ThemeUI.empyreanButton}}
+    for _, pair in ipairs(rows) do
+        local row, button = pair[1], pair[2]
+        if row then
+            row.BackgroundColor3 = creamBright
+            row.BackgroundTransparency = 0.02
+            local st = row:FindFirstChildOfClass("UIStroke")
+            if st then st.Color = gold; st.Transparency = .48 end
+            local icon = row:FindFirstChild("Icon")
+            if icon then
+                icon.BackgroundColor3 = goldLight
+                icon.BackgroundTransparency = .08
+                local ist = icon:FindFirstChildOfClass("UIStroke")
+                if ist then ist.Color = gold; ist.Transparency = .28 end
+                for _, d in ipairs(icon:GetDescendants()) do
+                    if d:IsA("Frame") then d.BackgroundColor3 = gold elseif d:IsA("UIStroke") then d.Color = gold end
+                end
+            end
+            local title = row:FindFirstChild("Title"); if title then title.TextColor3 = ink end
+            local desc = row:FindFirstChild("Desc"); if desc then desc.TextColor3 = faint end
+            if button then
+                local active = (row == ThemeUI.empyreanRow)
+                button.BackgroundColor3 = active and gold or cream
+                button.BackgroundTransparency = active and 0 or .02
+                button.TextColor3 = active and ink or faint
+                local bst = button:FindFirstChildOfClass("UIStroke")
+                if bst then bst.Color = gold; bst.Transparency = .42 end
+                button.AutoButtonColor = false
+            end
+        end
+    end
+    if ThemeUI.hint then ThemeUI.hint.TextColor3 = faint end
+end
+
 function Theme.stopSpecialVisuals()
     if EMP and EMP.connection then EMP.connection:Disconnect(); EMP.connection=nil end
     if EMP and EMP.hero then EMP.hero.Visible=false end
@@ -5171,18 +5224,18 @@ function Theme.apply(themeName)
 
         EMP.hero.Visible=true
         EMP.hero.Position=UDim2.fromOffset(0,64)
-        EMP.hero.Size=UDim2.fromOffset(windowWidth,152)
+        EMP.hero.Size=UDim2.fromOffset(windowWidth,160)
         EMP.hero.BackgroundColor3=C.surface
         EMP.hero.BackgroundTransparency=0
         EMP.heroStroke.Color=C.line
         EMP.heroStroke.Transparency=.34
 
-        tabs.Position=UDim2.fromOffset(0,216)
+        tabs.Position=UDim2.fromOffset(0,224)
         tabs.BackgroundColor3=Color3.fromRGB(255,250,235)
         tabs.BackgroundTransparency=.42
 
-        content.Position=UDim2.fromOffset(0,280)
-        content.Size=UDim2.fromOffset(windowWidth,windowHeight-280)
+        content.Position=UDim2.fromOffset(0,288)
+        content.Size=UDim2.fromOffset(windowWidth,windowHeight-288)
         content.BackgroundColor3=C.panel
         content.BackgroundTransparency=0
         local contentGradient=content:FindFirstChild("EmpyreanSurfaceGradient")
@@ -5232,6 +5285,7 @@ function Theme.apply(themeName)
     end
     Theme.restyleRows(); Theme.restyleText()
     if emp then
+        Theme.restyleEmpyreanThemePage()
         if UI.staticScanButton then UI.staticScanButton.TextColor3=C.violet2; UI.staticScanButton.BackgroundColor3=C.panel2 end
         if UI.privateMapBox then UI.privateMapBox.BackgroundColor3=C.panel2; UI.privateMapBox.TextColor3=C.text end
         if resizeGrip then
@@ -5376,6 +5430,7 @@ local function renderPageState()
         view.knob.Position = UDim2.new(fraction, -7, 0.5, -7)
     end
     updateTabVisuals()
+    if System.theme == "Empyrean" then Theme.restyleEmpyreanThemePage() end
 end
 
 local uiRenderError = nil
@@ -5436,7 +5491,13 @@ end)
 connect(canvas:GetPropertyChangedSignal("AbsoluteSize"), function() fitWindow(false) end)
 fitWindow(true)
 render()
-pcall(function() Theme.apply(System.theme) end)
+do
+    local __themeOK, __themeERR = pcall(function() Theme.apply(System.theme) end)
+    if not __themeOK then
+        warn("[Void Automation] Theme initialization failed: " .. tostring(__themeERR))
+        pcall(function() Theme.apply("Default") end)
+    end
+end
 
 do
     local __loaderLayer

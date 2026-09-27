@@ -4981,61 +4981,79 @@ connect(UI.privateMapBox.FocusLost, function()
 end)
 
 -- ========================= CONTROL CENTER =========================
+-- The Control Center intentionally contains only the two requested modules:
+-- Automation Profiles and Session Analytics.  UI scale/opacity and the old
+-- Core Services toolbox are not part of this page.
 CoreUI = {page = newPage("Core")}
-pageHead(CoreUI.page, "system", "CONTROL CENTER", "8 SERVICES")
-local coreHead = safeText(CoreUI.page, "Intro", "Automation profiles, analytics, recovery, locations and command tools.", 16, 48, W - 32, 28, 9, C.faint, Enum.Font.GothamMedium)
-coreHead.TextXAlignment = Enum.TextXAlignment.Center
+pageHead(CoreUI.page, "system", "CONTROL CENTER", "2 MODULES")
 
 local function coreButton(parent, name, text, x, y, width, callback)
     local b = button(parent, name, text, x, y, width, 34, C.panel2, 8)
-    b.TextColor3 = C.ink; b.TextSize = 9; b.Font = Enum.Font.GothamBold
+    b.TextColor3 = C.ink
+    b.TextSize = 9
+    b.Font = Enum.Font.GothamBold
+    b.AutoButtonColor = false
     stroke(b, C.line, .55, 1)
     if callback then connect(b.Activated, callback) end
     return b
 end
 
-local coreStatus = safeText(CoreUI.page, "CoreStatus", "READY", 16, 84, W - 32, 18, 10, C.faint, Enum.Font.GothamBold)
-coreStatus.TextXAlignment = Enum.TextXAlignment.Center
-
-local coreProfile = frame(CoreUI.page, "Profiles", 16, 114, W - 32, 126, C.panel2, 10); stroke(coreProfile, C.line, .7, 1)
+-- Automation Profiles
+local coreProfile = frame(CoreUI.page, "Profiles", 16, 50, W - 32, 126, C.panel2, 10)
+stroke(coreProfile, C.line, .7, 1)
 safeText(coreProfile, "Title", "AUTOMATION PROFILES", 12, 9, 200, 18, 11, C.ink, Enum.Font.GothamBold)
 local profileName = safeText(coreProfile, "Active", "Default", 12, 31, 180, 18, 10, C.faint, Enum.Font.GothamMedium)
 CoreUI.profileName = profileName
 CoreUI.profileButtons = {}
 CoreUI.profileBox = coreProfile
-CoreUI.profileInput = make("TextBox", coreProfile, {Name="ProfileInput", Position=UDim2.fromOffset(202,30), Size=UDim2.fromOffset(170,24), BackgroundColor3=C.panel, TextColor3=C.ink, PlaceholderText="Profile name", PlaceholderColor3=C.faint, Text="", TextSize=10, Font=Enum.Font.GothamMedium, ClearTextOnFocus=false, ZIndex=20})
+CoreUI.profileInput = make("TextBox", coreProfile, {
+    Name="ProfileInput",
+    Position=UDim2.fromOffset(202,30),
+    Size=UDim2.fromOffset(170,24),
+    BackgroundColor3=C.panel,
+    BorderSizePixel=0,
+    TextColor3=C.ink,
+    PlaceholderText="Profile name",
+    PlaceholderColor3=C.faint,
+    Text="",
+    TextSize=10,
+    Font=Enum.Font.GothamMedium,
+    ClearTextOnFocus=false,
+    ZIndex=20,
+})
 stroke(CoreUI.profileInput, C.line, .6, 1)
-coreButton(coreProfile,"SaveProfile","SAVE",12,70,78,function() if System.saveProfile then System.saveProfile(CoreUI.profileInput.Text~="" and CoreUI.profileInput.Text or System.activeProfile) end end)
-coreButton(coreProfile,"LoadProfile","LOAD",96,70,78,function() if System.loadProfile then System.loadProfile(CoreUI.profileInput.Text~="" and CoreUI.profileInput.Text or System.activeProfile) end end)
-coreButton(coreProfile,"NewProfile","DUPLICATE",180,70,88,function() if System.duplicateProfile then System.duplicateProfile(CoreUI.profileInput.Text~="" and CoreUI.profileInput.Text or System.activeProfile) end end)
-coreButton(coreProfile,"DeleteProfile","DELETE",274,70,78,function() if System.deleteProfile then System.deleteProfile(CoreUI.profileInput.Text~="" and CoreUI.profileInput.Text or System.activeProfile) end end)
+coreButton(coreProfile,"SaveProfile","SAVE",12,70,78,function()
+    if System.saveProfile then
+        System.saveProfile(CoreUI.profileInput.Text~="" and CoreUI.profileInput.Text or System.activeProfile)
+    end
+end)
+coreButton(coreProfile,"LoadProfile","LOAD",96,70,78,function()
+    if System.loadProfile then
+        System.loadProfile(CoreUI.profileInput.Text~="" and CoreUI.profileInput.Text or System.activeProfile)
+    end
+end)
+coreButton(coreProfile,"NewProfile","DUPLICATE",180,70,88,function()
+    if System.duplicateProfile then
+        System.duplicateProfile(CoreUI.profileInput.Text~="" and CoreUI.profileInput.Text or System.activeProfile)
+    end
+end)
+coreButton(coreProfile,"DeleteProfile","DELETE",274,70,78,function()
+    if System.deleteProfile then
+        System.deleteProfile(CoreUI.profileInput.Text~="" and CoreUI.profileInput.Text or System.activeProfile)
+    end
+end)
 
-local coreStats = frame(CoreUI.page, "Analytics", 16, 250, W - 32, 150, C.panel2, 10); stroke(coreStats, C.line, .7, 1)
+-- Session Analytics
+local coreStats = frame(CoreUI.page, "Analytics", 16, 190, W - 32, 150, C.panel2, 10)
+stroke(coreStats, C.line, .7, 1)
 safeText(coreStats,"Title","SESSION ANALYTICS",12,9,180,18,11,C.ink,Enum.Font.GothamBold)
-CoreUI.statsLabel = safeText(coreStats,"Stats","Runtime 00:00:00  |  Targets 0  |  Kills 0\nLoots 0  |  Bosses 0  |  Teleports 0",12,34,W-56,46,10,C.faint,Enum.Font.GothamMedium)
+CoreUI.statsLabel = safeText(coreStats,"Stats", "Runtime 00:00:00  |  Targets 0  |  Kills 0\nLoots 0  |  Bosses 0  |  Teleports 0", 12,34,W-56,46,10,C.faint,Enum.Font.GothamMedium)
 CoreUI.statsLabel.TextWrapped=true
 CoreUI.targetLabel = safeText(coreStats,"Target","Target: --",12,84,W-56,18,10,C.ink,Enum.Font.GothamMedium)
 CoreUI.safetyLabel = safeText(coreStats,"Safety","Safety: SAFE",12,106,W-56,18,10,C.green,Enum.Font.GothamBold)
-coreButton(coreStats,"ResetStats","RESET STATS",W-150,110,120,function() if System.resetStats then System.resetStats() end end)
-
-local coreTools = frame(CoreUI.page, "Tools", 16, 410, W - 32, 206, C.panel2, 10); stroke(coreTools, C.line, .7, 1)
-safeText(coreTools,"Title","CORE SERVICES",12,9,180,18,11,C.ink,Enum.Font.GothamBold)
-coreButton(coreTools,"Command","COMMAND PALETTE  [CTRL+K]",12,34,190,function() if System.toggleCommandPalette then System.toggleCommandPalette() end end)
-coreButton(coreTools,"Locations","LOCATION DATABASE",210,34,160,function() if System.showLocations then System.showLocations() end end)
-coreButton(coreTools,"Keybinds","KEYBIND MANAGER",12,74,190,function() if System.showKeybinds then System.showKeybinds() end end)
-coreButton(coreTools,"Notifications","NOTIFICATION CENTER",210,74,160,function() if System.showNotifications then System.showNotifications() end end)
-coreButton(coreTools,"Safety","SAFETY / RECOVERY",12,114,190,function() if System.toggleSafety then System.toggleSafety() end end)
-coreButton(coreTools,"Compact","COMPACT UI",210,114,160,function() Settings.UICompact=not Settings.UICompact; System.savePrefs(); render() end)
-coreButton(coreTools,"SaveUI","SAVE UI PROFILE",12,154,190,function() if System.saveProfile then System.saveProfile(System.activeProfile or "Default") end end)
-coreButton(coreTools,"Emergency","EMERGENCY STOP",210,154,160,function() if System.emergencyStop then System.emergencyStop() end end)
-
-local coreHint = safeText(CoreUI.page,"Hint","All services are session-safe and persist through the profile system.",16,630,W-32,18,9,C.faint,Enum.Font.GothamMedium)
-coreHint.TextXAlignment=Enum.TextXAlignment.Center
-
-CoreUI.scaleSlider = makeSlider(CoreUI.page, 662, "UI Scale", function() return Settings.UIScale end, function(v) Settings.UIScale=math.clamp(v,.75,1.25); if uiScale then uiScale.Scale=Settings.UIScale end end, .75, 1.25, "%.2fx")
-CoreUI.opacitySlider = makeSlider(CoreUI.page, 734, "UI Opacity", function() return Settings.UIOpacity end, function(v) Settings.UIOpacity=math.clamp(v,.35,1); if panel then panel.BackgroundTransparency=1-Settings.UIOpacity*.92 end end, .35, 1, "%.0f%%")
-CoreUI.notificationRow = makeRow(CoreUI.page, 806, "Notifications", "Keep system events visible", function() return Settings.NotificationsEnabled end, function(v) Settings.NotificationsEnabled=v end)
-CoreUI.safetyRow = makeRow(CoreUI.page, 866, "Safety Core", "Monitor stuck movement and recover safely", function() return Settings.SafetyEnabled end, function(v) Settings.SafetyEnabled=v end)
+coreButton(coreStats,"ResetStats","RESET STATS",W-150,110,120,function()
+    if System.resetStats then System.resetStats() end
+end)
 
 local ThemeUI = {page = newPage("Theme")}
 pageHead(ThemeUI.page, "theme", "THEME", "DISPLAY")
@@ -6403,6 +6421,41 @@ function Theme.canonicalizeControls()
         UI.privateMapBox.BackgroundColor3=P.panel2
         UI.privateMapBox.TextColor3=P.text
         paintStroke(UI.privateMapBox,P.line,0.55)
+    end
+
+    -- Control Center owns two non-row container cards.  The generic control
+    -- pass above correctly handles their buttons, but these parent frames need
+    -- their own theme pass so a page created while Blackhole is active cannot
+    -- leave a dark panel behind after switching to EMPYREAN (or vice versa).
+    if CoreUI and CoreUI.page then
+        local cards = {CoreUI.profileBox, CoreUI.profileBox and CoreUI.profileBox.Parent and CoreUI.profileBox.Parent:FindFirstChild("Analytics")}
+        for _,card in ipairs(cards) do
+            if card and card:IsA("GuiObject") then
+                card.BackgroundColor3=P.panel2
+                card.BackgroundTransparency=emp and 0.06 or 0
+                paintStroke(card,P.line,emp and 0.42 or 0.72)
+                for _,d in ipairs(card:GetDescendants()) do
+                    if d:IsA("TextLabel") then
+                        d.TextColor3=(d.Name=="Active" or d.Name=="Target") and P.muted or P.text
+                    elseif d:IsA("TextButton") then
+                        d.AutoButtonColor=false
+                        d.BackgroundColor3=P.panel
+                        d.BackgroundTransparency=emp and 0.05 or 0
+                        d.TextColor3=P.text
+                        paintStroke(d,P.line,emp and 0.42 or 0.72)
+                    elseif d:IsA("TextBox") then
+                        d.BackgroundColor3=P.panel
+                        d.BackgroundTransparency=emp and 0.05 or 0
+                        d.TextColor3=P.text
+                        d.PlaceholderColor3=P.muted
+                        paintStroke(d,P.line,emp and 0.42 or 0.72)
+                    end
+                end
+            end
+        end
+        if CoreUI.safetyLabel then CoreUI.safetyLabel.TextColor3=emp and Color3.fromRGB(42,150,82) or C.green end
+        if CoreUI.statsLabel then CoreUI.statsLabel.TextColor3=P.muted end
+        if CoreUI.profileName then CoreUI.profileName.TextColor3=P.muted end
     end
 
     -- Page symbols and header identity.

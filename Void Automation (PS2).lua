@@ -3028,6 +3028,7 @@ end
 
 System = {
     configPath = "AutoSkills_System_v1.json",
+    themeConfigPath = "AutoSkills_Theme_v1.txt",
     bodyPath = "AutoSkills_Void_AutoRun.lua",
     autoexecPath = "autoexec/AutoSkills_Void.lua",
     targetGameId = tostring(game.GameId or 0),
@@ -3062,23 +3063,45 @@ do
     end
 
     function System.loadPrefs()
-        if type(reader) ~= "function" or type(exists) ~= "function" then return end
-        local okExists, present = pcall(exists, System.configPath)
-        if not okExists or not present then return end
+        -- Do not require isfile() just to load preferences. Some executors expose
+        -- readfile/writefile but their isfile wrapper is missing or unreliable.
+        if type(reader) ~= "function" then return end
+        local raw
+        local persistedTheme
+        local okTheme, themeRaw = false, nil
+        if System.themeConfigPath then
+            okTheme, themeRaw = pcall(reader, System.themeConfigPath)
+            if okTheme and type(themeRaw) == "string" and (themeRaw == "Default" or themeRaw == "Blackhole" or themeRaw == "Empyrean") then
+                persistedTheme = themeRaw
+                System.theme = themeRaw
+            end
+        end
 
-        local ok, data = pcall(function()
-            return HttpService:JSONDecode(reader(System.configPath))
-        end)
-        if not ok or type(data) ~= "table" then return end
+        local okRead, result = pcall(reader, System.configPath)
+        if okRead and type(result) == "string" and #result > 0 then
+            raw = result
+        end
 
-        if type(data.StaticMapScan) == "boolean" then Settings.StaticMapScan = data.StaticMapScan end
-        if type(data.AutoRejoin) == "boolean" then Settings.AutoRejoin = data.AutoRejoin end
-        if type(data.AutoExecute) == "boolean" then Settings.AutoExecute = data.AutoExecute end
-        if data.Theme == "Blackhole" or data.Theme == "Default" or data.Theme == "Empyrean" then System.theme = data.Theme end
-        if finiteText(data.PrivateServerMap, 80) then Settings.PrivateServerMap = data.PrivateServerMap end
-        if finiteText(data.TargetGameId, 40) then System.targetGameId = data.TargetGameId end
-        if finiteText(data.LastPrivateJob, 120) then System.lastPrivateJob = data.LastPrivateJob end
-        if type(data.LastPrivatePlace) == "number" then System.lastPrivatePlace = data.LastPrivatePlace end
+        if raw then
+            local ok, data = pcall(function()
+                return HttpService:JSONDecode(raw)
+            end)
+            if ok and type(data) == "table" then
+                if type(data.StaticMapScan) == "boolean" then Settings.StaticMapScan = data.StaticMapScan end
+                if type(data.AutoRejoin) == "boolean" then Settings.AutoRejoin = data.AutoRejoin end
+                if type(data.AutoExecute) == "boolean" then Settings.AutoExecute = data.AutoExecute end
+                -- The tiny theme file is authoritative when present. This avoids
+                -- an old/stale JSON theme overriding a successfully saved theme.
+                if not persistedTheme and (data.Theme == "Blackhole" or data.Theme == "Default" or data.Theme == "Empyrean") then
+                    System.theme = data.Theme
+                end
+                if finiteText(data.PrivateServerMap, 80) then Settings.PrivateServerMap = data.PrivateServerMap end
+                if finiteText(data.TargetGameId, 40) then System.targetGameId = data.TargetGameId end
+                if finiteText(data.LastPrivateJob, 120) then System.lastPrivateJob = data.LastPrivateJob end
+                if type(data.LastPrivatePlace) == "number" then System.lastPrivatePlace = data.LastPrivatePlace end
+            end
+        end
+
     end
 
     function System.savePrefs()
@@ -3101,8 +3124,33 @@ do
             }))
         end)
 
+        -- Also persist only the theme in a tiny fallback file. This is useful on
+        -- executors where the larger JSON file is restricted but text files work.
+        if ok and type(System.writer) == "function" and System.themeConfigPath then
+            pcall(System.writer, System.themeConfigPath, System.theme)
+        end
+
         if not ok then
             System.persistStatus = "Preference save failed: " .. tostring(err)
+            return false
+        end
+
+        -- Verify the exact theme that was written when readfile is available.
+        -- This prevents a false "saved" notification when an executor silently
+        -- rejects the write.
+        if type(reader) == "function" then
+            local verifyOK, raw = pcall(reader, System.configPath)
+            if verifyOK and type(raw) == "string" then
+                local decodeOK, check = pcall(function() return HttpService:JSONDecode(raw) end)
+                if decodeOK and type(check) == "table" and check.Theme == System.theme then
+                    return true
+                end
+            end
+            if type(System.themeConfigPath) == "string" then
+                local fallbackOK, fallbackRaw = pcall(reader, System.themeConfigPath)
+                if fallbackOK and fallbackRaw == System.theme then return true end
+            end
+            System.persistStatus = "Theme preference write verification failed."
             return false
         end
         return true
@@ -4881,18 +4929,7 @@ local function applyWindowWidth(width)
         -- EMPYREAN owns the same 64/160/64/312 layout every time the window is resized.
         -- The old generic branch was resetting these to 88/152, which put the navigation
         -- directly on top of the hero and made the content appear to be from another theme.
-        EMP.hero.Size = UDim2.fromOffset(windowWidth, 160)
-        EMP.sky.Size = UDim2.fromOffset(windowWidth, 160)
-        EMP.rayGroup.Size = UDim2.fromOffset(windowWidth, 160)
-        EMP.scan.Size = UDim2.fromOffset(windowWidth, 61)
-        for i, ray in ipairs(EMP.rays) do
-            ray.Size = UDim2.fromOffset(math.max(80, windowWidth * 0.10), (i % 2 == 1) and 3 or 2)
-        end
-        for i, info in ipairs(EMP.sparkles) do
-            local presets = {{.23,42},{.77,48},{.18,118},{.82,116},{.5,18}}
-            local preset = presets[i]
-            if preset then info.object.Position = UDim2.fromOffset(windowWidth * preset[1], preset[2]) end
-        end
+        EMP.layoutResponsive(windowWidth, 160)
         tabs.Position = UDim2.fromOffset(0, 224)
         content.Position = UDim2.fromOffset(0, 288)
         content.Size = UDim2.fromOffset(windowWidth, windowHeight - 288)
@@ -5007,51 +5044,93 @@ for i,d in ipairs({{.23,42,1.8},{.77,48,1.6},{.18,118,1.5},{.82,116,1.8},{.5,18,
 EMP.scan=frame(EMP.hero,"Scan",0,-61,W,61,Color3.fromRGB(255,255,255),0); EMP.scan.BackgroundTransparency=.97; EMP.scan.ZIndex=10
 EMP.scanGradient=make("UIGradient",EMP.scan,{Rotation=90,Color=ColorSequence.new(Color3.fromRGB(255,255,255),Color3.fromRGB(255,224,150)),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,1),NumberSequenceKeypoint.new(.5,.22),NumberSequenceKeypoint.new(1,1)})})
 EMP.clock=os.clock(); EMP.last=EMP.clock; EMP.connection=nil
+
+-- Responsive EMPYREAN composition layout.
+-- IMPORTANT: this is deliberately separate from the animation loop.  The old
+-- implementation resized the artwork only from RenderStepped, which meant a
+-- wide UI could have a full-width hero surface while the actual celestial
+-- artwork stayed at its original 300-ish pixel construction size.
+function EMP.layoutResponsive(heroWidth, heroHeight)
+    heroWidth = math.max(300, math.floor((heroWidth or EMP.hero.AbsoluteSize.X or W) + 0.5))
+    heroHeight = math.max(160, math.floor((heroHeight or EMP.hero.AbsoluteSize.Y or 160) + 0.5))
+
+    -- The supplied HTML uses a 300x160 SVG.  We intentionally scale X to the
+    -- actual hero width so the celestial composition expands with the Roblox UI,
+    -- while preserving the 160px vertical composition and animation timings.
+    local sx = heroWidth / 300
+    local cx, cy = heroWidth * 0.5, 78
+    local function x(v) return math.floor(v * sx + 0.5) end
+    local function y(v) return math.floor(v + 0.5) end
+
+    EMP.hero.Size = UDim2.fromOffset(heroWidth, heroHeight)
+    EMP.sky.Size = UDim2.fromOffset(heroWidth, heroHeight)
+    EMP.vignette.Size = UDim2.fromOffset(heroWidth, heroHeight)
+
+    EMP.glow.Size = UDim2.fromOffset(x(150), x(150))
+    EMP.glow.Position = UDim2.fromOffset(cx, cy)
+
+    EMP.rayGroup.Size = UDim2.fromOffset(heroWidth, heroHeight)
+    EMP.rayGroup.Position = UDim2.fromOffset(cx, cy)
+
+    -- Full-width scan layer, matching the HTML's left:0/right:0 behavior.
+    EMP.scan.Size = UDim2.fromOffset(heroWidth, x(61))
+
+    -- Rays use the actual 300->heroWidth horizontal scale, not a fixed-width
+    -- approximation.  Their local center remains the HTML's 150px center.
+    for i, ray in ipairs(EMP.rays) do
+        local baseLength = (i % 2 == 1) and 74 or 74
+        ray.Size = UDim2.fromOffset(math.max(40, x(baseLength)), (i % 2 == 1) and 3 or 2)
+        ray.Position = UDim2.fromOffset(cx, cy)
+    end
+
+    EMP.wingL.Size = UDim2.fromOffset(x(150), 90)
+    EMP.wingR.Size = UDim2.fromOffset(x(150), 90)
+    EMP.wingL.Position = UDim2.fromOffset(cx - x(5), 90)
+    EMP.wingR.Position = UDim2.fromOffset(cx + x(5), 90)
+
+    for side, group in ipairs({EMP.wingL, EMP.wingR}) do
+        for i = 1, 4 do
+            local feather = group:FindFirstChild("Feather" .. i)
+            if feather then
+                feather.Size = UDim2.fromOffset(math.max(8, x(78 - i * 7)), 2)
+                feather.Position = UDim2.fromOffset(
+                    side == 1 and x(54 + i * 3) or x(96 - i * 3),
+                    22 + i * 12
+                )
+            end
+        end
+    end
+
+    EMP.haloA.Size = UDim2.fromOffset(x(172), math.max(2, 40))
+    EMP.haloA.Position = UDim2.fromOffset(cx, cy)
+    EMP.haloB.Size = UDim2.fromOffset(x(104), x(104))
+    EMP.haloB.Position = UDim2.fromOffset(cx, cy)
+    EMP.core.Size = UDim2.fromOffset(x(70), x(70))
+    EMP.core.Position = UDim2.fromOffset(cx, cy)
+    EMP.dot.Size = UDim2.fromOffset(math.max(4, x(8)), math.max(4, x(8)))
+    EMP.dot.Position = UDim2.fromOffset(cx, cy)
+
+    local presets = {{.23,42,1.8},{.77,48,1.6},{.18,118,1.5},{.82,116,1.8},{.5,18,1.3}}
+    for i, info in ipairs(EMP.sparkles) do
+        local preset = presets[i]
+        if preset then
+            info.object.Position = UDim2.fromOffset(x(300 * preset[1]), y(preset[2]))
+            local size = math.max(2, x(preset[3] * 2))
+            info.object.Size = UDim2.fromOffset(size, size)
+        end
+    end
+end
+
 function EMP.startVisuals()
+    EMP.layoutResponsive(EMP.hero.AbsoluteSize.X > 0 and EMP.hero.AbsoluteSize.X or windowWidth, 160)
     if EMP.connection then EMP.connection:Disconnect(); EMP.connection=nil end
     EMP.clock=os.clock(); EMP.last=EMP.clock
-    EMP.connection=connect(RunService.RenderStepped,function()
+    EMP.connection=connect(RunService.Heartbeat,function()
         if not State.alive or not EMP.hero.Parent or not EMP.hero.Visible or System.theme~="Empyrean" then return end
         local now=os.clock(); local dt=math.min(now-EMP.last,.05); EMP.last=now; local t=now-EMP.clock
-        -- Responsive celestial composition: the HTML hero scales as one visual composition.
-        -- The hero surface always fills the Roblox UI width, while the animated rays,
-        -- wings, halos, core and sparkles expand proportionally with that width.
-        local heroWidth=math.max(300,EMP.hero.AbsoluteSize.X); local cx=heroWidth*.5
-        local sx=math.clamp(heroWidth/430,.82,2.35)
-        local sy=math.clamp(sx,.82,2.05)
-        local cy=80
-        local function scaled(v) return math.floor(v*sx+.5) end
-        EMP.glow.Size=UDim2.fromOffset(scaled(150),scaled(150)); EMP.glow.Position=UDim2.fromOffset(cx,cy)
-        EMP.rayGroup.Size=UDim2.fromOffset(heroWidth,math.min(160,scaled(160))); EMP.rayGroup.Position=UDim2.fromOffset(cx,cy)
-        EMP.wingL.Size=UDim2.fromOffset(scaled(150),scaled(90)); EMP.wingR.Size=UDim2.fromOffset(scaled(150),scaled(90))
-        EMP.wingL.Position=UDim2.fromOffset(cx-scaled(5),cy+scaled(10)); EMP.wingR.Position=UDim2.fromOffset(cx+scaled(5),cy+scaled(10))
-        EMP.haloA.Size=UDim2.fromOffset(scaled(172),math.max(2,scaled(40))); EMP.haloA.Position=UDim2.fromOffset(cx,cy)
-        EMP.haloB.Size=UDim2.fromOffset(scaled(104),scaled(104)); EMP.haloB.Position=UDim2.fromOffset(cx,cy)
-        EMP.core.Size=UDim2.fromOffset(scaled(70),scaled(70)); EMP.core.Position=UDim2.fromOffset(cx,cy)
-        EMP.dot.Size=UDim2.fromOffset(math.max(4,scaled(8)),math.max(4,scaled(8))); EMP.dot.Position=UDim2.fromOffset(cx,cy)
-        for i,info in ipairs(EMP.sparkles) do
-            local presets={{.23,42,1.8},{.77,48,1.6},{.18,118,1.5},{.82,116,1.8},{.5,18,1.3}}
-            local preset=presets[i]
-            if preset then
-                info.object.Position=UDim2.fromOffset(heroWidth*preset[1],math.floor(preset[2]*sy+.5))
-                local ss=math.max(1.5,preset[3]*sx)
-                info.object.Size=UDim2.fromOffset(ss*2,ss*2)
-            end
-        end
-        for i,ray in ipairs(EMP.rays) do
-            local rayW=math.max(80,heroWidth*.24)
-            ray.Size=UDim2.fromOffset(math.floor(rayW+.5),math.max(2,math.floor(((i%2==1) and 3 or 2)*sy+.5)))
-            ray.Position=UDim2.fromOffset(cx,cy)
-        end
-        for side,group in ipairs({EMP.wingL,EMP.wingR}) do
-            for i=1,4 do
-                local feather=group:FindFirstChild("Feather"..i)
-                if feather then
-                    feather.Size=UDim2.fromOffset(math.max(18,scaled(78-i*7)),math.max(1,scaled(2)))
-                    feather.Position=UDim2.fromOffset(side==1 and scaled(54+i*3) or scaled(96-i*3),scaled(22+i*12))
-                end
-            end
-        end
+        local heroWidth=math.max(300,EMP.hero.AbsoluteSize.X)
+        local sx=heroWidth/300
+        EMP.layoutResponsive(heroWidth, EMP.hero.AbsoluteSize.Y)
         -- Match the supplied Hero Visual Only HTML timings: core 4.5s, rays 90s,
         -- ring A 44s, ring B 60s, wings 5s/5.4s, sparkles 3s staggered, scan 7s.
         local breath=(math.sin(t*math.pi*2/4.5)+1)*.5
@@ -5064,8 +5143,8 @@ function EMP.startVisuals()
         EMP.wingR.Rotation=2 - math.sin(t*math.pi*2/5.4)*4
         for i,ray in ipairs(EMP.rays) do ray.BackgroundTransparency=.90-((math.sin(t*.9+i*.6)+1)*.5)*.16 end
         for i,f in ipairs(EMP.wingStrokes) do f.BackgroundTransparency=.28+((i%4)*.07)+((math.sin(t*1.2+i)+1)*.5)*.10 end
-        for _,info in ipairs(EMP.sparkles) do local pulse=(math.sin((t+info.phase)*math.pi*2/3)+1)*.5; info.object.BackgroundTransparency=.86-pulse*.68; info.object.Size=UDim2.fromOffset(2+3*pulse,2+3*pulse) end
-        EMP.scan.Size=UDim2.fromOffset(heroWidth,math.max(42,scaled(61))); EMP.scan.Position=UDim2.fromOffset(0,-math.max(42,scaled(61))+((t/7)%1)*(math.max(160,EMP.hero.AbsoluteSize.Y+math.max(42,scaled(61))))); EMP.scan.BackgroundTransparency=.965
+        for _,info in ipairs(EMP.sparkles) do local pulse=(math.sin((t+info.phase)*math.pi*2/3)+1)*.5; local ss=math.max(2,(2+3*pulse)*sx); info.object.BackgroundTransparency=.86-pulse*.68; info.object.Size=UDim2.fromOffset(ss,ss) end
+        local scanH=math.max(42,math.floor(61*sx+.5)); EMP.scan.Size=UDim2.fromOffset(heroWidth,scanH); EMP.scan.Position=UDim2.fromOffset(0,-scanH+((t/7)%1)*(math.max(160,EMP.hero.AbsoluteSize.Y+scanH))); EMP.scan.BackgroundTransparency=.965
     end)
 end
 

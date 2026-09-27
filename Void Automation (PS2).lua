@@ -5614,11 +5614,14 @@ showPage = function(key)
     end
 end
 
+-- Frost renderer handle is declared before every navigation callback that can reference it.
+local FrostNav = {sidebar=nil, crest=nil, realm=nil, sanctum=nil, control=nil, lore=nil}
+
 for key, tab in pairs(navButtons) do
     connect(tab.MouseEnter, function()
         if State.tab ~= key then
             if System.theme == "Frost" then
-                animate(tab, {BackgroundColor3 = Color3.fromRGB(40,76,87), BackgroundTransparency = 0.56}, false)
+                FrostNav.paintTab(tab,false,true)
             else
                 local hoverColor = System.theme == "Empyrean" and Color3.fromRGB(255,243,200) or Color3.fromRGB(24,13,38)
                 animate(tab, {BackgroundColor3 = hoverColor}, false)
@@ -5628,7 +5631,7 @@ for key, tab in pairs(navButtons) do
     connect(tab.MouseLeave, function()
         if State.tab ~= key then
             if System.theme == "Frost" then
-                animate(tab, {BackgroundColor3 = Color3.fromRGB(23,54,64), BackgroundTransparency = 0.78}, false)
+                FrostNav.paintTab(tab,false,false)
             else
                 local normalColor = System.theme == "Empyrean" and Color3.fromRGB(255,255,255) or Color3.fromRGB(8,4,16)
                 animate(tab, {BackgroundColor3 = normalColor}, false)
@@ -5641,13 +5644,13 @@ end
 local function updateTabVisuals()
     local emp = System.theme == "Empyrean"
     local frost = System.theme == "Frost"
+    if frost then
+        FrostNav.ensure()
+        return
+    end
     for key, tab in pairs(navButtons) do
         local selected = State.tab == key
-        if frost then
-            tab.BackgroundColor3 = selected and Color3.fromRGB(48,87,98) or Color3.fromRGB(23,54,64)
-            tab.BackgroundTransparency = selected and .34 or .78
-            tab.TextColor3 = selected and Color3.fromRGB(240,253,255) or Color3.fromRGB(151,192,202)
-        elseif emp then
+        if emp then
             tab.BackgroundColor3 = selected and Color3.fromRGB(255,243,200) or Color3.fromRGB(255,253,247)
             tab.BackgroundTransparency = selected and .04 or .18
             tab.TextColor3 = selected and C.ink or C.faint
@@ -5707,6 +5710,110 @@ local function setObjectWidth(obj, width)
     end
 end
 
+-- ============================================================
+-- FROSTBOUND ISOLATED RENDERER
+-- This is presentation-only. It never changes automation state.
+-- The legacy Nav frame is hidden in Frost and restored on exit.
+-- ============================================================
+function FrostNav.paintTab(tab, selected, hover)
+    if not tab then return end
+    tab.BackgroundColor3 = hover and Color3.fromRGB(40,76,87) or (selected and Color3.fromRGB(48,87,98) or Color3.fromRGB(23,54,64))
+    tab.BackgroundTransparency = hover and .56 or (selected and .34 or .78)
+    tab.TextColor3 = selected and Color3.fromRGB(240,253,255) or (hover and Color3.fromRGB(223,249,255) or Color3.fromRGB(151,192,202))
+    tab.TextSize = 9
+    tab.TextXAlignment = Enum.TextXAlignment.Left
+    tab.TextYAlignment = Enum.TextYAlignment.Center
+    tab.Font = Enum.Font.GothamBold
+    tab.AutoButtonColor = false
+    tab.ZIndex = 42
+    local icon=tab:FindFirstChild("Icon")
+    if icon then
+        icon.Position=UDim2.fromOffset(12,8)
+        icon.ZIndex=43
+        for _,d in ipairs(icon:GetDescendants()) do
+            if d:IsA("Frame") then d.BackgroundColor3 = selected and Color3.fromRGB(223,249,255) or Color3.fromRGB(151,192,202)
+            elseif d:IsA("UIStroke") then d.Color = selected and Color3.fromRGB(173,224,235) or Color3.fromRGB(113,157,168) end
+        end
+    end
+    local key=tab.Name
+    local st=UI.navStrokes[key]
+    if st then st.Color=Color3.fromRGB(153,211,222); st.Transparency=selected and .42 or .84 end
+    local bar=UI.navBars[key]
+    if bar then
+        bar.Position=UDim2.fromOffset(4,5)
+        bar.Size=UDim2.fromOffset(2,26)
+        bar.BackgroundColor3=Color3.fromRGB(173,224,235)
+        bar.Visible=selected
+    end
+end
+
+function FrostNav.ensure()
+    -- Hide the old container FIRST. This prevents a frame of stale Nexus geometry.
+    tabs.Visible=false
+    tabs.Active=false
+
+    if not FrostNav.sidebar or not FrostNav.sidebar.Parent then
+        FrostNav.sidebar=frame(panel,"FrostboundSidebar",0,64,170,math.max(1,windowHeight-64),Color3.fromRGB(13,34,41),0)
+        FrostNav.sidebar.ZIndex=40
+        FrostNav.sidebar.ClipsDescendants=false
+        local st=stroke(FrostNav.sidebar,Color3.fromRGB(153,211,222),.72,1)
+        st.Name="FrostSidebarStroke"
+        FrostNav.crest=frame(FrostNav.sidebar,"Crest",61,18,48,48,Color3.fromRGB(223,249,255),8)
+        FrostNav.crest.BackgroundTransparency=.91
+        FrostNav.crest.Rotation=45
+        FrostNav.crest.ZIndex=41
+        stroke(FrostNav.crest,Color3.fromRGB(153,211,222),.34,1)
+        local core=frame(FrostNav.crest,"Core",15,15,18,18,Color3.fromRGB(240,253,255),4)
+        core.BackgroundTransparency=.03; core.Rotation=-45; core.ZIndex=42
+        stroke(core,Color3.fromRGB(173,224,235),.25,1)
+        FrostNav.realm=safeText(FrostNav.sidebar,"Realm","FROSTBOUND",15,77,140,18,11,Color3.fromRGB(240,253,255),Enum.Font.GothamBold)
+        FrostNav.realm.TextXAlignment=Enum.TextXAlignment.Center; FrostNav.realm.ZIndex=42
+        FrostNav.sanctum=safeText(FrostNav.sidebar,"Sanctum","SANCTUM",15,98,140,14,7,Color3.fromRGB(113,157,168),Enum.Font.GothamBold)
+        FrostNav.sanctum.TextXAlignment=Enum.TextXAlignment.Center; FrostNav.sanctum.ZIndex=42
+        FrostNav.control=safeText(FrostNav.sidebar,"Control","CONTROL",15,120,140,14,7,Color3.fromRGB(113,157,168),Enum.Font.GothamBold)
+        FrostNav.control.ZIndex=42
+        local divider=frame(FrostNav.sidebar,"Divider",14,127,142,1,Color3.fromRGB(153,211,222),0)
+        divider.BackgroundTransparency=.78; divider.ZIndex=41
+        FrostNav.lore=safeText(FrostNav.sidebar,"Lore","A quiet interface forged\nfrom winter glass.\n\nLet the frost remain still.",15,486,140,62,8,Color3.fromRGB(113,157,168),Enum.Font.GothamMedium)
+        FrostNav.lore.TextWrapped=true; FrostNav.lore.ZIndex=42
+    end
+
+    FrostNav.sidebar.Position=UDim2.fromOffset(0,64)
+    FrostNav.sidebar.Size=UDim2.fromOffset(170,math.max(1,windowHeight-64))
+    FrostNav.sidebar.Visible=true
+    FrostNav.sidebar.BackgroundColor3=Color3.fromRGB(13,34,41)
+    FrostNav.sidebar.BackgroundTransparency=.02
+
+    -- Functional navigation buttons are the original buttons; only their parent
+    -- changes. Their Activated callbacks therefore remain untouched.
+    for i,key in ipairs(navNames) do
+        local tab=navButtons[key]
+        if tab then
+            if tab.Parent~=FrostNav.sidebar then tab.Parent=FrostNav.sidebar end
+            tab.Position=UDim2.fromOffset(15,132+(i-1)*42)
+            tab.Size=UDim2.fromOffset(140,36)
+            FrostNav.paintTab(tab,State.tab==key,false)
+        end
+    end
+end
+
+function FrostNav.restore()
+    if FrostNav.sidebar then FrostNav.sidebar.Visible=false end
+    for _,key in ipairs(navNames) do
+        local tab=navButtons[key]
+        if tab and tab.Parent~=tabs then tab.Parent=tabs end
+    end
+    tabs.Visible=true
+    tabs.Active=true
+end
+
+function FrostNav.removeLegacyDecor()
+    for _,name in ipairs({"FrostCrest","FrostRealm","FrostSanctum","FrostLabel","FrostLore"}) do
+        local obj=tabs:FindFirstChild(name)
+        if obj then obj:Destroy() end
+    end
+end
+
 local function applyWindowWidth(width)
     windowWidth = math.max(MIN_WINDOW_WIDTH, math.floor(width + 0.5))
     setObjectWidth(holder, windowWidth)
@@ -5754,6 +5861,7 @@ local function applyWindowWidth(width)
         tabs.Size = UDim2.fromOffset(170, windowHeight - 64)
         content.Position = UDim2.fromOffset(170, 64)
         content.Size = UDim2.fromOffset(math.max(1, windowWidth - 170), windowHeight - 64)
+        FrostNav.ensure()
     else
         tabs.Position = UDim2.fromOffset(0, 88)
         content.Position = UDim2.fromOffset(0, 152)
@@ -7475,65 +7583,9 @@ function Theme.applyFrostFinal()
     edgeSheen.BackgroundTransparency = .965
     edgeSheenGradient.Color = ColorSequence.new(P.cyan, P.accent)
 
-    -- Turn the existing navigation container into the Frostbound vertical
-    -- sanctum sidebar. The underlying buttons remain the same functional
-    -- buttons, so no navigation logic is duplicated.
-    tabs.Position = UDim2.fromOffset(0,64)
-    tabs.Size = UDim2.fromOffset(170,windowHeight-64)
-    tabs.BackgroundColor3 = Color3.fromRGB(13,34,41)
-    tabs.BackgroundTransparency = .02
-    local tabStroke = tabs:FindFirstChildOfClass("UIStroke")
-    if tabStroke then tabStroke.Color = frostLine; tabStroke.Transparency = .72 end
-
-    local sidebarCrest = tabs:FindFirstChild("FrostCrest")
-    if not sidebarCrest then
-        sidebarCrest = frame(tabs,"FrostCrest",0,0,48,48,Color3.fromRGB(223,249,255),8)
-        sidebarCrest.Position = UDim2.fromOffset(61,18)
-        sidebarCrest.BackgroundTransparency = .91
-        sidebarCrest.Rotation = 45
-        stroke(sidebarCrest,frostLine,.34,1)
-        local c = frame(sidebarCrest,"Core",15,15,18,18,Color3.fromRGB(240,253,255),4)
-        c.BackgroundTransparency = .03
-        c.Rotation = -45
-        stroke(c,Color3.fromRGB(173,224,235),.25,1)
-        local realm=safeText(tabs,"FrostRealm","FROSTBOUND",15,77,140,18,11,frostBright,Enum.Font.GothamBold)
-        realm.TextXAlignment=Enum.TextXAlignment.Center
-        local sanct=safeText(tabs,"FrostSanctum","SANCTUM",15,98,140,14,7,frostFaint,Enum.Font.GothamBold)
-        sanct.TextXAlignment=Enum.TextXAlignment.Center
-        local lab=safeText(tabs,"FrostLabel","CONTROL",15,120,140,14,7,frostFaint,Enum.Font.GothamBold)
-        lab.TextXAlignment=Enum.TextXAlignment.Left
-        local lore=safeText(tabs,"FrostLore","A quiet interface forged\nfrom winter glass.\n\nLet the frost remain still.",15,486,140,62,8,frostFaint,Enum.Font.GothamMedium)
-        lore.TextWrapped=true
-    end
-
-    for i,key in ipairs(navNames) do
-        local tab=navButtons[key]
-        tab.Position=UDim2.fromOffset(15,132+(i-1)*42)
-        tab.Size=UDim2.fromOffset(140,36)
-        tab.BackgroundColor3 = Color3.fromRGB(23,54,64)
-        tab.BackgroundTransparency = .78
-        tab.TextColor3 = frostMuted
-        tab.TextSize = 9
-        tab.TextXAlignment = Enum.TextXAlignment.Left
-        tab.TextYAlignment = Enum.TextYAlignment.Center
-        tab.Font = Enum.Font.GothamBold
-        local icon=tab:FindFirstChild("Icon")
-        if icon then icon.Position=UDim2.fromOffset(12,8) end
-        local st=UI.navStrokes[key]
-        if st then st.Color=frostLine; st.Transparency=.84 end
-        local bar=UI.navBars[key]
-        if bar then
-            bar.Position=UDim2.fromOffset(4,5)
-            bar.Size=UDim2.fromOffset(2,26)
-            bar.BackgroundColor3=P.accent
-            bar.Visible=(State.tab==key)
-        end
-        if State.tab==key then
-            tab.BackgroundColor3=Color3.fromRGB(48,87,98)
-            tab.BackgroundTransparency=.34
-            tab.TextColor3=frostBright
-        end
-    end
+    -- Frost owns a dedicated sidebar. Legacy navigation remains hidden.
+    FrostNav.removeLegacyDecor()
+    FrostNav.ensure()
 
     local frostContentWidth = math.max(1, windowWidth - 170)
     content.Position=UDim2.fromOffset(170,64)
@@ -7647,6 +7699,7 @@ end
 function Theme.apply(themeName)
     if themeName~="Blackhole" and themeName~="Empyrean" and themeName~="Frost" then themeName="Default" end
     Theme.stopSpecialVisuals(); System.theme=themeName
+    if themeName=="Frost" then FrostNav.ensure() else FrostNav.restore() end
     local bh=themeName=="Blackhole"; local emp=themeName=="Empyrean"; local frost=themeName=="Frost"
     Theme.current=bh and Theme.Blackhole or(emp and Theme.Empyrean or(frost and Theme.Frost or Theme.Default)); Theme.copy(Theme.current)
     if bh then
@@ -8026,6 +8079,7 @@ local function renderPageState()
     updateTabVisuals()
     if Theme.syncAllThemeVisuals then Theme.syncAllThemeVisuals() end
     if Theme.canonicalizeControls then Theme.canonicalizeControls() end
+    if System.theme=="Frost" and Theme.applyFrostFinal then pcall(function() Theme.applyFrostFinal() end) end
 end
 
 local uiRenderError = nil

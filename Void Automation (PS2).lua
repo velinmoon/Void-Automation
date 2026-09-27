@@ -5617,12 +5617,22 @@ end
 for key, tab in pairs(navButtons) do
     connect(tab.MouseEnter, function()
         if State.tab ~= key then
-            animate(tab, {BackgroundColor3 = System.theme == "Empyrean" and Color3.fromRGB(255,243,200) or Color3.fromRGB(24,13,38)}, false)
+            if System.theme == "Frost" then
+                animate(tab, {BackgroundColor3 = Color3.fromRGB(40,76,87), BackgroundTransparency = 0.56}, false)
+            else
+                local hoverColor = System.theme == "Empyrean" and Color3.fromRGB(255,243,200) or Color3.fromRGB(24,13,38)
+                animate(tab, {BackgroundColor3 = hoverColor}, false)
+            end
         end
     end)
     connect(tab.MouseLeave, function()
         if State.tab ~= key then
-            animate(tab, {BackgroundColor3 = System.theme == "Empyrean" and Color3.fromRGB(255,255,255) or Color3.fromRGB(8,4,16)}, false)
+            if System.theme == "Frost" then
+                animate(tab, {BackgroundColor3 = Color3.fromRGB(23,54,64), BackgroundTransparency = 0.78}, false)
+            else
+                local normalColor = System.theme == "Empyrean" and Color3.fromRGB(255,255,255) or Color3.fromRGB(8,4,16)
+                animate(tab, {BackgroundColor3 = normalColor}, false)
+            end
         end
     end)
     connect(tab.Activated, function() showPage(key) end)
@@ -5630,9 +5640,14 @@ end
 
 local function updateTabVisuals()
     local emp = System.theme == "Empyrean"
+    local frost = System.theme == "Frost"
     for key, tab in pairs(navButtons) do
         local selected = State.tab == key
-        if emp then
+        if frost then
+            tab.BackgroundColor3 = selected and Color3.fromRGB(48,87,98) or Color3.fromRGB(23,54,64)
+            tab.BackgroundTransparency = selected and .34 or .78
+            tab.TextColor3 = selected and Color3.fromRGB(240,253,255) or Color3.fromRGB(151,192,202)
+        elseif emp then
             tab.BackgroundColor3 = selected and Color3.fromRGB(255,243,200) or Color3.fromRGB(255,253,247)
             tab.BackgroundTransparency = selected and .04 or .18
             tab.TextColor3 = selected and C.ink or C.faint
@@ -5732,6 +5747,13 @@ local function applyWindowWidth(width)
         tabs.Position = UDim2.fromOffset(0, 224)
         content.Position = UDim2.fromOffset(0, 288)
         content.Size = UDim2.fromOffset(windowWidth, windowHeight - 288)
+    elseif System.theme == "Frost" then
+        -- FROSTBOUND owns a permanent left sanctum sidebar. Never let the generic
+        -- horizontal navigation branch below overwrite its geometry while dragging.
+        tabs.Position = UDim2.fromOffset(0, 64)
+        tabs.Size = UDim2.fromOffset(170, windowHeight - 64)
+        content.Position = UDim2.fromOffset(170, 64)
+        content.Size = UDim2.fromOffset(math.max(1, windowWidth - 170), windowHeight - 64)
     else
         tabs.Position = UDim2.fromOffset(0, 88)
         content.Position = UDim2.fromOffset(0, 152)
@@ -5739,31 +5761,34 @@ local function applyWindowWidth(width)
     end
     resizeVoidEffects(windowWidth)
 
-    local navCount = #navNames
-    local availableNav = math.max(240, windowWidth - 24 - navGap * math.max(0, navCount - 1))
-    local dynamicNavW = math.floor(availableNav / navCount)
-    for i, key in ipairs(navNames) do
-        local tab = navButtons[key]
-        if tab then
-            tab.Size = UDim2.fromOffset(dynamicNavW, 44)
-            tab.Position = UDim2.fromOffset(navX + (i - 1) * (dynamicNavW + navGap), 10)
-            local icon = tab:FindFirstChild("Icon")
-            if icon then icon.Position = UDim2.fromOffset(math.floor((dynamicNavW - 19) / 2), 5) end
-            local bar = UI.navBars[key]
-            if bar then
-                bar.Position = UDim2.fromOffset(8, 40)
-                bar.Size = UDim2.fromOffset(math.max(12, dynamicNavW - 16), 2)
+    if System.theme ~= "Frost" then
+        local navCount = #navNames
+        local availableNav = math.max(240, windowWidth - 24 - navGap * math.max(0, navCount - 1))
+        local dynamicNavW = math.floor(availableNav / navCount)
+        for i, key in ipairs(navNames) do
+            local tab = navButtons[key]
+            if tab then
+                tab.Size = UDim2.fromOffset(dynamicNavW, 44)
+                tab.Position = UDim2.fromOffset(navX + (i - 1) * (dynamicNavW + navGap), 10)
+                local icon = tab:FindFirstChild("Icon")
+                if icon then icon.Position = UDim2.fromOffset(math.floor((dynamicNavW - 19) / 2), 5) end
+                local bar = UI.navBars[key]
+                if bar then
+                    bar.Position = UDim2.fromOffset(8, 40)
+                    bar.Size = UDim2.fromOffset(math.max(12, dynamicNavW - 16), 2)
+                end
             end
         end
     end
 
+    local contentWidth = System.theme == "Frost" and math.max(1, windowWidth - 170) or windowWidth
     for _, page in pairs(pageMap) do
-        setObjectWidth(page, windowWidth)
+        setObjectWidth(page, contentWidth)
         for _, child in ipairs(page:GetChildren()) do
             if child.Name == "PaneHead" then
-                child.Size = UDim2.fromOffset(windowWidth - 32, child.Size.Y.Offset)
+                child.Size = UDim2.fromOffset(contentWidth - 32, child.Size.Y.Offset)
             elseif child.Name:match("^Row_") or child.Name:match("^Slider_") or child.Name == "KeyLoadout" then
-                local rowWidth = windowWidth - 32
+                local rowWidth = contentWidth - 32
                 child.Size = UDim2.fromOffset(rowWidth, child.Size.Y.Offset)
                 local toggle = child:FindFirstChild("Toggle")
                 if toggle then toggle.Position = UDim2.fromOffset(rowWidth - 54, 14) end
@@ -5783,6 +5808,9 @@ local function applyWindowWidth(width)
     end
     resizeGrip.Position = UDim2.fromOffset(windowWidth - 28, windowHeight - 28)
     if Theme and Theme.syncAllThemeVisuals then Theme.syncAllThemeVisuals() end
+    if System.theme == "Frost" and Theme and Theme.applyFrostFinal then
+        pcall(function() Theme.applyFrostFinal() end)
+    end
 end
 
 local function fitWindow(centerIfNeeded)
@@ -6505,6 +6533,15 @@ function Theme.syncAllThemeVisuals()
     local theme = System.theme
     local bh = theme == "Blackhole"
     local emp = theme == "Empyrean"
+    local frost = theme == "Frost"
+
+    -- Frost has its own complete presentation pass. Returning here is important:
+    -- the legacy Nexus/Blackhole renderer below intentionally owns a different
+    -- horizontal layout and would repaint Frost during drag/resize/render cycles.
+    if frost then
+        pcall(function() Theme.applyFrostFinal() end)
+        return
+    end
 
     -- Theme identity must be authoritative too: header title/subtitle and
     -- every page-heading symbol are rebuilt from the ACTIVE theme instead of
@@ -6903,6 +6940,11 @@ function Theme.canonicalizeControls()
 
     local emp = theme == "Empyrean"
     local bh = theme == "Blackhole"
+    local frost = theme == "Frost"
+    if frost then
+        pcall(function() Theme.applyFrostFinal() end)
+        return
+    end
     local P = emp and {
         panel = Color3.fromRGB(255,253,247), panel2 = Color3.fromRGB(255,248,232),
         surface = Color3.fromRGB(255,250,235), line = Color3.fromRGB(217,169,78),
@@ -7041,6 +7083,7 @@ function Theme.canonicalizeControls()
             {ThemeUI.defaultRow,ThemeUI.defaultButton,"Default"},
             {ThemeUI.blackholeRow,ThemeUI.blackholeButton,"Blackhole"},
             {ThemeUI.empyreanRow,ThemeUI.empyreanButton,"Empyrean"},
+            {ThemeUI.frostRow,ThemeUI.frostButton,"Frost"},
         }
         for _,entry in ipairs(entries) do
             local row,button,name=entry[1],entry[2],entry[3]
@@ -7283,6 +7326,11 @@ function Theme.forceThemeControls()
     local theme = System.theme
     local emp = theme == "Empyrean"
     local bh = theme == "Blackhole"
+    local frost = theme == "Frost"
+    if frost then
+        pcall(function() Theme.applyFrostFinal() end)
+        return
+    end
     local gold = Color3.fromRGB(217,169,78)
     local goldDeep = Color3.fromRGB(156,116,32)
     local cream = Color3.fromRGB(255,253,247)
@@ -7358,8 +7406,8 @@ function Theme.forceThemeControls()
 
     pcall(function()
         if ThemeUI then
-            local rows={ThemeUI.defaultRow,ThemeUI.blackholeRow,ThemeUI.empyreanRow}
-            local buttons={ThemeUI.defaultButton,ThemeUI.blackholeButton,ThemeUI.empyreanButton}
+            local rows={ThemeUI.defaultRow,ThemeUI.blackholeRow,ThemeUI.empyreanRow,ThemeUI.frostRow}
+            local buttons={ThemeUI.defaultButton,ThemeUI.blackholeButton,ThemeUI.empyreanButton,ThemeUI.frostButton}
             for _,row in ipairs(rows) do if row then row.BackgroundColor3=emp and cream2 or dark; row.BackgroundTransparency=emp and .02 or 0; local st=row:FindFirstChildOfClass("UIStroke"); if st then st.Color=line end end end
             for i,button in ipairs(buttons) do if button then
                 local active=(i==3 and emp) or (i==2 and bh) or (i==1 and not emp and not bh)
@@ -7487,12 +7535,33 @@ function Theme.applyFrostFinal()
         end
     end
 
+    local frostContentWidth = math.max(1, windowWidth - 170)
     content.Position=UDim2.fromOffset(170,64)
-    content.Size=UDim2.fromOffset(windowWidth-170,windowHeight-64)
+    content.Size=UDim2.fromOffset(frostContentWidth,windowHeight-64)
     content.BackgroundColor3=P.deep
     content.BackgroundTransparency=.04
 
     for _,page in pairs(pageMap) do
+        page.Size=UDim2.fromOffset(frostContentWidth,windowHeight-64)
+        page.Position=UDim2.fromOffset(0,pageBaseY)
+        for _,child in ipairs(page:GetChildren()) do
+            if child.Name=="PaneHead" then
+                child.Size=UDim2.fromOffset(math.max(1,frostContentWidth-32),child.Size.Y.Offset)
+            elseif child.Name:match("^Row_") or child.Name:match("^Slider_") or child.Name=="KeyLoadout" then
+                local rw=math.max(1,frostContentWidth-32)
+                child.Size=UDim2.fromOffset(rw,child.Size.Y.Offset)
+                local toggle=child:FindFirstChild("Toggle")
+                if toggle then toggle.Position=UDim2.fromOffset(rw-54,14) end
+                local value=child:FindFirstChild("Value")
+                if value then value.Position=UDim2.fromOffset(rw-120,8) end
+                local hit=child:FindFirstChild("Slider")
+                if hit then
+                    hit.Size=UDim2.fromOffset(math.max(1,rw-56),24)
+                    local rail=hit:FindFirstChild("Rail")
+                    if rail then rail.Size=UDim2.fromOffset(math.max(1,rw-56),4) end
+                end
+            end
+        end
         page.ScrollBarImageColor3=P.accent
         page.ScrollBarImageTransparency=.60
         for _,obj in ipairs(page:GetDescendants()) do
@@ -7537,6 +7606,7 @@ function Theme.applyFrostFinal()
     if UI.staticScanButton then UI.staticScanButton.BackgroundColor3=P.panel2; UI.staticScanButton.TextColor3=frostBright end
     if UI.privateMapBox then UI.privateMapBox.BackgroundColor3=P.panel2; UI.privateMapBox.TextColor3=frostBright end
     if resizeGrip then
+        resizeGrip.Position=UDim2.fromOffset(windowWidth-28,windowHeight-28)
         for i=1,3 do local line=resizeGrip:FindFirstChild("Line"..i); if line then line.BackgroundColor3=P.accent end end
     end
 

@@ -74,9 +74,11 @@ local State = {
     tab = "Skills", espCount = 0, espFault = nil,
     uiScaleTarget = 1.0,
     visibilityTween = nil, visibilityX = nil, visibilityY = nil,
+    miniMode = false, miniTween = nil, miniX = nil, miniY = nil,
 }
 local connections, tweens = {}, setmetatable({}, {__mode = "k"})
 local controller, UI = {}, {}
+local MiniMode = {}
 local render = function() end
 local clearESP = function() end
 local stopHealthGuard = function() end
@@ -120,6 +122,7 @@ local function releaseKey()
 end
 function controller.Stop()
     if not State.alive then return end
+    if MiniMode and MiniMode.hide then pcall(MiniMode.hide) end
     -- IMPORTANT: do not persist the theme from Stop().
     -- Re-execution calls the OLD instance's Stop() before the NEW bootstrap
     -- resolves the saved theme. If the old instance is stale (for example
@@ -3464,13 +3467,70 @@ do
     -- provide authoritative hints (target acquired / kill / loot / teleport).
     function System.refreshStatsUI()
         if not CoreUI or not CoreUI.statsLabel or not CoreUI.statsLabel.Parent then return end
-        local sec=math.max(0, math.floor(System.stats.runtime or 0))
+        local now = time()
+        local started = tonumber(System.stats.startedAt) or now
+        local runtime = math.max(0, now - started)
+        System.stats.runtime = runtime
+        local sec=math.max(0, math.floor(runtime))
         local h=math.floor(sec/3600); local m=math.floor((sec%3600)/60); local ss=sec%60
-        CoreUI.statsLabel.Text=string.format("Runtime %02d:%02d:%02d  |  Targets %d  |  Kills %d\nLoots %d  |  Bosses %d  |  Teleports %d", h,m,ss,System.stats.targets,System.stats.kills,System.stats.loots,System.stats.bosses,System.stats.teleports)
-        if CoreUI.targetLabel then CoreUI.targetLabel.Text="Target: "..tostring(System.stats.lastTarget or "--") end
+        local hours = math.max(runtime / 3600, 1 / 3600)
+        local targetsPerHour = System.stats.targets / hours
+        local killsPerHour = System.stats.kills / hours
+        local bossesPerHour = System.stats.bosses / hours
+        local lootsPerHour = System.stats.loots / hours
+        local teleportsPerHour = System.stats.teleports / hours
+        local killRate = System.stats.targets > 0 and (System.stats.kills / System.stats.targets) * 100 or 0
+
+        CoreUI.statsLabel.Text=string.format(
+            "Runtime %02d:%02d:%02d  |  Targets %d  |  Kills %d\nLoots %d  |  Bosses %d  |  Teleports %d",
+            h,m,ss,System.stats.targets,System.stats.kills,System.stats.loots,System.stats.bosses,System.stats.teleports)
+
+        if CoreUI.efficiencyLabel then
+            CoreUI.efficiencyLabel.Text = string.format(
+                "RATE / HOUR   Targets %.1f   Kills %.1f   Bosses %.1f\n" ..
+                "Loots %.1f   Teleports %.1f   Kill Rate %.1f%%",
+                targetsPerHour, killsPerHour, bossesPerHour, lootsPerHour, teleportsPerHour, killRate)
+        end
+
+        local target = Farm and Farm.selected or nil
+        local hp, maxHp = nil, nil
+        if target and Farm and Farm.read then
+            local ok, a, b = pcall(Farm.read, target)
+            if ok then hp, maxHp = a, b end
+        end
+        local distanceText = "--"
+        if target and target.humanoid and target.humanoid.Parent and Player and Player.Character then
+            local hrp = Player.Character:FindFirstChild("HumanoidRootPart") or Player.Character.PrimaryPart
+            local tr = target.root or target.part or (target.humanoid.Parent and (target.humanoid.Parent:FindFirstChild("HumanoidRootPart") or target.humanoid.Parent.PrimaryPart))
+            if hrp and tr and tr:IsA("BasePart") then
+                distanceText = string.format("%.0f", (hrp.Position - tr.Position).Magnitude)
+            end
+        end
+        if CoreUI.liveLabel then
+            local targetName = tostring((target and target.name) or System.stats.lastTarget or "--")
+            local hpText = (hp and maxHp) and string.format("%.0f / %.0f HP", hp, maxHp) or "-- / -- HP"
+            local action = tostring((Farm and Farm.status) or "IDLE")
+            CoreUI.liveLabel.Text = string.format("LIVE   %s\nHP %s   |   %s studs   |   %s", targetName, hpText, distanceText, action)
+        end
+        if CoreUI.targetLabel then CoreUI.targetLabel.Text="Last Target: "..tostring(System.stats.lastTarget or "--") end
         if CoreUI.safetyLabel then
             CoreUI.safetyLabel.Text="Safety: "..tostring(System.safetyStatus)
             CoreUI.safetyLabel.TextColor3=(System.safetyStatus=="SAFE" and C.green or C.amber)
+        end
+
+        if CoreUI.miniStats then
+            CoreUI.miniStats.Text = string.format("%02d:%02d:%02d  •  %d Kills  •  %d Bosses", h,m,ss,System.stats.kills,System.stats.bosses)
+        end
+        if CoreUI.miniTarget then
+            local targetName = tostring((target and target.name) or System.stats.lastTarget or "No target")
+            CoreUI.miniTarget.Text = targetName
+        end
+        if CoreUI.miniStatus then
+            CoreUI.miniStatus.Text = tostring((Farm and Farm.status) or "IDLE")
+            CoreUI.miniStatus.TextColor3 = (Settings.AutoBoss or Settings.FarmEnabled or State.farming) and C.green or C.faint
+        end
+        if CoreUI.miniDot then
+            CoreUI.miniDot.BackgroundColor3 = (Settings.AutoBoss or Settings.FarmEnabled or State.farming) and C.green or C.faint
         end
     end
 
@@ -5355,15 +5415,22 @@ coreButton(coreProfile,"DeleteProfile","DELETE",274,70,78,function()
 end)
 
 -- Session Analytics
-local coreStats = frame(CoreUI.page, "Analytics", 16, 190, W - 32, 150, C.panel2, 10)
+local coreStats = frame(CoreUI.page, "Analytics", 16, 190, W - 32, 246, C.panel2, 10)
 stroke(coreStats, C.line, .7, 1)
 safeText(coreStats,"Title","SESSION ANALYTICS",12,9,180,18,11,C.ink,Enum.Font.GothamBold)
-CoreUI.statsLabel = safeText(coreStats,"Stats", "Runtime 00:00:00  |  Targets 0  |  Kills 0\nLoots 0  |  Bosses 0  |  Teleports 0", 12,34,W-56,46,10,C.faint,Enum.Font.GothamMedium)
+CoreUI.statsLabel = safeText(coreStats,"Stats", "Runtime 00:00:00  |  Targets 0  |  Kills 0\nLoots 0  |  Bosses 0  |  Teleports 0", 12,34,W-56,38,10,C.faint,Enum.Font.GothamMedium)
 CoreUI.statsLabel.TextWrapped=true
-CoreUI.targetLabel = safeText(coreStats,"Target","Target: --",12,84,W-56,18,10,C.ink,Enum.Font.GothamMedium)
-CoreUI.safetyLabel = safeText(coreStats,"Safety","Safety: SAFE",12,106,W-56,18,10,C.green,Enum.Font.GothamBold)
-coreButton(coreStats,"ResetStats","RESET STATS",W-150,110,120,function()
+CoreUI.efficiencyLabel = safeText(coreStats,"Efficiency","RATE / HOUR   Targets 0.0   Kills 0.0   Bosses 0.0\nLoots 0.0   Teleports 0.0   Kill Rate 0.0%",12,73,W-56,34,9,C.faint,Enum.Font.GothamMedium)
+CoreUI.efficiencyLabel.TextWrapped=true
+CoreUI.liveLabel = safeText(coreStats,"Live","LIVE   No target\nHP -- / -- HP   |   -- studs   |   IDLE",12,109,W-56,36,9.5,C.ink,Enum.Font.GothamMedium)
+CoreUI.liveLabel.TextWrapped=true
+CoreUI.targetLabel = safeText(coreStats,"Target","Last Target: --",12,147,W-56,18,10,C.ink,Enum.Font.GothamMedium)
+CoreUI.safetyLabel = safeText(coreStats,"Safety","Safety: SAFE",12,169,W-56,18,10,C.green,Enum.Font.GothamBold)
+coreButton(coreStats,"ResetStats","RESET STATS",W-150,201,120,function()
     if System.resetStats then System.resetStats() end
+end)
+coreButton(coreStats,"MiniMode","MINI MODE",W-276,201,116,function()
+    if MiniMode and MiniMode.toggle then MiniMode.toggle() end
 end)
 
 local ThemeUI = {page = newPage("Theme")}
@@ -6095,6 +6162,104 @@ local Theme = {
     height = H,
     current = nil,
 }
+
+-- ========================= MINI MODE =========================
+-- Compact live dashboard. It is independent from the normal hide/show system
+-- and never changes the main window's UIScale or layout dimensions.
+local miniFrame = make("Frame", canvas, {
+    Name = "MiniDashboard", Position = UDim2.fromOffset(18, 18), Size = UDim2.fromOffset(292, 94),
+    BackgroundColor3 = C.panel, BackgroundTransparency = 0.06, BorderSizePixel = 0,
+    Visible = false, Active = true, ZIndex = 200,
+})
+corner(miniFrame, 14)
+local miniStroke = stroke(miniFrame, C.line, 0.45, 1)
+local miniTitle = safeText(miniFrame, "Title", "✦ VOID AUTOMATION", 14, 9, 170, 18, 10.5, C.ink, Enum.Font.GothamBold)
+local miniDot = frame(miniFrame, "Dot", 264, 12, 8, 8, C.green, 4)
+local miniTarget = safeText(miniFrame, "Target", "No target", 14, 31, 190, 18, 11, C.ink, Enum.Font.GothamBold)
+local miniStatus = safeText(miniFrame, "Status", "IDLE", 205, 31, 70, 18, 8.5, C.green, Enum.Font.GothamBold)
+miniStatus.TextXAlignment = Enum.TextXAlignment.Right
+local miniStats = safeText(miniFrame, "Stats", "00:00:00  •  0 Kills  •  0 Bosses", 14, 55, 260, 17, 8.5, C.faint, Enum.Font.GothamMedium)
+local miniExpand = button(miniFrame, "Expand", "EXPAND", 14, 73, 68, 15, C.panel2, 7)
+miniExpand.TextSize = 7
+miniExpand.ZIndex = 205
+miniExpand.TextColor3 = C.ink
+local miniClose = button(miniFrame, "Close", "×", 268, 7, 18, 18, C.panel2, 9)
+miniClose.TextSize = 13
+miniClose.ZIndex = 205
+miniClose.TextColor3 = C.ink
+CoreUI.miniStats = miniStats
+CoreUI.miniTarget = miniTarget
+CoreUI.miniStatus = miniStatus
+CoreUI.miniFrame = miniFrame
+CoreUI.miniDot = miniDot
+
+local miniDragging = nil
+connect(miniFrame.InputBegan, function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        miniDragging = {input=input, start=input.Position, x=miniFrame.Position.X.Offset, y=miniFrame.Position.Y.Offset}
+    end
+end)
+connect(Input.InputChanged, function(input)
+    if not miniDragging then return end
+    local isMouse = miniDragging.input.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseMovement
+    if not isMouse and input ~= miniDragging.input then return end
+    local d = input.Position - miniDragging.start
+    miniFrame.Position = UDim2.fromOffset(miniDragging.x + d.X, miniDragging.y + d.Y)
+end)
+connect(Input.InputEnded, function(input)
+    if miniDragging and input == miniDragging.input then miniDragging=nil end
+end)
+
+function MiniMode.applyTheme()
+    local emp = System.theme == "Empyrean"
+    local bh = System.theme == "Blackhole"
+    miniFrame.BackgroundColor3 = C.panel
+    miniStroke.Color = C.line
+    miniTitle.TextColor3 = C.ink
+    miniTarget.TextColor3 = C.ink
+    miniStats.TextColor3 = C.faint
+    miniExpand.BackgroundColor3 = C.panel2
+    miniExpand.TextColor3 = C.ink
+    miniClose.BackgroundColor3 = C.panel2
+    miniClose.TextColor3 = C.ink
+    miniDot.BackgroundColor3 = C.green
+    miniTitle.Text = emp and "✦ EMPYREAN" or (bh and "◉ BLACKHOLE V1" or "✦ VOID AUTOMATION")
+end
+
+function MiniMode.show()
+    if not State.alive then return end
+    State.miniMode = true
+    State.minimized = false
+    if State.visibilityTween then pcall(function() State.visibilityTween:Cancel() end); State.visibilityTween=nil end
+    if holder then
+        State.miniX = holder.Position.X.Offset
+        State.miniY = holder.Position.Y.Offset
+        holder.Visible = false
+    end
+    miniFrame.Visible = true
+    root.Enabled = true
+    MiniMode.applyTheme()
+    System.refreshStatsUI()
+end
+
+function MiniMode.hide()
+    if not State.alive then return end
+    State.miniMode = false
+    miniFrame.Visible = false
+    holder.Visible = true
+    root.Enabled = true
+    if State.minimized then State.minimized = false end
+    if State.miniX and State.miniY then holder.Position = UDim2.fromOffset(State.miniX, State.miniY) end
+    if System.theme == "Empyrean" and EMP and EMP.recoverAfterShow then EMP.recoverAfterShow() end
+end
+
+function MiniMode.toggle()
+    if State.miniMode then MiniMode.hide() else MiniMode.show() end
+end
+
+connect(miniExpand.Activated, function() MiniMode.hide() end)
+connect(miniClose.Activated, function() MiniMode.hide() end)
+MiniMode.applyTheme()
 
 function Theme.copy(source)
     for key, value in pairs(source) do C[key] = value end
@@ -7264,6 +7429,7 @@ function Theme.apply(themeName)
             end
         end)
     end
+    pcall(function() if MiniMode and MiniMode.applyTheme then MiniMode.applyTheme() end end)
     applyWindowWidth(windowWidth)
     fitWindow(false)
     Theme.syncAllThemeVisuals()
@@ -7321,6 +7487,7 @@ UI.setTheme = function(themeName)
     -- Session persistence is successful even when the executor's file API is
     -- unavailable. Never claim that the selection was not saved in-session.
     notify("Theme saved: " .. normalized)
+    pcall(function() if MiniMode and MiniMode.applyTheme then MiniMode.applyTheme() end end)
     render()
 end
 
@@ -8156,7 +8323,14 @@ connect(Input.InputBegan, function(input, gameProcessed)
     if input.KeyCode == Settings.StopKey then
         controller.Stop()
         return
+    elseif input.KeyCode == Enum.KeyCode.F10 then
+        if MiniMode and MiniMode.toggle then MiniMode.toggle() end
+        return
     elseif input.KeyCode == Settings.VisibilityKey then
+        if State.miniMode then
+            if MiniMode and MiniMode.hide then MiniMode.hide() end
+            return
+        end
         State.minimized = not State.minimized
         if root then
             -- IMPORTANT: visibility is now completely independent from UIScale.

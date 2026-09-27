@@ -116,18 +116,11 @@ local function releaseKey()
 end
 function controller.Stop()
     if not State.alive then return end
-    -- Save the current theme before the old instance is torn down. Re-execution
-    -- calls this Stop() first, so this is the final persistence point.
-    pcall(function()
-        if type(System) == "table" then
-            if System.theme == "Blackhole" or System.theme == "Empyrean" or System.theme == "Default" then
-                setSessionTheme(System.theme)
-            end
-            if type(System.savePrefs) == "function" then
-                System.savePrefs()
-            end
-        end
-    end)
+    -- IMPORTANT: do not persist the theme from Stop().
+    -- Re-execution calls the OLD instance's Stop() before the NEW bootstrap
+    -- resolves the saved theme. If the old instance is stale (for example
+    -- Blackhole), saving here can overwrite a newer EMPYREAN selection.
+    -- Theme persistence happens immediately inside UI.setTheme/System.savePrefs.
     State.alive, State.enabled = false, false
     State.gesture = nil
     stopFarm()
@@ -3076,15 +3069,35 @@ end
 -- Roblox-session persistence: this survives script destruction/re-execution even
 -- when the executor does not preserve getgenv() or writefile state.
 local function getSessionTheme()
-    local ok, value = pcall(function()
-        return playerGui:GetAttribute("AutoSkills_LastTheme")
-    end)
-    return ok and value or nil
-end
-local function setSessionTheme(value)
+    local value
     pcall(function()
-        playerGui:SetAttribute("AutoSkills_LastTheme", value)
+        value = Player:GetAttribute("AutoSkills_Theme")
+            or Player:GetAttribute("AutoSkills_StartupTheme")
+            or Player:GetAttribute("AutoSkills_LastTheme")
+    end)
+    if value then return value end
+    pcall(function()
+        value = playerGui:GetAttribute("AutoSkills_StartupTheme")
+            or playerGui:GetAttribute("AutoSkills_LastTheme")
+    end)
+    return value
+end
+
+local function setSessionTheme(value)
+    -- Player attributes survive PlayerGui replacement/respawn and are therefore
+    -- the primary same-session persistence layer.
+    pcall(function()
+        Player:SetAttribute("AutoSkills_Theme", value)
+        Player:SetAttribute("AutoSkills_StartupTheme", value)
+        Player:SetAttribute("AutoSkills_LastTheme", value)
+    end)
+    pcall(function()
         playerGui:SetAttribute("AutoSkills_StartupTheme", value)
+        playerGui:SetAttribute("AutoSkills_LastTheme", value)
+    end)
+    pcall(function()
+        environment.__AutoSkills_StartupTheme = value
+        environment.__AutoSkills_LastTheme = value
     end)
 end
 
@@ -3119,18 +3132,21 @@ do
         System._sessionThemeLoaded = false
         local bootstrap = getBootstrapTheme()
         System.bootstrapTheme = bootstrap
-        local candidates = {
-            bootstrap,
-            getSessionTheme(),
-            environment.__AutoSkills_StartupTheme,
-            environment.__AutoSkills_LastTheme,
-        }
+        -- The dedicated theme files are authoritative when available. This
+        -- prevents an old PlayerGui attribute from pinning the UI to Blackhole.
+        -- Same-session Player/executor state is the fallback when file APIs are
+        -- unavailable.
+        local candidates = {}
         if type(reader) == "function" then
             local ok1, raw1 = pcall(reader, System.themeStatePath)
             if ok1 then candidates[#candidates + 1] = raw1 end
             local ok2, raw2 = pcall(reader, System.themeConfigPath)
             if ok2 then candidates[#candidates + 1] = raw2 end
         end
+        candidates[#candidates + 1] = bootstrap
+        candidates[#candidates + 1] = getSessionTheme()
+        candidates[#candidates + 1] = environment.__AutoSkills_StartupTheme
+        candidates[#candidates + 1] = environment.__AutoSkills_LastTheme
         for _, candidate in ipairs(candidates) do
             local restored = normalizeTheme(candidate)
             if restored then
@@ -3172,7 +3188,9 @@ do
         local jsonSaved = false
         local themeToSave = normalizeTheme(System.theme) or "Default"
         -- Roblox-session persistence is authoritative for re-execution.
+        -- This succeeds independently of writefile/readfile.
         setSessionTheme(themeToSave)
+        themeSaved = true
         -- Always persist to the shared executor environment as well. This is
         -- available immediately on the next re-execution even if writefile is
         -- unavailable or rejects the persistence path.
@@ -3188,14 +3206,12 @@ do
             local paths = {System.themeStatePath, System.themeConfigPath}
             for _, path in ipairs(paths) do
                 local okWrite = pcall(writer, path, themeToSave)
-                if okWrite then
-                    if type(reader) == "function" then
-                        local okRead, savedRaw = pcall(reader, path)
-                        if okRead and normalizeTheme(savedRaw) == themeToSave then
-                            themeSaved = true
-                        end
-                    else
-                        themeSaved = true
+                if okWrite and type(reader) == "function" then
+                    -- Verification is useful diagnostically, but failure here
+                    -- must never invalidate the already-successful session save.
+                    local okRead, savedRaw = pcall(reader, path)
+                    if not okRead or normalizeTheme(savedRaw) ~= themeToSave then
+                        System.persistStatus = "Theme saved to session; file backup could not be verified."
                     end
                 end
             end
@@ -4818,10 +4834,21 @@ function ThemeUI.makePreset(y, title, desc, themeName)
     safeText(row, "Desc", desc, 60, 28, 205, 18, 9.5, C.faint, Enum.Font.GothamMedium)
     local select = button(row, "Select", "SELECT", W - 104, 14, 76, 34, C.panel2, 9)
     select.TextColor3 = C.faint
+    select.Active = true
+    select.ZIndex = 40
+    row.ZIndex = 30
     stroke(select, C.line, 0.58, 1)
-    connect(select.Activated, function()
-        if UI.setTheme then UI.setTheme(themeName) end
-    end)
+    local selecting = false
+    local function chooseTheme()
+        if selecting then return end
+        selecting = true
+        task.defer(function()
+            selecting = false
+            if UI.setTheme then UI.setTheme(themeName) end
+        end)
+    end
+    connect(select.Activated, chooseTheme)
+    connect(select.MouseButton1Click, chooseTheme)
     return row, select, rowStroke
 end
 
@@ -5656,6 +5683,30 @@ function Theme.syncEmpyreanControls()
 
     -- The loadout keys are nested TextButtons and were one of the remaining
     -- Blackhole-colored objects.
+    -- Reset every TextButton/TextBox on ordinary pages for non-EMPYREAN
+    -- themes as well. This prevents EMPYREAN cream controls from surviving
+    -- when returning to Default/Nexus.
+    if not emp then
+        for _, page in pairs(pageMap) do
+            for _, obj in ipairs(page:GetDescendants()) do
+                if obj:IsA("TextButton") then
+                    obj.BackgroundColor3 = bh and Color3.fromRGB(8,8,12) or Color3.fromRGB(8,4,16)
+                    obj.BackgroundTransparency = 0
+                    obj.TextColor3 = bh and Color3.fromRGB(236,234,245) or Color3.fromRGB(233,226,247)
+                    obj.AutoButtonColor = false
+                    local st = obj:FindFirstChildOfClass("UIStroke")
+                    if st then st.Color = bh and Color3.fromRGB(150,120,230) or Color3.fromRGB(82,55,122) end
+                elseif obj:IsA("TextBox") then
+                    obj.BackgroundColor3 = bh and Color3.fromRGB(8,8,12) or Color3.fromRGB(8,4,16)
+                    obj.BackgroundTransparency = 0
+                    obj.TextColor3 = bh and Color3.fromRGB(236,234,245) or Color3.fromRGB(233,226,247)
+                    local st = obj:FindFirstChildOfClass("UIStroke")
+                    if st then st.Color = bh and Color3.fromRGB(150,120,230) or Color3.fromRGB(82,55,122) end
+                end
+            end
+        end
+    end
+
     local loadout=skillsPage and skillsPage:FindFirstChild("KeyLoadout")
     if loadout then
         for _,obj in ipairs(loadout:GetDescendants()) do
@@ -6044,14 +6095,38 @@ function Theme.apply(themeName)
 end
 
 UI.setTheme = function(themeName)
-    local normalized = (themeName == "Blackhole" or themeName == "Empyrean" or themeName == "Default") and themeName or "Default"
+    local normalized = (themeName == "Blackhole" or themeName == "Empyrean" or themeName == "Default")
+        and themeName or "Default"
+
+    -- Commit the selection BEFORE touching any visuals. This is the single
+    -- authoritative state used by both the next loader and the current UI.
+    System.theme = normalized
+    System.startupTheme = normalized
     setSessionTheme(normalized)
-    Theme.apply(normalized)
+
+    local okApply, applyErr = pcall(function()
+        Theme.apply(normalized)
+        System.theme = normalized
+        System.startupTheme = normalized
+        Theme.syncAllThemeVisuals()
+        Theme.hardResetControls()
+        if normalized == "Empyrean" and Theme.syncEmpyreanControls then
+            Theme.syncEmpyreanControls()
+        end
+    end)
+
     local saved = true
     if type(System.savePrefs) == "function" then
         saved = System.savePrefs() ~= false
     end
-    notify(saved and ("Theme saved: " .. System.theme) or ("Theme changed for this session: " .. System.theme))
+
+    if not okApply then
+        warn("[Void Automation] Theme apply failed for " .. normalized .. ": " .. tostring(applyErr))
+    end
+
+    -- Session persistence is successful even when the executor's file API is
+    -- unavailable. Never claim that the selection was not saved in-session.
+    notify(okApply and ("Theme saved: " .. normalized) or ("Theme saved: " .. normalized .. " | visual apply error"))
     render()
 end
 
@@ -6804,30 +6879,46 @@ local function __normalizeStartupTheme(v)
     return nil
 end
 local __startupTheme
+local __themeFileTheme
+-- Dedicated theme files are checked first so a stale GUI attribute cannot
+-- resurrect Blackhole on re-execution.
+do
+    local __rf = type(readfile) == "function" and readfile or __env.readfile
+    if __rf then
+        local __ok1, __raw1 = pcall(__rf, "AutoSkills_Theme_v2.state")
+        local __ok2, __raw2 = pcall(__rf, "AutoSkills_Theme_v1.txt")
+        if __ok1 then __themeFileTheme = __normalizeStartupTheme(__raw1) end
+        if not __themeFileTheme and __ok2 then __themeFileTheme = __normalizeStartupTheme(__raw2) end
+    end
+end
+__startupTheme = __themeFileTheme
 pcall(function()
     local __plr = game:GetService("Players").LocalPlayer
     local __pg = __plr and __plr:FindFirstChildOfClass("PlayerGui")
+    if __plr then
+        __startupTheme = __startupTheme
+            or __normalizeStartupTheme(__plr:GetAttribute("AutoSkills_Theme"))
+            or __normalizeStartupTheme(__plr:GetAttribute("AutoSkills_StartupTheme"))
+            or __normalizeStartupTheme(__plr:GetAttribute("AutoSkills_LastTheme"))
+    end
     if __pg then
-        __startupTheme = __normalizeStartupTheme(__pg:GetAttribute("AutoSkills_StartupTheme"))
+        __startupTheme = __startupTheme
+            or __normalizeStartupTheme(__pg:GetAttribute("AutoSkills_StartupTheme"))
             or __normalizeStartupTheme(__pg:GetAttribute("AutoSkills_LastTheme"))
     end
 end)
 __startupTheme = __startupTheme
     or __normalizeStartupTheme(__env.__AutoSkills_StartupTheme)
     or __normalizeStartupTheme(__env.__AutoSkills_LastTheme)
-if not __startupTheme then
-    local __rf = type(readfile) == "function" and readfile or __env.readfile
-    if __rf then
-        local __ok1, __raw1 = pcall(__rf, "AutoSkills_Theme_v2.state")
-        local __ok2, __raw2 = pcall(__rf, "AutoSkills_Theme_v1.txt")
-        if __ok1 then __startupTheme = __normalizeStartupTheme(__raw1) end
-        if not __startupTheme and __ok2 then __startupTheme = __normalizeStartupTheme(__raw2) end
-    end
-end
 __startupTheme = __startupTheme or "Default"
 pcall(function()
     local __plr = game:GetService("Players").LocalPlayer
     local __pg = __plr and __plr:FindFirstChildOfClass("PlayerGui")
+    if __plr then
+        __plr:SetAttribute("AutoSkills_Theme", __startupTheme)
+        __plr:SetAttribute("AutoSkills_StartupTheme", __startupTheme)
+        __plr:SetAttribute("AutoSkills_LastTheme", __startupTheme)
+    end
     if __pg then
         __pg:SetAttribute("AutoSkills_StartupTheme", __startupTheme)
         __pg:SetAttribute("AutoSkills_LastTheme", __startupTheme)

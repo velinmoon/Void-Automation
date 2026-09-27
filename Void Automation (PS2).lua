@@ -3137,16 +3137,17 @@ do
         -- Same-session Player/executor state is the fallback when file APIs are
         -- unavailable.
         local candidates = {}
+        -- Current Roblox session is authoritative. Old disk state is fallback only.
+        candidates[#candidates + 1] = bootstrap
+        candidates[#candidates + 1] = getSessionTheme()
+        candidates[#candidates + 1] = environment.__AutoSkills_StartupTheme
+        candidates[#candidates + 1] = environment.__AutoSkills_LastTheme
         if type(reader) == "function" then
             local ok1, raw1 = pcall(reader, System.themeStatePath)
             if ok1 then candidates[#candidates + 1] = raw1 end
             local ok2, raw2 = pcall(reader, System.themeConfigPath)
             if ok2 then candidates[#candidates + 1] = raw2 end
         end
-        candidates[#candidates + 1] = bootstrap
-        candidates[#candidates + 1] = getSessionTheme()
-        candidates[#candidates + 1] = environment.__AutoSkills_StartupTheme
-        candidates[#candidates + 1] = environment.__AutoSkills_LastTheme
         for _, candidate in ipairs(candidates) do
             local restored = normalizeTheme(candidate)
             if restored then
@@ -7006,9 +7007,11 @@ do
             end
         end)
 
-        else
+        elseif startupTheme == "Default" then
             -- ================================================================
             -- VOID NEXUS LOADER
+            -- Explicit Default/Nexus-only loader.
+
             -- Dedicated loader for the Default/Nexus theme.
             --
             -- This is a Roblox-native recreation of the supplied
@@ -7605,9 +7608,24 @@ local function __normalizeStartupTheme(v)
 end
 local __startupTheme
 local __themeFileTheme
--- Dedicated theme files are checked first so a stale GUI attribute cannot
--- resurrect Blackhole on re-execution.
-do
+-- Current Roblox session is authoritative. Old disk state is fallback only.
+pcall(function()
+    local __plr = game:GetService("Players").LocalPlayer
+    local __pg = __plr and __plr:FindFirstChildOfClass("PlayerGui")
+    if __plr then
+        __startupTheme = __normalizeStartupTheme(__plr:GetAttribute("AutoSkills_Theme"))
+            or __normalizeStartupTheme(__plr:GetAttribute("AutoSkills_StartupTheme"))
+            or __normalizeStartupTheme(__plr:GetAttribute("AutoSkills_LastTheme"))
+    end
+    if __pg and not __startupTheme then
+        __startupTheme = __normalizeStartupTheme(__pg:GetAttribute("AutoSkills_StartupTheme"))
+            or __normalizeStartupTheme(__pg:GetAttribute("AutoSkills_LastTheme"))
+    end
+end)
+__startupTheme = __startupTheme
+    or __normalizeStartupTheme(__env.__AutoSkills_StartupTheme)
+    or __normalizeStartupTheme(__env.__AutoSkills_LastTheme)
+if not __startupTheme then
     local __rf = type(readfile) == "function" and readfile or __env.readfile
     if __rf then
         local __ok1, __raw1 = pcall(__rf, "AutoSkills_Theme_v2.state")
@@ -7615,40 +7633,13 @@ do
         if __ok1 then __themeFileTheme = __normalizeStartupTheme(__raw1) end
         if not __themeFileTheme and __ok2 then __themeFileTheme = __normalizeStartupTheme(__raw2) end
     end
+    __startupTheme = __themeFileTheme
 end
-__startupTheme = __themeFileTheme
-pcall(function()
-    local __plr = game:GetService("Players").LocalPlayer
-    local __pg = __plr and __plr:FindFirstChildOfClass("PlayerGui")
-    if __plr then
-        __startupTheme = __startupTheme
-            or __normalizeStartupTheme(__plr:GetAttribute("AutoSkills_Theme"))
-            or __normalizeStartupTheme(__plr:GetAttribute("AutoSkills_StartupTheme"))
-            or __normalizeStartupTheme(__plr:GetAttribute("AutoSkills_LastTheme"))
-    end
-    if __pg then
-        __startupTheme = __startupTheme
-            or __normalizeStartupTheme(__pg:GetAttribute("AutoSkills_StartupTheme"))
-            or __normalizeStartupTheme(__pg:GetAttribute("AutoSkills_LastTheme"))
-    end
-end)
-__startupTheme = __startupTheme
-    or __normalizeStartupTheme(__env.__AutoSkills_StartupTheme)
-    or __normalizeStartupTheme(__env.__AutoSkills_LastTheme)
 __startupTheme = __startupTheme or "Default"
-pcall(function()
-    local __plr = game:GetService("Players").LocalPlayer
-    local __pg = __plr and __plr:FindFirstChildOfClass("PlayerGui")
-    if __plr then
-        __plr:SetAttribute("AutoSkills_Theme", __startupTheme)
-        __plr:SetAttribute("AutoSkills_StartupTheme", __startupTheme)
-        __plr:SetAttribute("AutoSkills_LastTheme", __startupTheme)
-    end
-    if __pg then
-        __pg:SetAttribute("AutoSkills_StartupTheme", __startupTheme)
-        __pg:SetAttribute("AutoSkills_LastTheme", __startupTheme)
-    end
-end)
+-- IMPORTANT: do not write the startup fallback back into session state here.
+-- Session state is only written by an actual theme selection. Otherwise a stale
+-- Blackhole disk value would become a new "authoritative" session value and
+-- permanently win on every re-execution.
 __env.__AutoSkills_StartupTheme = __startupTheme
 __env.__AutoSkills_LastTheme = __startupTheme
 __env.__AUTOSKILLS_SOURCE = __AUTOSKILLS_SOURCE

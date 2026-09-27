@@ -116,6 +116,13 @@ local function releaseKey()
 end
 function controller.Stop()
     if not State.alive then return end
+    -- Save the current theme before the old instance is torn down. Re-execution
+    -- calls this Stop() first, so this is the final persistence point.
+    pcall(function()
+        if type(System) == "table" and type(System.savePrefs) == "function" then
+            System.savePrefs()
+        end
+    end)
     State.alive, State.enabled = false, false
     State.gesture = nil
     stopFarm()
@@ -3046,6 +3053,8 @@ System = {
     menuStage = "idle",
     theme = "Default",
     startupTheme = "Default",
+    _themeFileLoaded = false,
+    _sessionThemeLoaded = false,
 }
 
 do
@@ -3062,21 +3071,45 @@ do
         return type(value) == "string" and #value > 0 and #value <= (limit or 200)
     end
 
+    local function normalizeTheme(value)
+        if type(value) ~= "string" then return nil end
+        value = value:gsub("^%s+", ""):gsub("%s+$", "")
+        if value == "Default" or value == "Blackhole" or value == "Empyrean" then
+            return value
+        end
+        return nil
+    end
+
     function System.loadPrefs()
-        -- Do not require isfile() just to load preferences. Some executors expose
-        -- readfile/writefile but their isfile wrapper is missing or unreliable.
-        if type(reader) ~= "function" then return end
-        local raw
-        local persistedTheme
-        local okTheme, themeRaw = false, nil
-        if System.themeConfigPath then
-            okTheme, themeRaw = pcall(reader, System.themeConfigPath)
-            if okTheme and type(themeRaw) == "string" and (themeRaw == "Default" or themeRaw == "Blackhole" or themeRaw == "Empyrean") then
-                persistedTheme = themeRaw
-                System.theme = themeRaw
+        -- The tiny theme file is authoritative. Read it directly; isfile() is
+        -- deliberately not involved because some executors implement it poorly.
+        System._themeFileLoaded = false
+        -- getgenv/_G survives a normal re-execution in most executors. Use it as
+        -- an immediate same-session fallback so a broken file API cannot force
+        -- the previous/default theme during re-execution. The file remains the
+        -- cross-session persistence mechanism.
+        local sessionTheme = normalizeTheme(environment.__AutoSkills_LastTheme)
+        if sessionTheme then
+            System.theme = sessionTheme
+            System._sessionThemeLoaded = true
+        else
+            System._sessionThemeLoaded = false
+        end
+        if type(reader) == "function" and System.themeConfigPath then
+            local okTheme, themeRaw = pcall(reader, System.themeConfigPath)
+            if okTheme then
+                local persistedTheme = normalizeTheme(themeRaw)
+                if persistedTheme and not System._sessionThemeLoaded then
+                    System.theme = persistedTheme
+                    System._themeFileLoaded = true
+                end
             end
         end
 
+        -- Load the rest of the settings independently. An old JSON theme must
+        -- never override a valid theme restored above.
+        if type(reader) ~= "function" then return end
+        local raw
         local okRead, result = pcall(reader, System.configPath)
         if okRead and type(result) == "string" and #result > 0 then
             raw = result
@@ -3090,10 +3123,9 @@ do
                 if type(data.StaticMapScan) == "boolean" then Settings.StaticMapScan = data.StaticMapScan end
                 if type(data.AutoRejoin) == "boolean" then Settings.AutoRejoin = data.AutoRejoin end
                 if type(data.AutoExecute) == "boolean" then Settings.AutoExecute = data.AutoExecute end
-                -- The tiny theme file is authoritative when present. This avoids
-                -- an old/stale JSON theme overriding a successfully saved theme.
-                if not persistedTheme and (data.Theme == "Blackhole" or data.Theme == "Default" or data.Theme == "Empyrean") then
-                    System.theme = data.Theme
+                local jsonTheme = normalizeTheme(data.Theme)
+                if jsonTheme and not System._themeFileLoaded and not System._sessionThemeLoaded then
+                    System.theme = jsonTheme
                 end
                 if finiteText(data.PrivateServerMap, 80) then Settings.PrivateServerMap = data.PrivateServerMap end
                 if finiteText(data.TargetGameId, 40) then System.targetGameId = data.TargetGameId end
@@ -3101,59 +3133,63 @@ do
                 if type(data.LastPrivatePlace) == "number" then System.lastPrivatePlace = data.LastPrivatePlace end
             end
         end
-
     end
 
     function System.savePrefs()
-        if type(writer) ~= "function" then
-            System.persistStatus = "File write unavailable; preferences are session-only."
-            return false
-        end
+        local themeSaved = false
+        local jsonSaved = false
+        local themeToSave = normalizeTheme(System.theme) or "Default"
+        -- Always persist to the shared executor environment as well. This is
+        -- available immediately on the next re-execution even if writefile is
+        -- unavailable or rejects the persistence path.
+        pcall(function() environment.__AutoSkills_LastTheme = themeToSave end)
 
-        local ok, err = pcall(function()
-            writer(System.configPath, HttpService:JSONEncode({
-                schema = 1,
-                StaticMapScan = Settings.StaticMapScan,
-                AutoRejoin = Settings.AutoRejoin,
-                AutoExecute = Settings.AutoExecute,
-                Theme = System.theme,
-                PrivateServerMap = Settings.PrivateServerMap,
-                TargetGameId = System.targetGameId,
-                LastPrivatePlace = System.lastPrivatePlace,
-                LastPrivateJob = System.lastPrivateJob,
-            }))
-        end)
-
-        -- Also persist only the theme in a tiny fallback file. This is useful on
-        -- executors where the larger JSON file is restricted but text files work.
-        if ok and type(System.writer) == "function" and System.themeConfigPath then
-            pcall(System.writer, System.themeConfigPath, System.theme)
-        end
-
-        if not ok then
-            System.persistStatus = "Preference save failed: " .. tostring(err)
-            return false
-        end
-
-        -- Verify the exact theme that was written when readfile is available.
-        -- This prevents a false "saved" notification when an executor silently
-        -- rejects the write.
-        if type(reader) == "function" then
-            local verifyOK, raw = pcall(reader, System.configPath)
-            if verifyOK and type(raw) == "string" then
-                local decodeOK, check = pcall(function() return HttpService:JSONDecode(raw) end)
-                if decodeOK and type(check) == "table" and check.Theme == System.theme then
-                    return true
-                end
+        -- Theme persistence is independent from the large JSON file.
+        if type(writer) == "function" and type(System.themeConfigPath) == "string" then
+            local okThemeWrite = pcall(writer, System.themeConfigPath, themeToSave)
+            if okThemeWrite and type(reader) == "function" then
+                local okThemeRead, savedRaw = pcall(reader, System.themeConfigPath)
+                themeSaved = okThemeRead and normalizeTheme(savedRaw) == themeToSave
+            elseif okThemeWrite then
+                themeSaved = true
             end
-            if type(System.themeConfigPath) == "string" then
-                local fallbackOK, fallbackRaw = pcall(reader, System.themeConfigPath)
-                if fallbackOK and fallbackRaw == System.theme then return true end
+        end
+
+        if type(writer) == "function" then
+            local ok, err = pcall(function()
+                writer(System.configPath, HttpService:JSONEncode({
+                    schema = 1,
+                    StaticMapScan = Settings.StaticMapScan,
+                    AutoRejoin = Settings.AutoRejoin,
+                    AutoExecute = Settings.AutoExecute,
+                    Theme = themeToSave,
+                    PrivateMap = Settings.PrivateServerMap,
+                    PrivateServerMap = Settings.PrivateServerMap,
+                    TargetGameId = System.targetGameId,
+                    LastPrivatePlace = System.lastPrivatePlace,
+                    LastPrivateJob = System.lastPrivateJob,
+                }))
+            end)
+            jsonSaved = ok
+            if not ok then
+                System.persistStatus = "Theme saved separately; settings JSON write failed: " .. tostring(err)
             end
-            System.persistStatus = "Theme preference write verification failed."
+        end
+
+        if themeSaved then
+            System.persistStatus = jsonSaved
+                and ("Preferences saved | Theme: " .. themeToSave)
+                or "Theme saved | Settings JSON unavailable"
+            return true
+        end
+
+        if jsonSaved then
+            System.persistStatus = "Settings saved, but theme-file verification failed."
             return false
         end
-        return true
+
+        System.persistStatus = "Theme persistence failed: writefile/readfile unavailable or rejected the file."
+        return false
     end
 
     System.loadPrefs()

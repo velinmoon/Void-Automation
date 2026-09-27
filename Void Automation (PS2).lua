@@ -73,6 +73,7 @@ local State = {
     heldKey = nil, lastKey = nil, fault = nil, gesture = nil,
     tab = "Skills", espCount = 0, espFault = nil,
     uiScaleTarget = 1.0,
+    visibilityTween = nil, visibilityX = nil, visibilityY = nil,
 }
 local connections, tweens = {}, setmetatable({}, {__mode = "k"})
 local controller, UI = {}, {}
@@ -444,7 +445,7 @@ do
 
         character:PivotTo(character:GetPivot() + Vector3.new(0, 70, 0))
         if System and type(System.recordTeleport) == "function" then
-            pcall(function() System.recordTeleport("Health Escape") end)
+            pcall(function() System.recordTeleport("Health Escape", 70) end)
         end
         pauseFarmForEscape()
         if Settings.HealthLock then
@@ -1513,12 +1514,8 @@ do
         if deathConnection then deathConnection:Disconnect() end
         watched = record.humanoid
 
-        -- Session Analytics: a target is counted when a new humanoid is actually
-        -- engaged, not when the route merely selects/visits a saved location.
-        if System and type(System.recordTarget) == "function" then
-            pcall(function() System.recordTarget(record) end)
-        end
-
+        -- Analytics target counting happens at the actual attack/engagement
+        -- point below, not merely when the health watcher is attached.
         deathConnection = watched.HealthChanged:Connect(function(hp)
             if hp <= 0 then
                 -- Count each humanoid exactly once. HealthChanged can fire more
@@ -2008,9 +2005,11 @@ do
         end
         if returnToStart and origin and farmCharacter and farmCharacter.Parent
             and farmCharacter == Player.Character then
+            local returnDistance = 0
+            pcall(function() returnDistance = (farmCharacter:GetPivot().Position - origin.Position).Magnitude end)
             local ok, err = pcall(function() farmCharacter:PivotTo(origin) end)
             if ok and System and type(System.recordTeleport) == "function" then
-                pcall(function() System.recordTeleport("Farm Return") end)
+                pcall(function() System.recordTeleport("Farm Return", returnDistance) end)
             end
             if not ok then warn("AutoSkills: could not return from farming: " .. tostring(err)) end
         end
@@ -2185,7 +2184,8 @@ do
                     -- One count per actual route teleport. Do not count the
                     -- repeated PivotTo calls that follow while holding position.
                     if System and type(System.recordTeleport) == "function" then
-                        pcall(function() System.recordTeleport(entry.name) end)
+                        local travelDistance = (Farm.travelDestination - rootPart.Position).Magnitude
+                        pcall(function() System.recordTeleport(entry.name, travelDistance) end)
                     end
                 end
                 character:PivotTo(character:GetPivot() + (Farm.travelDestination - rootPart.Position))
@@ -2268,6 +2268,10 @@ do
         end
 
         if Settings.AutoBoss and (not hp or hp <= 0 or not targetRoot or not attackHealthAllowed(maximum)) then
+            if hp and hp <= 0 and Farm.selected and watched == Farm.selected.humanoid
+                and System and type(System.recordKill) == "function" then
+                pcall(function() System.recordKill(Farm.selected) end)
+            end
             if Farm.autoDefeated or (hp and hp <= 0) then
                 Farm.autoDefeated = true
                 beginLoot(lastTargetPosition or (targetRoot and targetRoot.Position) or rootPart.Position)
@@ -2344,6 +2348,9 @@ do
                 advanceAutoBoss("No first damage within 5s; skipped", rootPart, true)
                 return
             end
+        end
+        if System and type(System.recordTarget) == "function" then
+            pcall(function() System.recordTarget(Farm.selected) end)
         end
         stepM1()
         Farm.status = Settings.AutoBoss and "AUTO BOSS FARMING" or "FARMING"
@@ -2794,7 +2801,8 @@ do
             run.destination=point.position+Vector3.new(0,12,0)
             run.nextStep=os.clock()+Settings.BossDwell
             if System and type(System.recordTeleport) == "function" then
-                pcall(function() System.recordTeleport("Discovery: " .. tostring(point.label)) end)
+                local discoveryDistance = (run.destination - run.root.Position).Magnitude
+                pcall(function() System.recordTeleport("Discovery: " .. tostring(point.label), discoveryDistance) end)
             end
             Farm.discoveryStatus=string.format("%d visited / %d queued | %s",run.completed,#run.queue+1,point.label)
 
@@ -3391,10 +3399,16 @@ do
         metadata.name=name; System.themeRegistry[name]=metadata; return true
     end
     function System.getThemes() local out={}; for name,data in pairs(System.themeRegistry) do out[#out+1]={name=name,metadata=data} end; table.sort(out,function(a,b) return a.name<b.name end); return out end
-    -- Session Analytics event API. These counters are driven by real farm
-    -- lifecycle events instead of polling route-cycle numbers, so skipped
-    -- targets, repeated health events, and saved-location loops cannot inflate
-    -- the statistics.
+    -- Session Analytics event API.
+    --
+    -- The counters represent completed/meaningful events, not route-loop
+    -- activity:
+    --   Targets   = a target that was actually engaged by the farm
+    --   Kills     = a watched target confirmed at 0 HP
+    --   Bosses    = confirmed kills whose record belongs to a remembered boss
+    --   Loots     = a unique loot entity for which the interaction call succeeded
+    --   Teleports = an actual reposition of more than a few studs
+    -- Every event is de-duplicated by its underlying Roblox instance.
     function System.recordTarget(record)
         if not record or not record.humanoid then return end
         local humanoid = record.humanoid
@@ -3412,9 +3426,15 @@ do
         System.stats.kills = System.stats.kills + 1
         System.stats.lastTarget = tostring(record.name or System.stats.lastTarget or "--")
 
-        local isBoss = Settings.AutoBoss == true
-        if not isBoss and record.path and Farm and Farm.catalog then
-            isBoss = Farm.catalog[record.path] ~= nil
+        -- Never equate "Auto Boss is enabled" with "this target is a boss".
+        -- A boss kill is tied to a saved catalog path/current Auto Boss route.
+        local isBoss = false
+        if record.path then
+            -- Farm.catalog also contains scanned NPCs, so catalog membership
+            -- alone is not proof that a target is a boss. A boss kill is tied
+            -- to the active Auto Boss route or the explicitly pinned target.
+            isBoss = (Farm and Farm.autoCurrent == record.path)
+                or (Farm and Farm.pinned == record.path)
         end
         if isBoss then
             System.stats.bosses = System.stats.bosses + 1
@@ -3429,7 +3449,12 @@ do
         System.stats.loots = System.stats.loots + 1
     end
 
-    function System.recordTeleport(reason)
+    function System.recordTeleport(reason, distance)
+        -- A missing distance is treated as an unknown/non-teleport event rather
+        -- than blindly incrementing the counter. Callers below pass the exact
+        -- displacement before their PivotTo.
+        distance = tonumber(distance) or 0
+        if distance < 5 then return end
         System.stats.teleports = System.stats.teleports + 1
     end
 
@@ -5561,15 +5586,25 @@ function EMP.layoutResponsive(heroWidth, heroHeight)
     local function x(v) return math.floor(v * sx + 0.5) end
     local function y(v) return math.floor(v + 0.5) end
 
+    -- Reassert the canonical hero rectangle on every rebuild. No hide/show or
+    -- theme pass is allowed to move this surface itself.
+    EMP.hero.Position = UDim2.fromOffset(0, 64)
     EMP.hero.Size = UDim2.fromOffset(heroWidth, heroHeight)
+    EMP.sky.Position = UDim2.fromOffset(0, 0)
     EMP.sky.Size = UDim2.fromOffset(heroWidth, heroHeight)
+    EMP.vignette.Position = UDim2.fromOffset(0, 0)
     EMP.vignette.Size = UDim2.fromOffset(heroWidth, heroHeight)
 
     EMP.glow.Size = UDim2.fromOffset(x(150), x(150))
     EMP.glow.Position = UDim2.fromOffset(cx, cy)
 
+    -- Keep the ray canvas exactly coincident with the hero. The previous
+    -- centered-anchor setup made this container vulnerable to compounded
+    -- offsets during visibility/layout rebuilds. Rotation still pivots around
+    -- the GUI object's center, while the rays use the hero-local center below.
+    EMP.rayGroup.AnchorPoint = Vector2.new(0, 0)
+    EMP.rayGroup.Position = UDim2.fromOffset(0, 0)
     EMP.rayGroup.Size = UDim2.fromOffset(heroWidth, heroHeight)
-    EMP.rayGroup.Position = UDim2.fromOffset(cx, cy)
 
     -- Full-width scan layer, matching the HTML's left:0/right:0 behavior.
     EMP.scan.Size = UDim2.fromOffset(heroWidth, x(61))
@@ -5786,16 +5821,20 @@ end
 -- composition from the authoritative logical window size.
 function EMP.recoverAfterShow()
     if not State.alive or System.theme ~= "Empyrean" or State.minimized then return end
+    EMP.visibilityGeneration = (EMP.visibilityGeneration or 0) + 1
+    local generation = EMP.visibilityGeneration
     task.spawn(function()
         for _ = 1, 3 do
-            if not State.alive or System.theme ~= "Empyrean" or State.minimized then return end
+            if not State.alive or System.theme ~= "Empyrean" or State.minimized
+                or generation ~= EMP.visibilityGeneration then return end
             RunService.RenderStepped:Wait()
         end
-        if not State.alive or System.theme ~= "Empyrean" or State.minimized then return end
+        if not State.alive or System.theme ~= "Empyrean" or State.minimized
+            or generation ~= EMP.visibilityGeneration then return end
         pcall(function()
-            -- Ensure the window has its normal scale before measuring/rebinding.
-            local scale = holder:FindFirstChildOfClass("UIScale")
-            if scale then scale.Scale = 1 end
+            -- No AbsoluteSize/UIScale measurement here. The logical window width
+            -- is authoritative and the position-only visibility tween cannot
+            -- alter it.
             fitWindow(false)
             EMP.hero.Visible = true
             EMP.layoutResponsive(math.max(MIN_WINDOW_WIDTH, windowWidth), 160)
@@ -7225,19 +7264,9 @@ connect(Input.InputEnded, function(input)
     end
 end)
 connect(canvas:GetPropertyChangedSignal("AbsoluteSize"), function() fitWindow(false) end)
--- Do NOT use EMP.hero.AbsoluteSize as a layout source. The menu's hide/show
--- animation applies UIScale to holder, which changes AbsoluteSize without
--- changing the actual logical window dimensions. The old handler therefore
--- raced the show animation and could leave EMPYREAN artwork offset to one side.
-connect(EMP.hero:GetPropertyChangedSignal("AbsoluteSize"), function()
-    if System.theme=="Empyrean" and not State.minimized and EMP.hero.Visible then
-        task.defer(function()
-            if State.alive and System.theme=="Empyrean" and not State.minimized then
-                pcall(function() EMP.ensureVisuals() end)
-            end
-        end)
-    end
-end)
+-- EMPYREAN layout is driven only by the logical window width. Do not attach
+-- a geometry feedback loop to EMP.hero.AbsoluteSize; visibility/presentation
+-- changes must never become layout inputs.
 -- Startup is intentionally ordered: persisted theme -> theme application -> loader.
 -- Do not render the Default theme first; doing so can leave stale theme visuals behind.
 fitWindow(true)
@@ -7303,7 +7332,7 @@ do
                 loadFill.Size=UDim2.new(progress,0,1,0); loadPercent.Text=string.format("%d%%",math.floor(progress*100+.5))
                 if progress>=1 then
                     loadAnimConn:Disconnect(); loadStatus.Text="EMPYREAN ONLINE"; task.wait(.10); if not State.alive then return end; TweenService:Create(loadScale,TweenInfo.new(.25,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{Scale=.78}):Play(); TweenService:Create(loadingLayer,TweenInfo.new(.32,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{BackgroundTransparency=1}):Play()
-                    task.delay(.36,function() if not State.alive then return end; if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled=false end; if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end; holder.Visible=true; root.Enabled=true; if System.theme=="Empyrean" and EMP.ensureVisuals then EMP.ensureVisuals() end; local bootScale=make("UIScale",holder,{Scale=.94}); local bootStroke=panel:FindFirstChildOfClass("UIStroke"); TweenService:Create(bootScale,TweenInfo.new(.48,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Scale=1}):Play(); if bootStroke then bootStroke.Transparency=1; TweenService:Create(bootStroke,TweenInfo.new(.55,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Transparency=.38}):Play() end; if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end end)
+                    task.delay(.36,function() if not State.alive then return end; if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled=false end; if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end; holder.Visible=true; root.Enabled=true; if System.theme=="Empyrean" and EMP.ensureVisuals then EMP.ensureVisuals() end; local bootStroke=panel:FindFirstChildOfClass("UIStroke"); if bootStroke then bootStroke.Transparency=1; TweenService:Create(bootStroke,TweenInfo.new(.55,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Transparency=.38}):Play() end; if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end end)
                 end
             end)
         elseif startupTheme == "Blackhole" then
@@ -7567,10 +7596,7 @@ do
 
                     holder.Visible = true
                     root.Enabled = true
-
-                    local bootScale = make("UIScale", holder, {Scale = 0.94})
                     local bootStroke = panel:FindFirstChildOfClass("UIStroke")
-                    TweenService:Create(bootScale, TweenInfo.new(0.48, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Scale = 1}):Play()
                     if bootStroke then
                         bootStroke.Transparency = 1
                         TweenService:Create(bootStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 0.28}):Play()
@@ -7898,10 +7924,7 @@ do
 
                         holder.Visible = true
                         root.Enabled = true
-
-                        local bootScale = make("UIScale", holder, {Scale = 0.94})
-                        local bootStroke = panel:FindFirstChildOfClass("UIStroke")
-                        TweenService:Create(bootScale, TweenInfo.new(0.48, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Scale = 1}):Play()
+                    local bootStroke = panel:FindFirstChildOfClass("UIStroke")
                         if bootStroke then
                             bootStroke.Transparency = 1
                             TweenService:Create(bootStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 0.28}):Play()
@@ -7931,21 +7954,42 @@ connect(Input.InputBegan, function(input, gameProcessed)
     elseif input.KeyCode == Settings.VisibilityKey then
         State.minimized = not State.minimized
         if root then
+            -- IMPORTANT: visibility is now completely independent from UIScale.
+            -- UIScale changes AbsoluteSize and was the source of the Empyrean
+            -- hide/show geometry race. A small position tween gives the same
+            -- polished hide/show feel without changing any layout dimensions.
+            if State.visibilityTween then
+                pcall(function() State.visibilityTween:Cancel() end)
+                State.visibilityTween = nil
+            end
+
+            local currentX = holder.Position.X.Offset
+            local currentY = holder.Position.Y.Offset
             if State.minimized then
-                local hideScale = holder:FindFirstChildOfClass("UIScale") or make("UIScale", holder, {Scale = 1})
-                local tween = TweenService:Create(hideScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.90})
+                State.visibilityX = currentX
+                State.visibilityY = currentY
+                local tween = TweenService:Create(holder,
+                    TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+                    {Position = UDim2.fromOffset(currentX, currentY - 8)})
+                State.visibilityTween = tween
                 tween:Play()
-                task.delay(0.18, function() if State.alive and State.minimized then root.Enabled = false end end)
+                task.delay(0.18, function()
+                    if State.alive and State.minimized then
+                        root.Enabled = false
+                        holder.Position = UDim2.fromOffset(State.visibilityX or currentX, State.visibilityY or currentY)
+                    end
+                end)
             else
+                local restoreX = State.visibilityX or currentX
+                local restoreY = State.visibilityY or currentY
                 root.Enabled = true
-                local showScale = holder:FindFirstChildOfClass("UIScale") or make("UIScale", holder, {Scale = 0.90})
-                showScale.Scale = 0.90
-                local tween = TweenService:Create(showScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1})
+                holder.Position = UDim2.fromOffset(restoreX, restoreY - 8)
+                local tween = TweenService:Create(holder,
+                    TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+                    {Position = UDim2.fromOffset(restoreX, restoreY)})
+                State.visibilityTween = tween
                 tween:Play()
 
-                -- EMPYREAN needs an explicit post-visibility rebind because its
-                -- hero contains a responsive composition. Other themes are left
-                -- completely untouched.
                 if System.theme == "Empyrean" and EMP.recoverAfterShow then
                     EMP.recoverAfterShow()
                 end

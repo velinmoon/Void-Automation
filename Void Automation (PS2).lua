@@ -4810,6 +4810,8 @@ local function updateTabVisuals()
     end
 end
 
+local EMP = {}
+
 local resizeGrip
 local windowPlaced = false
 local MIN_WINDOW_WIDTH = W
@@ -4962,7 +4964,6 @@ local function fitWindow(centerIfNeeded)
 end
 
 -- EMPYREAN visual preset hero. Isolated from all other theme visuals.
-local EMP = {}
 EMP.hero = frame(panel, "EmpyreanHero", 0, 64, W, 152, Color3.fromRGB(255,250,235), 0)
 EMP.hero.ZIndex = 4; EMP.hero.ClipsDescendants = true; EMP.hero.Visible = false
 EMP.heroStroke = stroke(EMP.hero, Color3.fromRGB(217,169,78), 0.58, 1)
@@ -5184,9 +5185,23 @@ function Theme.apply(themeName)
         content.Size=UDim2.fromOffset(windowWidth,windowHeight-280)
         content.BackgroundColor3=C.panel
         content.BackgroundTransparency=0
+        local contentGradient=content:FindFirstChild("EmpyreanSurfaceGradient")
+        if not contentGradient then
+            contentGradient=make("UIGradient",content,{Name="EmpyreanSurfaceGradient"})
+        end
+        contentGradient.Rotation=90
+        contentGradient.Color=ColorSequence.new({
+            ColorSequenceKeypoint.new(0,Color3.fromRGB(255,253,247)),
+            ColorSequenceKeypoint.new(0.30,Color3.fromRGB(255,248,232)),
+            ColorSequenceKeypoint.new(0.62,Color3.fromRGB(234,243,255)),
+            ColorSequenceKeypoint.new(1,Color3.fromRGB(220,235,255))
+        })
+        contentGradient.Transparency=NumberSequence.new(0)
 
         edgeSheen.BackgroundColor3=C.line
     else
+        local contentGradient=content:FindFirstChild("EmpyreanSurfaceGradient")
+        if contentGradient then contentGradient:Destroy() end
         Theme.height=H; windowHeight=Theme.height; holder.Size=UDim2.fromOffset(windowWidth,windowHeight); shadow.Size=UDim2.fromOffset(windowWidth+12,windowHeight+12); panel.Size=UDim2.fromOffset(windowWidth,windowHeight); panel.BackgroundColor3=C.panel; panel.BackgroundTransparency=.40; panelStroke.Color=C.violet2; panelStroke.Transparency=.28; panelBackdrop.Visible=true; voidFX.Visible=true; ticker.Visible=true; content.BackgroundTransparency=1
         local panelGradient=panel:FindFirstChildOfClass("UIGradient"); if panelGradient then panelGradient.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(23,12,39)),ColorSequenceKeypoint.new(.45,Color3.fromRGB(14,7,26)),ColorSequenceKeypoint.new(1,Color3.fromRGB(5,2,12))}); panelGradient.Transparency=NumberSequence.new({ColorSequenceKeypoint.new(0,.18),ColorSequenceKeypoint.new(.48,.28),ColorSequenceKeypoint.new(1,.12)}) end
         header.Position=UDim2.fromOffset(0,0); header.Size=UDim2.fromOffset(windowWidth,64); header.BackgroundColor3=C.panel; header.BackgroundTransparency=.08; headerLine.BackgroundColor3=C.violet; headerLine.BackgroundTransparency=.48; brandTitle.Text="VOID NEXUS"; brandTitle.TextColor3=C.ink; header:FindFirstChild("Sub").Text="CORE LINK STABLE"; tabs.Position=UDim2.fromOffset(0,88); tabs.BackgroundColor3=C.black; tabs.BackgroundTransparency=.35; content.Position=UDim2.fromOffset(0,152); content.Size=UDim2.fromOffset(windowWidth,windowHeight-152); edgeSheen.BackgroundColor3=C.cyan
@@ -6014,5 +6029,10 @@ if not __fn then
     warn("AutoSkills compile error: " .. tostring(__err))
     return
 end
-__fn()
+local __ok, __runtimeErr = xpcall(__fn, function(err)
+    return debug and debug.traceback and debug.traceback(tostring(err), 2) or tostring(err)
+end)
+if not __ok then
+    warn("AutoSkills runtime error: " .. tostring(__runtimeErr))
+end
 ]=====])()

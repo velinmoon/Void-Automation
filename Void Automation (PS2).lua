@@ -4646,6 +4646,7 @@ end)
 local ThemeUI = {page = newPage("Theme")}
 pageHead(ThemeUI.page, "theme", "THEME", "DISPLAY")
 local themeInfo = frame(ThemeUI.page, "ThemeInfo", 16, 48, W - 32, 54, Color3.fromRGB(18,10,30), 10)
+ThemeUI.themeInfo = themeInfo
 stroke(themeInfo, C.line, 0.72, 1)
 safeText(themeInfo, "Name", "ACTIVE PRESET", 12, 7, 130, 16, 9, C.faint, Enum.Font.GothamBold)
 ThemeUI.activeLabel = safeText(themeInfo, "Active", "DEFAULT", 12, 25, 180, 20, 13, C.ink, Enum.Font.GothamBold)
@@ -4762,31 +4763,48 @@ end
 for key, tab in pairs(navButtons) do
     connect(tab.MouseEnter, function()
         if State.tab ~= key then
-            animate(tab, {BackgroundColor3 = Color3.fromRGB(24, 13, 38)}, false)
+            animate(tab, {BackgroundColor3 = System.theme == "Empyrean" and Color3.fromRGB(255,243,200) or Color3.fromRGB(24,13,38)}, false)
         end
     end)
     connect(tab.MouseLeave, function()
         if State.tab ~= key then
-            animate(tab, {BackgroundColor3 = Color3.fromRGB(8, 4, 16)}, false)
+            animate(tab, {BackgroundColor3 = System.theme == "Empyrean" and Color3.fromRGB(255,255,255) or Color3.fromRGB(8,4,16)}, false)
         end
     end)
     connect(tab.Activated, function() showPage(key) end)
 end
 
 local function updateTabVisuals()
+    local emp = System.theme == "Empyrean"
     for key, tab in pairs(navButtons) do
         local selected = State.tab == key
-        tab.BackgroundColor3 = selected and Color3.fromRGB(30, 14, 48) or Color3.fromRGB(8, 4, 16)
-        tab.TextColor3 = selected and C.ink or C.faint
+        if emp then
+            tab.BackgroundColor3 = selected and Color3.fromRGB(255,224,150) or Color3.fromRGB(255,255,255)
+            tab.BackgroundTransparency = selected and .12 or .34
+            tab.TextColor3 = selected and C.text or C.faint
+        else
+            tab.BackgroundColor3 = selected and Color3.fromRGB(30,14,48) or Color3.fromRGB(8,4,16)
+            tab.BackgroundTransparency = 0
+            tab.TextColor3 = selected and C.ink or C.faint
+        end
         local strokeObj = UI.navStrokes[key]
-        if strokeObj then strokeObj.Transparency = selected and 0.42 or 0.88 end
+        if strokeObj then
+            strokeObj.Transparency = selected and .42 or .88
+            strokeObj.Color = C.line
+        end
         local bar = UI.navBars[key]
-        if bar then bar.Visible = selected end
+        if bar then
+            bar.Visible = selected
+            bar.BackgroundColor3 = C.violet2
+        end
         local icon = tab:FindFirstChild("Icon")
         if icon then
             for _, child in ipairs(icon:GetDescendants()) do
-                if child:IsA("Frame") then child.BackgroundColor3 = selected and C.cyan or C.faint end
-                if child:IsA("UIStroke") then child.Color = selected and C.cyan or C.faint end
+                if child:IsA("Frame") then
+                    child.BackgroundColor3 = selected and (emp and C.violet2 or C.cyan) or C.faint
+                elseif child:IsA("UIStroke") then
+                    child.Color = selected and (emp and C.violet2 or C.cyan) or C.faint
+                end
             end
         end
     end
@@ -4846,6 +4864,25 @@ local function applyWindowWidth(width)
         for _, star in ipairs(BH.stars) do
             star.x = (star.baseX or star.x) * (windowWidth / W)
             star.object.Position = UDim2.fromOffset(math.floor(star.x), math.floor(star.y))
+        end
+        tabs.Position = UDim2.fromOffset(0, 216)
+        content.Position = UDim2.fromOffset(0, 280)
+        content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
+    elseif System.theme == "Empyrean" then
+        -- EMPYREAN owns the same 64/152/64/320 layout every time the window is resized.
+        -- The old generic branch was resetting these to 88/152, which put the navigation
+        -- directly on top of the hero and made the content appear to be from another theme.
+        EMP.hero.Size = UDim2.fromOffset(windowWidth, 152)
+        EMP.sky.Size = UDim2.fromOffset(windowWidth, 152)
+        EMP.rayGroup.Size = UDim2.fromOffset(windowWidth, 152)
+        EMP.scan.Size = UDim2.fromOffset(windowWidth, 54)
+        for i, ray in ipairs(EMP.rays) do
+            ray.Size = UDim2.fromOffset(math.max(80, windowWidth * 0.10), 2)
+        end
+        for i, info in ipairs(EMP.sparkles) do
+            local presets = {{.23,42},{.77,48},{.18,118},{.82,116},{.5,18}}
+            local preset = presets[i]
+            if preset then info.object.Position = UDim2.fromOffset(windowWidth * preset[1], preset[2]) end
         end
         tabs.Position = UDim2.fromOffset(0, 216)
         content.Position = UDim2.fromOffset(0, 280)
@@ -5028,7 +5065,7 @@ function Theme.restyleText()
                 or obj.Name == "RejoinStatus" then
                 obj.TextColor3 = C.faint
             elseif obj.Name == "Value" then
-                obj.TextColor3 = C.cyan
+                obj.TextColor3 = emp and C.violet2 or C.cyan
             elseif obj.Name ~= "Status" then
                 obj.TextColor3 = C.ink
             end
@@ -5044,8 +5081,14 @@ function Theme.restyleRows()
             if child.Name:match("^Row_") or child.Name:match("^Slider_") or child.Name == "KeyLoadout"
                 or child.Name == "ThemeInfo" or child.Name:match("^Preset_") then
                 child.BackgroundColor3 = C.panel2
+                child.BackgroundTransparency = emp and .12 or 0
                 local st = child:FindFirstChildOfClass("UIStroke")
                 if st then st.Color = C.line end
+            elseif emp and child.Name == "PaneHead" then
+                for _, desc in ipairs(child:GetDescendants()) do
+                    if desc:IsA("Frame") then desc.BackgroundColor3=C.violet2 end
+                    if desc:IsA("UIStroke") then desc.Color=C.violet2 end
+                end
             end
         end
     end
@@ -5075,18 +5118,150 @@ function Theme.apply(themeName)
     local bh=themeName=="Blackhole"; local emp=themeName=="Empyrean"
     Theme.current=bh and Theme.Blackhole or(emp and Theme.Empyrean or Theme.Default); Theme.copy(Theme.current)
     if bh then
-        Theme.height=600; windowHeight=Theme.height; holder.Size=UDim2.fromOffset(windowWidth,windowHeight); shadow.Size=UDim2.fromOffset(windowWidth+12,windowHeight+12); panel.Size=UDim2.fromOffset(windowWidth,windowHeight); panel.BackgroundColor3=C.panel; panel.BackgroundTransparency=.18; panelStroke.Color=C.line; panelStroke.Transparency=.72; panelBackdrop.Visible=false; voidFX.Visible=false; ticker.Visible=false
-        header.Position=UDim2.fromOffset(0,0); header.Size=UDim2.fromOffset(windowWidth,64); headerLine.BackgroundColor3=C.line; headerLine.BackgroundTransparency=.70; brandTitle.Text="BLACKHOLE V1"; brandTitle.TextColor3=C.ink; header:FindFirstChild("Sub").Text="REACTOR ONLINE"; BH.hero.Visible=true; BH.hero.Position=UDim2.fromOffset(0,64); BH.hero.Size=UDim2.fromOffset(windowWidth,152); BH.hero.BackgroundColor3=C.black; BH.heroStroke.Color=C.line; BH.heroStroke.Transparency=.82; tabs.Position=UDim2.fromOffset(0,216); tabs.BackgroundColor3=C.black; tabs.BackgroundTransparency=.28; content.Position=UDim2.fromOffset(0,280); content.Size=UDim2.fromOffset(windowWidth,windowHeight-280); edgeSheen.BackgroundColor3=C.cyan; BH.atmosphere.BackgroundColor3=Color3.fromRGB(12,8,20)
+        Theme.height=600; windowHeight=Theme.height; holder.Size=UDim2.fromOffset(windowWidth,windowHeight); shadow.Size=UDim2.fromOffset(windowWidth+12,windowHeight+12); panel.Size=UDim2.fromOffset(windowWidth,windowHeight); panel.BackgroundColor3=C.panel; panel.BackgroundTransparency=.18; panelStroke.Color=C.line; panelStroke.Transparency=.72; panelBackdrop.Visible=false; voidFX.Visible=false; ticker.Visible=false; content.BackgroundTransparency=1
+        local panelGradient=panel:FindFirstChildOfClass("UIGradient"); if panelGradient then panelGradient.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(23,12,39)),ColorSequenceKeypoint.new(.45,Color3.fromRGB(14,7,26)),ColorSequenceKeypoint.new(1,Color3.fromRGB(5,2,12))}); panelGradient.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,.18),NumberSequenceKeypoint.new(.48,.28),NumberSequenceKeypoint.new(1,.12)}) end
+        header.Position=UDim2.fromOffset(0,0); header.Size=UDim2.fromOffset(windowWidth,64); header.BackgroundColor3=C.panel; header.BackgroundTransparency=.08; local headerGradient=header:FindFirstChildOfClass("UIGradient"); if headerGradient then headerGradient.Color=ColorSequence.new(C.violet,C.panel); headerGradient.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,.82),NumberSequenceKeypoint.new(1,1)}) end; headerLine.BackgroundColor3=C.line; headerLine.BackgroundTransparency=.70; brandTitle.Text="BLACKHOLE V1"; brandTitle.TextColor3=C.ink; header:FindFirstChild("Sub").Text="REACTOR ONLINE"; BH.hero.Visible=true; BH.hero.Position=UDim2.fromOffset(0,64); BH.hero.Size=UDim2.fromOffset(windowWidth,152); BH.hero.BackgroundColor3=C.black; BH.heroStroke.Color=C.line; BH.heroStroke.Transparency=.82; tabs.Position=UDim2.fromOffset(0,216); tabs.BackgroundColor3=C.black; tabs.BackgroundTransparency=.28; content.Position=UDim2.fromOffset(0,280); content.Size=UDim2.fromOffset(windowWidth,windowHeight-280); edgeSheen.BackgroundColor3=C.cyan; BH.atmosphere.BackgroundColor3=Color3.fromRGB(12,8,20)
     elseif emp then
-        Theme.height=600; windowHeight=Theme.height; holder.Size=UDim2.fromOffset(windowWidth,windowHeight); shadow.Size=UDim2.fromOffset(windowWidth+12,windowHeight+12); panel.Size=UDim2.fromOffset(windowWidth,windowHeight); panel.BackgroundColor3=C.panel; panel.BackgroundTransparency=.28; panelStroke.Color=C.line; panelStroke.Transparency=.38; panelBackdrop.Visible=false; voidFX.Visible=false; ticker.Visible=false
-        header.Position=UDim2.fromOffset(0,0); header.Size=UDim2.fromOffset(windowWidth,64); headerLine.BackgroundColor3=C.line; headerLine.BackgroundTransparency=.54; brandTitle.Text="EMPYREAN"; brandTitle.TextColor3=C.ink; header:FindFirstChild("Sub").Text="GRACE ATTAINED"; EMP.hero.Visible=true; EMP.hero.Position=UDim2.fromOffset(0,64); EMP.hero.Size=UDim2.fromOffset(windowWidth,152); EMP.hero.BackgroundColor3=C.surface; EMP.heroStroke.Color=C.line; EMP.heroStroke.Transparency=.58; tabs.Position=UDim2.fromOffset(0,216); tabs.BackgroundColor3=C.surface; tabs.BackgroundTransparency=.30; content.Position=UDim2.fromOffset(0,280); content.Size=UDim2.fromOffset(windowWidth,windowHeight-280); edgeSheen.BackgroundColor3=C.line
+        -- EMPYREAN follows EMPYREAN (1).html: cream glass, gold primary accent,
+        -- pale sky secondary accent, light celestial navigation and content.
+        Theme.height=600
+        windowHeight=Theme.height
+        holder.Size=UDim2.fromOffset(windowWidth,windowHeight)
+        shadow.Size=UDim2.fromOffset(windowWidth+12,windowHeight+12)
+        panel.Size=UDim2.fromOffset(windowWidth,windowHeight)
+        panel.BackgroundColor3=C.panel
+        panel.BackgroundTransparency=0
+        panelStroke.Color=C.line
+        panelStroke.Transparency=.18
+        panelBackdrop.Visible=false
+        voidFX.Visible=false
+        ticker.Visible=false
+
+        local panelGradient=panel:FindFirstChildOfClass("UIGradient")
+        if panelGradient then
+            panelGradient.Color=ColorSequence.new({
+                ColorSequenceKeypoint.new(0,Color3.fromRGB(255,253,247)),
+                ColorSequenceKeypoint.new(.45,Color3.fromRGB(255,248,232)),
+                ColorSequenceKeypoint.new(1,Color3.fromRGB(255,248,232))
+            })
+            panelGradient.Transparency=NumberSequence.new(0)
+        end
+
+        header.Position=UDim2.fromOffset(0,0)
+        header.Size=UDim2.fromOffset(windowWidth,64)
+        header.BackgroundColor3=C.panel
+        header.BackgroundTransparency=.04
+        local headerGradient=header:FindFirstChildOfClass("UIGradient")
+        if headerGradient then
+            headerGradient.Color=ColorSequence.new(
+                Color3.fromRGB(255,224,150),
+                Color3.fromRGB(255,253,247)
+            )
+            headerGradient.Transparency=NumberSequence.new({
+                ColorSequenceKeypoint.new(0,.18),
+                ColorSequenceKeypoint.new(1,.88)
+            })
+        end
+        headerLine.BackgroundColor3=C.line
+        headerLine.BackgroundTransparency=.55
+        brandTitle.Text="EMPYREAN"
+        brandTitle.TextColor3=C.text
+        header:FindFirstChild("Sub").Text="GRACE ATTAINED"
+
+        EMP.hero.Visible=true
+        EMP.hero.Position=UDim2.fromOffset(0,64)
+        EMP.hero.Size=UDim2.fromOffset(windowWidth,152)
+        EMP.hero.BackgroundColor3=C.surface
+        EMP.hero.BackgroundTransparency=0
+        EMP.heroStroke.Color=C.line
+        EMP.heroStroke.Transparency=.34
+
+        tabs.Position=UDim2.fromOffset(0,216)
+        tabs.BackgroundColor3=Color3.fromRGB(255,250,235)
+        tabs.BackgroundTransparency=.42
+
+        content.Position=UDim2.fromOffset(0,280)
+        content.Size=UDim2.fromOffset(windowWidth,windowHeight-280)
+        content.BackgroundColor3=C.panel
+        content.BackgroundTransparency=0
+
+        edgeSheen.BackgroundColor3=C.line
     else
-        Theme.height=H; windowHeight=Theme.height; holder.Size=UDim2.fromOffset(windowWidth,windowHeight); shadow.Size=UDim2.fromOffset(windowWidth+12,windowHeight+12); panel.Size=UDim2.fromOffset(windowWidth,windowHeight); panel.BackgroundColor3=C.panel; panel.BackgroundTransparency=.40; panelStroke.Color=C.violet2; panelStroke.Transparency=.28; panelBackdrop.Visible=true; voidFX.Visible=true; ticker.Visible=true
-        header.Position=UDim2.fromOffset(0,0); header.Size=UDim2.fromOffset(windowWidth,64); headerLine.BackgroundColor3=C.violet; headerLine.BackgroundTransparency=.48; brandTitle.Text="VOID NEXUS"; brandTitle.TextColor3=C.ink; header:FindFirstChild("Sub").Text="CORE LINK STABLE"; tabs.Position=UDim2.fromOffset(0,88); tabs.BackgroundColor3=C.black; tabs.BackgroundTransparency=.35; content.Position=UDim2.fromOffset(0,152); content.Size=UDim2.fromOffset(windowWidth,windowHeight-152); edgeSheen.BackgroundColor3=C.cyan
+        Theme.height=H; windowHeight=Theme.height; holder.Size=UDim2.fromOffset(windowWidth,windowHeight); shadow.Size=UDim2.fromOffset(windowWidth+12,windowHeight+12); panel.Size=UDim2.fromOffset(windowWidth,windowHeight); panel.BackgroundColor3=C.panel; panel.BackgroundTransparency=.40; panelStroke.Color=C.violet2; panelStroke.Transparency=.28; panelBackdrop.Visible=true; voidFX.Visible=true; ticker.Visible=true; content.BackgroundTransparency=1
+        local panelGradient=panel:FindFirstChildOfClass("UIGradient"); if panelGradient then panelGradient.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(23,12,39)),ColorSequenceKeypoint.new(.45,Color3.fromRGB(14,7,26)),ColorSequenceKeypoint.new(1,Color3.fromRGB(5,2,12))}); panelGradient.Transparency=NumberSequence.new({ColorSequenceKeypoint.new(0,.18),ColorSequenceKeypoint.new(.48,.28),ColorSequenceKeypoint.new(1,.12)}) end
+        header.Position=UDim2.fromOffset(0,0); header.Size=UDim2.fromOffset(windowWidth,64); header.BackgroundColor3=C.panel; header.BackgroundTransparency=.08; headerLine.BackgroundColor3=C.violet; headerLine.BackgroundTransparency=.48; brandTitle.Text="VOID NEXUS"; brandTitle.TextColor3=C.ink; header:FindFirstChild("Sub").Text="CORE LINK STABLE"; tabs.Position=UDim2.fromOffset(0,88); tabs.BackgroundColor3=C.black; tabs.BackgroundTransparency=.35; content.Position=UDim2.fromOffset(0,152); content.Size=UDim2.fromOffset(windowWidth,windowHeight-152); edgeSheen.BackgroundColor3=C.cyan
     end
-    brandmark.BackgroundColor3=C.panel2; local brandStroke=brandmark:FindFirstChildOfClass("UIStroke"); if brandStroke then brandStroke.Color=C.violet2 end; markCore.BackgroundColor3=C.violet2; markH.BackgroundColor3=C.violet2; markV.BackgroundColor3=C.cyan; ticker.BackgroundColor3=C.black; tickerText.TextColor3=C.faint; tabs:FindFirstChildOfClass("UIStroke").Color=C.line; edgeSheenGradient.Color=emp and ColorSequence.new(Color3.fromRGB(255,243,200),Color3.fromRGB(207,230,255)) or ColorSequence.new(C.cyan,C.violet2)
-    for key,tab in pairs(navButtons) do tab.BackgroundColor3=emp and C.panel2 or(bh and C.panel2 or Color3.fromRGB(8,4,16)); local st=UI.navStrokes[key]; if st then st.Color=C.line end; local bar=UI.navBars[key]; if bar then bar.BackgroundColor3=C.violet2 end end
+    brandmark.BackgroundColor3=C.panel2
+    local brandStroke=brandmark:FindFirstChildOfClass("UIStroke")
+    if brandStroke then brandStroke.Color=C.line end
+    markCore.BackgroundColor3=emp and C.bright or C.violet2
+    markH.BackgroundColor3=C.violet2
+    markV.BackgroundColor3=emp and C.violet2 or C.cyan
+    ticker.BackgroundColor3=emp and C.panel2 or C.black
+    tickerText.TextColor3=C.faint
+    tabs:FindFirstChildOfClass("UIStroke").Color=C.line
+    edgeSheenGradient.Color=emp and ColorSequence.new(Color3.fromRGB(255,243,200),Color3.fromRGB(207,230,255)) or ColorSequence.new(C.cyan,C.violet2)
+    for key,tab in pairs(navButtons) do
+        if emp then
+            tab.BackgroundColor3=Color3.fromRGB(255,255,255)
+            tab.BackgroundTransparency=.34
+            tab.TextColor3=C.faint
+        else
+            tab.BackgroundColor3=bh and C.panel2 or Color3.fromRGB(8,4,16)
+            tab.BackgroundTransparency=0
+        end
+        local st=UI.navStrokes[key]
+        if st then st.Color=C.line end
+        local bar=UI.navBars[key]
+        if bar then bar.BackgroundColor3=C.violet2 end
+    end
     Theme.restyleRows(); Theme.restyleText()
+    if emp then
+        if UI.staticScanButton then UI.staticScanButton.TextColor3=C.violet2; UI.staticScanButton.BackgroundColor3=C.panel2 end
+        if UI.privateMapBox then UI.privateMapBox.BackgroundColor3=C.panel2; UI.privateMapBox.TextColor3=C.text end
+        if resizeGrip then
+            for i=1,3 do
+                local gripLine=resizeGrip:FindFirstChild("Line"..i)
+                if gripLine then gripLine.BackgroundColor3=C.violet2 end
+            end
+        end
+        for _, view in ipairs(toggleViews) do
+            view.track.BackgroundColor3=view.getter() and C.toggleOn or C.toggleOff
+            view.knob.BackgroundColor3=view.getter() and C.bright or C.faint
+        end
+        for _, view in ipairs(sliders) do
+            view.fill.BackgroundColor3=C.violet2
+            view.knob.BackgroundColor3=C.bright
+            local rail=view.hit:FindFirstChild("Rail")
+            if rail then rail.BackgroundColor3=C.toggleOff end
+        end
+        for _, page in pairs(pageMap) do
+            page.ScrollBarImageColor3=C.violet2
+            page.ScrollBarImageTransparency=.55
+        end
+        if ThemeUI.themeInfo then
+            ThemeUI.themeInfo.BackgroundColor3=C.panel2
+            ThemeUI.themeInfo.BackgroundTransparency=.12
+        end
+        for _, row in ipairs({ThemeUI.defaultRow, ThemeUI.blackholeRow, ThemeUI.empyreanRow}) do
+            if row then
+                row.BackgroundColor3=C.panel2
+                row.BackgroundTransparency=.12
+            end
+        end
+        if ThemeUI.defaultButton then
+            ThemeUI.defaultButton.BackgroundColor3=C.panel2
+            ThemeUI.defaultButton.TextColor3=C.faint
+        end
+        if ThemeUI.blackholeButton then
+            ThemeUI.blackholeButton.BackgroundColor3=C.panel2
+            ThemeUI.blackholeButton.TextColor3=C.faint
+        end
+        if ThemeUI.empyreanButton then
+            ThemeUI.empyreanButton.BackgroundColor3=C.violet2
+            ThemeUI.empyreanButton.TextColor3=C.ink
+        end
+    end
     if ThemeUI.activeLabel then ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or(emp and "EMPYREAN" or "DEFAULT"); ThemeUI.activeLabel.TextColor3=C.ink end
     if ThemeUI.defaultButton then ThemeUI.defaultButton.BackgroundColor3=(not bh and not emp) and C.violet2 or C.panel2; ThemeUI.defaultButton.TextColor3=(not bh and not emp) and C.ink or C.faint end
     if ThemeUI.blackholeButton then ThemeUI.blackholeButton.BackgroundColor3=bh and C.violet2 or C.panel2; ThemeUI.blackholeButton.TextColor3=bh and C.ink or C.faint end
@@ -5175,7 +5350,7 @@ local function renderPageState()
             view.last = value
             view.track.BackgroundColor3 = value and C.toggleOn or C.toggleOff
             view.knob.Position = UDim2.fromOffset(value and 22 or 3, 3)
-            view.knob.BackgroundColor3 = value and C.cyan or C.faint
+            view.knob.BackgroundColor3 = value and (System.theme == "Empyrean" and C.bright or C.cyan) or C.faint
         end
     end
     for _, view in ipairs(sliders) do

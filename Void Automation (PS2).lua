@@ -5798,13 +5798,37 @@ function FrostNav.ensure()
 end
 
 function FrostNav.restore()
+    -- Fully restore the legacy horizontal navigation when leaving Frost.
     if FrostNav.sidebar then FrostNav.sidebar.Visible=false end
-    for _,key in ipairs(navNames) do
-        local tab=navButtons[key]
-        if tab and tab.Parent~=tabs then tab.Parent=tabs end
-    end
     tabs.Visible=true
     tabs.Active=true
+    local navCount=#navNames
+    local availableNav=math.max(240,windowWidth-24-navGap*math.max(0,navCount-1))
+    local dynamicNavW=math.floor(availableNav/navCount)
+    for i,key in ipairs(navNames) do
+        local tab=navButtons[key]
+        if tab then
+            if tab.Parent~=tabs then tab.Parent=tabs end
+            tab.Position=UDim2.fromOffset(navX+(i-1)*(dynamicNavW+navGap),10)
+            tab.Size=UDim2.fromOffset(dynamicNavW,44)
+            tab.ZIndex=6
+            tab.TextXAlignment=Enum.TextXAlignment.Center
+            tab.TextYAlignment=Enum.TextYAlignment.Bottom
+            tab.TextSize=8.6
+            tab.Font=Enum.Font.GothamBold
+            tab.AutoButtonColor=false
+            local icon=tab:FindFirstChild("Icon")
+            if icon then
+                icon.Position=UDim2.fromOffset(math.floor((dynamicNavW-19)/2),5)
+                icon.ZIndex=7
+            end
+            local bar=UI.navBars[key]
+            if bar then
+                bar.Position=UDim2.fromOffset(8,40)
+                bar.Size=UDim2.fromOffset(math.max(12,dynamicNavW-16),2)
+            end
+        end
+    end
 end
 
 function FrostNav.removeLegacyDecor()
@@ -5864,6 +5888,7 @@ local function applyWindowWidth(width)
         FrostNav.ensure()
     else
         tabs.Position = UDim2.fromOffset(0, 88)
+        tabs.Size = UDim2.fromOffset(windowWidth, 64)
         content.Position = UDim2.fromOffset(0, 152)
         content.Size = UDim2.fromOffset(windowWidth, windowHeight - 152)
     end
@@ -5892,6 +5917,10 @@ local function applyWindowWidth(width)
 
     local contentWidth = System.theme == "Frost" and math.max(1, windowWidth - 170) or windowWidth
     for _, page in pairs(pageMap) do
+        if System.theme ~= "Frost" then
+            page.Size=UDim2.fromScale(1,1)
+            page.Position=UDim2.fromOffset(0,pageBaseY)
+        end
         setObjectWidth(page, contentWidth)
         for _, child in ipairs(page:GetChildren()) do
             if child.Name == "PaneHead" then
@@ -7519,7 +7548,7 @@ function Theme.forceThemeControls()
             local buttons={ThemeUI.defaultButton,ThemeUI.blackholeButton,ThemeUI.empyreanButton,ThemeUI.frostButton}
             for _,row in ipairs(rows) do if row then row.BackgroundColor3=emp and cream2 or dark; row.BackgroundTransparency=emp and .02 or 0; local st=row:FindFirstChildOfClass("UIStroke"); if st then st.Color=line end end end
             for i,button in ipairs(buttons) do if button then
-                local active=(i==3 and emp) or (i==2 and bh) or (i==1 and not emp and not bh)
+                local active=(i==4 and frost) or (i==3 and emp) or (i==2 and bh) or (i==1 and not emp and not bh and not frost)
                 button.BackgroundColor3=active and (emp and gold or darkAccent) or (emp and cream or dark)
                 button.TextColor3=active and (emp and ink or darkText) or (emp and faint or darkMuted)
                 button.AutoButtonColor=false
@@ -7564,7 +7593,7 @@ function FrostFX.ensure()
         FrostFX.layer.ClipsDescendants = true
 
         local veil = frame(FrostFX.layer, "IceVeil", 0, 64, math.max(1, windowWidth), math.max(1, windowHeight - 64), Color3.fromRGB(194,239,248), 0)
-        veil.BackgroundTransparency = 0.985
+        veil.BackgroundTransparency = 0.965
         veil.Active = false
         veil.ZIndex = 2
 
@@ -7573,7 +7602,7 @@ function FrostFX.ensure()
             flake.BackgroundTransparency = 1
             flake.BorderSizePixel = 0
             flake.Active = false
-            flake.ZIndex = 3
+            flake.ZIndex = 2
 
             local armA = frame(flake, "A", 5, 1, 2, 10, Color3.fromRGB(223,249,255), 1)
             local armB = frame(flake, "B", 1, 5, 10, 2, Color3.fromRGB(173,224,235), 1)
@@ -8001,8 +8030,17 @@ function Theme.apply(themeName)
         FrostNav.ensure()
         FrostFX.ensure()
     else
+        -- Unwind every Frost-only geometry change BEFORE the next theme renderer.
         FrostNav.restore()
         if FrostFX.layer then FrostFX.layer.Visible=false end
+        local frostSurface=content:FindFirstChild("FrostSurfaceGradient")
+        if frostSurface then frostSurface.Enabled=false end
+        for _,page in pairs(pageMap) do
+            page.Size=UDim2.fromScale(1,1)
+            page.Position=UDim2.fromOffset(0,pageBaseY)
+            page.BackgroundTransparency=1
+        end
+        tabs.Size=UDim2.fromOffset(windowWidth,64)
     end
     local bh=themeName=="Blackhole"; local emp=themeName=="Empyrean"; local frost=themeName=="Frost"
     Theme.current=bh and Theme.Blackhole or(emp and Theme.Empyrean or(frost and Theme.Frost or Theme.Default)); Theme.copy(Theme.current)
@@ -8239,6 +8277,10 @@ function Theme.apply(themeName)
     pcall(function() if MiniMode and MiniMode.applyTheme then MiniMode.applyTheme() end end)
     applyWindowWidth(windowWidth)
     fitWindow(false)
+    if System.theme ~= "Frost" then
+        local frostSurface=content:FindFirstChild("FrostSurfaceGradient")
+        if frostSurface then frostSurface.Enabled=false end
+    end
     Theme.syncAllThemeVisuals()
     Theme.hardResetControls()
     render()

@@ -3036,6 +3036,7 @@ end
 System = {
     configPath = "AutoSkills_System_v1.json",
     themeConfigPath = "AutoSkills_Theme_v1.txt",
+    themeStatePath = "AutoSkills_Theme_v2.state",
     bodyPath = "AutoSkills_Void_AutoRun.lua",
     autoexecPath = "autoexec/AutoSkills_Void.lua",
     targetGameId = tostring(game.GameId or 0),
@@ -3081,33 +3082,34 @@ do
     end
 
     function System.loadPrefs()
-        -- The tiny theme file is authoritative. Read it directly; isfile() is
-        -- deliberately not involved because some executors implement it poorly.
+        -- Theme startup is deliberately isolated from the general JSON settings.
+        -- The dedicated theme state is authoritative; the old JSON Theme field
+        -- is NEVER allowed to select the startup loader/UI.
         System._themeFileLoaded = false
-        -- getgenv/_G survives a normal re-execution in most executors. Use it as
-        -- an immediate same-session fallback so a broken file API cannot force
-        -- the previous/default theme during re-execution. The file remains the
-        -- cross-session persistence mechanism.
-        local sessionTheme = normalizeTheme(environment.__AutoSkills_LastTheme)
-        if sessionTheme then
-            System.theme = sessionTheme
-            System._sessionThemeLoaded = true
-        else
-            System._sessionThemeLoaded = false
+        System._sessionThemeLoaded = false
+        local candidates = {
+            environment.__AutoSkills_StartupTheme,
+            environment.__AutoSkills_LastTheme,
+        }
+        if type(reader) == "function" then
+            local ok1, raw1 = pcall(reader, System.themeStatePath)
+            if ok1 then candidates[#candidates + 1] = raw1 end
+            local ok2, raw2 = pcall(reader, System.themeConfigPath)
+            if ok2 then candidates[#candidates + 1] = raw2 end
         end
-        if type(reader) == "function" and System.themeConfigPath then
-            local okTheme, themeRaw = pcall(reader, System.themeConfigPath)
-            if okTheme then
-                local persistedTheme = normalizeTheme(themeRaw)
-                if persistedTheme and not System._sessionThemeLoaded then
-                    System.theme = persistedTheme
-                    System._themeFileLoaded = true
-                end
+        for _, candidate in ipairs(candidates) do
+            local restored = normalizeTheme(candidate)
+            if restored then
+                System.theme = restored
+                System.startupTheme = restored
+                System._themeFileLoaded = true
+                break
             end
         end
 
-        -- Load the rest of the settings independently. An old JSON theme must
-        -- never override a valid theme restored above.
+        -- Load the rest of the settings independently. The old JSON Theme field
+        -- is intentionally ignored so stale Blackhole data cannot override the
+        -- dedicated theme state.
         if type(reader) ~= "function" then return end
         local raw
         local okRead, result = pcall(reader, System.configPath)
@@ -3123,10 +3125,6 @@ do
                 if type(data.StaticMapScan) == "boolean" then Settings.StaticMapScan = data.StaticMapScan end
                 if type(data.AutoRejoin) == "boolean" then Settings.AutoRejoin = data.AutoRejoin end
                 if type(data.AutoExecute) == "boolean" then Settings.AutoExecute = data.AutoExecute end
-                local jsonTheme = normalizeTheme(data.Theme)
-                if jsonTheme and not System._themeFileLoaded and not System._sessionThemeLoaded then
-                    System.theme = jsonTheme
-                end
                 if finiteText(data.PrivateServerMap, 80) then Settings.PrivateServerMap = data.PrivateServerMap end
                 if finiteText(data.TargetGameId, 40) then System.targetGameId = data.TargetGameId end
                 if finiteText(data.LastPrivateJob, 120) then System.lastPrivateJob = data.LastPrivateJob end
@@ -3142,16 +3140,28 @@ do
         -- Always persist to the shared executor environment as well. This is
         -- available immediately on the next re-execution even if writefile is
         -- unavailable or rejects the persistence path.
-        pcall(function() environment.__AutoSkills_LastTheme = themeToSave end)
+        pcall(function()
+            environment.__AutoSkills_LastTheme = themeToSave
+            environment.__AutoSkills_StartupTheme = themeToSave
+        end)
 
-        -- Theme persistence is independent from the large JSON file.
-        if type(writer) == "function" and type(System.themeConfigPath) == "string" then
-            local okThemeWrite = pcall(writer, System.themeConfigPath, themeToSave)
-            if okThemeWrite and type(reader) == "function" then
-                local okThemeRead, savedRaw = pcall(reader, System.themeConfigPath)
-                themeSaved = okThemeRead and normalizeTheme(savedRaw) == themeToSave
-            elseif okThemeWrite then
-                themeSaved = true
+        -- Theme persistence is independent from the large JSON file. Write the
+        -- same authoritative value to two dedicated files so a stale/failed
+        -- legacy preference cannot determine the next loader.
+        if type(writer) == "function" then
+            local paths = {System.themeStatePath, System.themeConfigPath}
+            for _, path in ipairs(paths) do
+                local okWrite = pcall(writer, path, themeToSave)
+                if okWrite then
+                    if type(reader) == "function" then
+                        local okRead, savedRaw = pcall(reader, path)
+                        if okRead and normalizeTheme(savedRaw) == themeToSave then
+                            themeSaved = true
+                        end
+                    else
+                        themeSaved = true
+                    end
+                end
             end
         end
 
@@ -6620,6 +6630,28 @@ notify("Void UI ready | boss seeds + static scan + original stable loot active")
 ]====]
 
 local __env = (type(getgenv) == "function" and getgenv()) or _G
+-- Resolve the startup theme BEFORE the generated body is executed. This prevents
+-- an old body/JSON preference from ever selecting the Blackhole loader first.
+local function __normalizeStartupTheme(v)
+    if type(v) ~= "string" then return nil end
+    v = v:gsub("^%s+", ""):gsub("%s+$", "")
+    if v == "Default" or v == "Blackhole" or v == "Empyrean" then return v end
+    return nil
+end
+local __startupTheme = __normalizeStartupTheme(__env.__AutoSkills_StartupTheme)
+    or __normalizeStartupTheme(__env.__AutoSkills_LastTheme)
+if not __startupTheme then
+    local __rf = type(readfile) == "function" and readfile or __env.readfile
+    if __rf then
+        local __ok1, __raw1 = pcall(__rf, "AutoSkills_Theme_v2.state")
+        local __ok2, __raw2 = pcall(__rf, "AutoSkills_Theme_v1.txt")
+        if __ok1 then __startupTheme = __normalizeStartupTheme(__raw1) end
+        if not __startupTheme and __ok2 then __startupTheme = __normalizeStartupTheme(__raw2) end
+    end
+end
+__startupTheme = __startupTheme or "Default"
+__env.__AutoSkills_StartupTheme = __startupTheme
+__env.__AutoSkills_LastTheme = __startupTheme
 __env.__AUTOSKILLS_SOURCE = __AUTOSKILLS_SOURCE
 pcall(function()
     local wf = type(writefile) == "function" and writefile or __env.writefile

@@ -119,8 +119,13 @@ function controller.Stop()
     -- Save the current theme before the old instance is torn down. Re-execution
     -- calls this Stop() first, so this is the final persistence point.
     pcall(function()
-        if type(System) == "table" and type(System.savePrefs) == "function" then
-            System.savePrefs()
+        if type(System) == "table" then
+            if System.theme == "Blackhole" or System.theme == "Empyrean" or System.theme == "Default" then
+                setSessionTheme(System.theme)
+            end
+            if type(System.savePrefs) == "function" then
+                System.savePrefs()
+            end
         end
     end)
     State.alive, State.enabled = false, false
@@ -3058,6 +3063,21 @@ System = {
     _sessionThemeLoaded = false,
 }
 
+-- Roblox-session persistence: this survives script destruction/re-execution even
+-- when the executor does not preserve getgenv() or writefile state.
+local function getSessionTheme()
+    local ok, value = pcall(function()
+        return playerGui:GetAttribute("AutoSkills_LastTheme")
+    end)
+    return ok and value or nil
+end
+local function setSessionTheme(value)
+    pcall(function()
+        playerGui:SetAttribute("AutoSkills_LastTheme", value)
+        playerGui:SetAttribute("AutoSkills_StartupTheme", value)
+    end)
+end
+
 do
     local reader = type(readfile) == "function" and readfile or environment.readfile
     local writer = type(writefile) == "function" and writefile or environment.writefile
@@ -3088,6 +3108,7 @@ do
         System._themeFileLoaded = false
         System._sessionThemeLoaded = false
         local candidates = {
+            getSessionTheme(),
             environment.__AutoSkills_StartupTheme,
             environment.__AutoSkills_LastTheme,
         }
@@ -3137,6 +3158,8 @@ do
         local themeSaved = false
         local jsonSaved = false
         local themeToSave = normalizeTheme(System.theme) or "Default"
+        -- Roblox-session persistence is authoritative for re-execution.
+        setSessionTheme(themeToSave)
         -- Always persist to the shared executor environment as well. This is
         -- available immediately on the next re-execution even if writefile is
         -- unavailable or rejects the persistence path.
@@ -5889,7 +5912,9 @@ function Theme.apply(themeName)
 end
 
 UI.setTheme = function(themeName)
-    Theme.apply(themeName)
+    local normalized = (themeName == "Blackhole" or themeName == "Empyrean" or themeName == "Default") and themeName or "Default"
+    setSessionTheme(normalized)
+    Theme.apply(normalized)
     local saved = true
     if type(System.savePrefs) == "function" then
         saved = System.savePrefs() ~= false
@@ -6638,7 +6663,17 @@ local function __normalizeStartupTheme(v)
     if v == "Default" or v == "Blackhole" or v == "Empyrean" then return v end
     return nil
 end
-local __startupTheme = __normalizeStartupTheme(__env.__AutoSkills_StartupTheme)
+local __startupTheme
+pcall(function()
+    local __plr = game:GetService("Players").LocalPlayer
+    local __pg = __plr and __plr:FindFirstChildOfClass("PlayerGui")
+    if __pg then
+        __startupTheme = __normalizeStartupTheme(__pg:GetAttribute("AutoSkills_StartupTheme"))
+            or __normalizeStartupTheme(__pg:GetAttribute("AutoSkills_LastTheme"))
+    end
+end)
+__startupTheme = __startupTheme
+    or __normalizeStartupTheme(__env.__AutoSkills_StartupTheme)
     or __normalizeStartupTheme(__env.__AutoSkills_LastTheme)
 if not __startupTheme then
     local __rf = type(readfile) == "function" and readfile or __env.readfile
@@ -6650,6 +6685,14 @@ if not __startupTheme then
     end
 end
 __startupTheme = __startupTheme or "Default"
+pcall(function()
+    local __plr = game:GetService("Players").LocalPlayer
+    local __pg = __plr and __plr:FindFirstChildOfClass("PlayerGui")
+    if __pg then
+        __pg:SetAttribute("AutoSkills_StartupTheme", __startupTheme)
+        __pg:SetAttribute("AutoSkills_LastTheme", __startupTheme)
+    end
+end)
 __env.__AutoSkills_StartupTheme = __startupTheme
 __env.__AutoSkills_LastTheme = __startupTheme
 __env.__AUTOSKILLS_SOURCE = __AUTOSKILLS_SOURCE

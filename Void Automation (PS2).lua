@@ -1949,6 +1949,9 @@ do
             if nearby then
                 Farm.selected = nearby
                 if entry then entry.live = nearby end
+                if System and type(System.recordTarget) == "function" then
+                    pcall(function() System.recordTarget(nearby) end)
+                end
                 Farm.autoCombatAt = now
                 Farm.autoLastProgressAt = now
                 Farm.autoLastHP = nearby.humanoid and nearby.humanoid.Health or hp
@@ -1971,12 +1974,22 @@ do
 
     function Farm.setAutoBoss(value)
         if not State.alive then return end
-        if Farm.stopDiscovery then Farm.stopDiscovery() end
-        Settings.AutoBoss = value and true or false
-        Farm.fault = nil
-        Farm.nextScan = 0
-        if Settings.AutoBoss then
 
+        local enable = value == true
+        if not enable and Farm.stopDiscovery then Farm.stopDiscovery() end
+
+        -- Auto Boss is its own automation mode.  It may internally require
+        -- FarmEnabled, but an Auto Boss startup error must never immediately
+        -- flip the user's toggle back off.  The old implementation treated
+        -- any first-frame farm error as a hard Farm failure, which made the
+        -- Auto Boss switch visually disable the instant it was activated.
+        Settings.AutoBoss = enable
+        Farm.fault = nil
+        Farm.autoBossError = nil
+        Farm.autoBossErrorAt = 0
+        Farm.nextScan = 0
+
+        if enable then
             Settings.BossAutoSave = true
             Settings.FarmEnabled = true
             Farm.markDirty(); Farm.saveConfig(true)
@@ -1984,11 +1997,19 @@ do
             Farm.pinned, Farm.selected = nil, nil
             Farm.autoCycles, Farm.autoSkipped = 0, 0
             resetAutoBossRoute(true)
+            Farm.status = "AUTO BOSS STARTING"
+            Farm.detail = "Selecting the nearest remembered boss..."
         else
             Settings.FarmEnabled = false
             resetAutoBossRoute(true)
             Farm.release(false)
+            Farm.status = "OFF"
+            Farm.detail = "Auto Boss disabled."
         end
+
+        -- Run startup through the same guarded path as the heartbeat.
+        -- This prevents one bad saved location / transient scanner state from
+        -- turning the feature back off.
         Farm.step()
         render()
     end
@@ -2362,18 +2383,47 @@ do
     end
     function Farm.step()
         if not State.alive or Farm.updating then return end
+        -- Give Auto Boss a short recovery window after a runtime fault instead
+        -- of immediately re-entering the exact failing path every frame.
+        if Settings.AutoBoss and Farm.autoBossErrorAt and Farm.autoBossErrorAt > 0
+            and os.clock() - Farm.autoBossErrorAt < 0.75 then
+            return
+        end
         Farm.updating = true
         local ok, err = pcall(update)
         Farm.updating = false
         if not ok then
-            if Farm.stopDiscovery then Farm.stopDiscovery("Discovery stopped after an error") end
-            Settings.FarmEnabled = false
-            Settings.AutoBoss = false
-            resetAutoBossRoute(true)
-            Farm.fault = "Farming stopped. Toggle on to retry."
-            Farm.release(false)
-            Farm.status, Farm.detail = "ERROR", Farm.fault
-            warn("AutoSkills Farm: " .. tostring(err))
+            -- A transient Auto Boss error must not disable Auto Boss.  The
+            -- previous handler hard-disabled both FarmEnabled and AutoBoss,
+            -- which is exactly why the toggle snapped off on activation.
+            if Settings.AutoBoss then
+                Farm.autoBossError = tostring(err)
+                Farm.autoBossErrorAt = os.clock()
+                Farm.fault = nil
+                Settings.FarmEnabled = true
+                Settings.AutoBoss = true
+                Farm.stopM1()
+                Farm.restoreHitbox()
+                Farm.clearLoot()
+                Farm.selected = nil
+                Farm.pinned = nil
+                Farm.travelKey, Farm.travelAt, Farm.travelHealth = nil, nil, nil
+                Farm.autoEngaged = false
+                Farm.autoDefeated = false
+                Farm.nextScan = os.clock() + 0.75
+                Farm.status = "AUTO BOSS RETRYING"
+                Farm.detail = "Recovered from a startup/runtime error; retrying boss scan: " .. tostring(err)
+                warn("AutoSkills Auto Boss recovered: " .. tostring(err))
+            else
+                if Farm.stopDiscovery then Farm.stopDiscovery("Discovery stopped after an error") end
+                Settings.FarmEnabled = false
+                Settings.AutoBoss = false
+                resetAutoBossRoute(true)
+                Farm.fault = "Farming stopped. Toggle on to retry."
+                Farm.release(false)
+                Farm.status, Farm.detail = "ERROR", Farm.fault
+                warn("AutoSkills Farm: " .. tostring(err))
+            end
         end
     end
     stopFarm = function()
@@ -3111,6 +3161,12 @@ System = {
     statsKillSeen = setmetatable({}, {__mode="k"}),
     statsTargetSeen = setmetatable({}, {__mode="k"}),
     statsLootSeen = setmetatable({}, {__mode="k"}),
+    -- Realtime analytics observer state.  These tables let analytics detect
+    -- target acquisition and deaths even when a HealthChanged event is missed
+    -- or the farm switches targets between heartbeat ticks.
+    statsHealthSeen = setmetatable({}, {__mode="k"}),
+    statsBossTargetSeen = setmetatable({}, {__mode="k"}),
+    statsLastObservedTarget = nil,
     locationsFilter = "",
     keybinds = {
         ToggleAutomation = Enum.KeyCode.F6, StopAutomation = Enum.KeyCode.F7, ToggleUI = Enum.KeyCode.RightShift,
@@ -3409,6 +3465,18 @@ do
     --   Loots     = a unique loot entity for which the interaction call succeeded
     --   Teleports = an actual reposition of more than a few studs
     -- Every event is de-duplicated by its underlying Roblox instance.
+    function System.refreshStatsUI()
+        if not CoreUI or not CoreUI.statsLabel or not CoreUI.statsLabel.Parent then return end
+        local sec=math.floor(System.stats.runtime or 0)
+        local h=math.floor(sec/3600); local m=math.floor((sec%3600)/60); local ss=sec%60
+        CoreUI.statsLabel.Text=string.format("Runtime %02d:%02d:%02d  |  Targets %d  |  Kills %d\nLoots %d  |  Bosses %d  |  Teleports %d", h,m,ss,System.stats.targets,System.stats.kills,System.stats.loots,System.stats.bosses,System.stats.teleports)
+        if CoreUI.targetLabel then CoreUI.targetLabel.Text="Target: "..tostring(System.stats.lastTarget or "--") end
+        if CoreUI.safetyLabel then
+            CoreUI.safetyLabel.Text="Safety: "..tostring(System.safetyStatus)
+            CoreUI.safetyLabel.TextColor3=(System.safetyStatus=="SAFE" and C.green or C.amber)
+        end
+    end
+
     function System.recordTarget(record)
         if not record or not record.humanoid then return end
         local humanoid = record.humanoid
@@ -3416,6 +3484,17 @@ do
         System.statsTargetSeen[humanoid] = true
         System.stats.targets = System.stats.targets + 1
         System.stats.lastTarget = tostring(record.name or "Unknown target")
+
+        -- Remember whether THIS humanoid was acquired as an Auto Boss target.
+        -- Farm.autoCurrent can change immediately after a kill, so relying on
+        -- the route pointer at death time is race-prone.
+        local isBoss = false
+        if record.path and Farm then
+            isBoss = Settings.AutoBoss and (Farm.autoCurrent == record.path or Farm.pinned == record.path)
+        end
+        System.statsBossTargetSeen[humanoid] = isBoss
+        System.statsHealthSeen[humanoid] = tonumber(humanoid.Health) or nil
+        System.refreshStatsUI()
     end
 
     function System.recordKill(record)
@@ -3428,17 +3507,16 @@ do
 
         -- Never equate "Auto Boss is enabled" with "this target is a boss".
         -- A boss kill is tied to a saved catalog path/current Auto Boss route.
-        local isBoss = false
-        if record.path then
-            -- Farm.catalog also contains scanned NPCs, so catalog membership
-            -- alone is not proof that a target is a boss. A boss kill is tied
-            -- to the active Auto Boss route or the explicitly pinned target.
-            isBoss = (Farm and Farm.autoCurrent == record.path)
-                or (Farm and Farm.pinned == record.path)
+        local isBoss = System.statsBossTargetSeen[humanoid] == true
+        if not isBoss and record.path and Farm then
+            -- Fallback for kills detected before the target-acquisition observer
+            -- has had a tick to stamp the humanoid.
+            isBoss = Settings.AutoBoss and (Farm.autoCurrent == record.path or Farm.pinned == record.path)
         end
         if isBoss then
             System.stats.bosses = System.stats.bosses + 1
         end
+        System.refreshStatsUI()
     end
 
     function System.recordLoot(item)
@@ -3447,6 +3525,7 @@ do
         if key and System.statsLootSeen[key] then return end
         if key then System.statsLootSeen[key] = true end
         System.stats.loots = System.stats.loots + 1
+        System.refreshStatsUI()
     end
 
     function System.recordTeleport(reason, distance)
@@ -3456,6 +3535,7 @@ do
         distance = tonumber(distance) or 0
         if distance < 5 then return end
         System.stats.teleports = System.stats.teleports + 1
+        System.refreshStatsUI()
     end
 
     function System.resetStats()
@@ -3465,6 +3545,9 @@ do
         System.statsKillSeen=setmetatable({}, {__mode="k"})
         System.statsTargetSeen=setmetatable({}, {__mode="k"})
         System.statsLootSeen=setmetatable({}, {__mode="k"})
+        System.statsHealthSeen=setmetatable({}, {__mode="k"})
+        System.statsBossTargetSeen=setmetatable({}, {__mode="k"})
+        System.statsLastObservedTarget=nil
         System.notify("Session statistics reset")
         render()
     end
@@ -3507,17 +3590,45 @@ do
         end
     end
 
+    -- Realtime Session Analytics observer.  This is deliberately independent
+    -- from Farm.step()/HealthChanged so a missed event cannot leave the panel
+    -- stuck at zero.  It observes the actual selected humanoid and its health.
+    task.spawn(function()
+        while State.alive do
+            task.wait(0.10)
+            if not State.alive then break end
+
+            local selected = Farm and Farm.selected
+            local humanoid = selected and selected.humanoid
+            if humanoid and humanoid.Parent then
+                if System.statsLastObservedTarget ~= humanoid then
+                    System.statsLastObservedTarget = humanoid
+                    pcall(function() System.recordTarget(selected) end)
+                end
+
+                local hp = tonumber(humanoid.Health) or 0
+                local previous = System.statsHealthSeen[humanoid]
+                System.statsHealthSeen[humanoid] = hp
+
+                -- Only a real transition from living -> dead counts as a kill.
+                -- This catches deaths even if HealthChanged was missed.
+                if hp <= 0 and previous and previous > 0 then
+                    pcall(function() System.recordKill(selected) end)
+                end
+            end
+        end
+    end)
+
     -- Safety monitor: watches movement/target progress and can pause automation when stuck.
     task.spawn(function()
         local lastPos=nil; local lastMove=os.clock(); local lastCycles=0
         while State.alive do
             task.wait(1)
             if not State.alive then break end
-            if Settings.StatsEnabled then
-                -- Runtime is the actual lifetime of this script session. The
-                -- event counters themselves are updated at their source events.
-                System.stats.runtime=os.clock()-System.stats.startedAt
-            end
+            -- Runtime is always maintained; StatsEnabled should only control
+            -- whether optional statistics collection is desired, not whether the
+            -- visible session clock freezes.
+            System.stats.runtime=os.clock()-System.stats.startedAt
             if Settings.SafetyEnabled and Settings.SafetyAutoRecover and State.enabled then
                 local char=Player.Character; local hrp=char and char:FindFirstChild("HumanoidRootPart")
                 if hrp then
@@ -3533,12 +3644,7 @@ do
                     else System.safetyStatus="SAFE"; System.safetyDetail="Recovery monitor armed." end
                 end
             end
-            if CoreUI and CoreUI.statsLabel and CoreUI.statsLabel.Parent then
-                local sec=math.floor(System.stats.runtime); local h=math.floor(sec/3600); local m=math.floor((sec%3600)/60); local ss=sec%60
-                CoreUI.statsLabel.Text=string.format("Runtime %02d:%02d:%02d  |  Targets %d  |  Kills %d\nLoots %d  |  Bosses %d  |  Teleports %d",h,m,ss,System.stats.targets,System.stats.kills,System.stats.loots,System.stats.bosses,System.stats.teleports)
-                CoreUI.targetLabel.Text="Target: "..tostring(System.stats.lastTarget or "--")
-                CoreUI.safetyLabel.Text="Safety: "..tostring(System.safetyStatus); CoreUI.safetyLabel.TextColor3=(System.safetyStatus=="SAFE" and C.green or C.amber)
-            end
+            System.refreshStatsUI()
         end
     end)
     System.initProfiles()

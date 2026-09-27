@@ -6186,40 +6186,85 @@ CoreUI.miniDot = miniDot
 -- analytics page being rendered or visible; otherwise the compact dashboard
 -- can remain at its boot-time zeros while the real session counters change.
 function MiniMode.updateLive()
-    if not State.alive or not CoreUI.miniFrame or not CoreUI.miniFrame.Parent then return end
+    if not State.alive or not CoreUI or not CoreUI.miniFrame or not CoreUI.miniFrame.Parent then return end
+
+    -- IMPORTANT: Mini Mode must mirror the exact analytics surface that the
+    -- Control Center uses.  Keeping a second interpretation of the counters
+    -- caused the compact dashboard to drift/stay at its boot-time zeros.
+    -- System.stats remains the authoritative event store, while the rendered
+    -- CoreUI analytics labels are the authoritative presentation of that store.
     local stats = System and System.stats
     if type(stats) ~= "table" then return end
 
-    local now = time()
-    local started = tonumber(stats.startedAt) or now
-    local runtime = math.max(0, now - started)
-    local sec = math.floor(runtime)
-    local h = math.floor(sec / 3600)
-    local m = math.floor((sec % 3600) / 60)
-    local ss = sec % 60
+    local statsText = CoreUI.statsLabel and CoreUI.statsLabel.Parent and CoreUI.statsLabel.Text or nil
+    local liveText = CoreUI.liveLabel and CoreUI.liveLabel.Parent and CoreUI.liveLabel.Text or nil
 
-    -- Prefer the currently engaged target, then the last confirmed target.
-    local target = Farm and Farm.selected or nil
-    local targetName = target and target.name
+    -- Force the same runtime calculation used by Session Analytics before
+    -- reading the display text, without calling refreshStatsUI (which calls us
+    -- back and would recurse).
+    local now = time()
+    local started = tonumber(stats.startedAt)
+    if not started or started <= 0 then
+        started = now
+        stats.startedAt = started
+    end
+    stats.runtime = math.max(0, now - started)
+
+    -- If the main analytics label exists, parse its already-rendered values.
+    -- This guarantees Mini Mode can never show a different counter set.
+    local runtimeText, killsText, bossesText
+    if type(statsText) == "string" then
+        local flat = statsText:gsub("\n", " ")
+        runtimeText = flat:match("Runtime%s+(%d+:%d+:%d+)")
+        killsText = flat:match("Kills%s+(%d+)")
+        bossesText = flat:match("Bosses%s+(%d+)")
+    end
+
+    -- Fallback directly to the authoritative numeric store if the label has
+    -- not been rendered yet.
+    if not runtimeText then
+        local sec = math.floor(stats.runtime)
+        runtimeText = string.format("%02d:%02d:%02d", math.floor(sec/3600), math.floor((sec%3600)/60), sec%60)
+    end
+    killsText = tostring(tonumber(killsText) or tonumber(stats.kills) or 0)
+    bossesText = tostring(tonumber(bossesText) or tonumber(stats.bosses) or 0)
+
+    -- Prefer the exact LIVE label for target/action.  If the label is not yet
+    -- available, fall back to the live Farm state.
+    local targetName
+    local status
+    if type(liveText) == "string" and liveText ~= "" then
+        local firstLine = liveText:match("^LIVE%s+([^\n]+)")
+        local action = liveText:match("|%s*([%w%s_%-]+)%s*$")
+        if firstLine and firstLine ~= "No target" then
+            targetName = firstLine
+        end
+        if action and action ~= "IDLE" then
+            status = action:gsub("^%s+", ""):gsub("%s+$", "")
+        end
+    end
+
+    local selected = Farm and Farm.selected or nil
     if not targetName or targetName == "" then
-        targetName = stats.lastTarget
+        targetName = selected and selected.name or stats.lastTarget
     end
     if not targetName or targetName == "" or targetName == "--" then
         targetName = "No target"
     end
 
-    local farming = State.farming == true
-    local active = Settings.AutoBoss == true or Settings.FarmEnabled == true or farming
-    local status = Farm and Farm.status
+    local active = false
+    if Settings then
+        active = Settings.AutoBoss == true or Settings.FarmEnabled == true
+    end
+    active = active or State.farming == true or State.discovering == true
+
     if not status or status == "" then
-        status = active and "ACTIVE" or "IDLE"
+        status = tostring((Farm and Farm.status) or (active and "ACTIVE" or "IDLE"))
     end
 
     CoreUI.miniStats.Text = string.format(
-        "%02d:%02d:%02d  •  %d Kills  •  %d Bosses",
-        h, m, ss,
-        tonumber(stats.kills) or 0,
-        tonumber(stats.bosses) or 0
+        "%s  •  %s Kills  •  %s Bosses",
+        runtimeText, killsText, bossesText
     )
     CoreUI.miniTarget.Text = tostring(targetName)
     CoreUI.miniStatus.Text = tostring(status)
@@ -6304,6 +6349,21 @@ task.spawn(function()
         if State.miniMode then
             pcall(function() MiniMode.updateLive() end)
         end
+    end
+end)
+
+-- Direct synchronization: when Session Analytics redraws its authoritative
+-- labels, Mini Mode updates on the same frame instead of waiting for its poll.
+task.defer(function()
+    if CoreUI and CoreUI.statsLabel then
+        connect(CoreUI.statsLabel:GetPropertyChangedSignal("Text"), function()
+            if State.miniMode then pcall(function() MiniMode.updateLive() end) end
+        end)
+    end
+    if CoreUI and CoreUI.liveLabel then
+        connect(CoreUI.liveLabel:GetPropertyChangedSignal("Text"), function()
+            if State.miniMode then pcall(function() MiniMode.updateLive() end) end
+        end)
     end
 end)
 

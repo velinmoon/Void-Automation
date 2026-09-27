@@ -3044,6 +3044,7 @@ System = {
     menuNextAt = 0,
     menuStage = "idle",
     theme = "Default",
+    startupTheme = "Default",
 }
 
 do
@@ -3108,6 +3109,12 @@ do
     end
 
     System.loadPrefs()
+    -- Freeze the theme selected by persisted preferences for this execution.
+    -- The loader and initial UI must use the same startup theme.
+    if System.theme ~= "Blackhole" and System.theme ~= "Empyrean" and System.theme ~= "Default" then
+        System.theme = "Default"
+    end
+    System.startupTheme = System.theme
 
     if not finiteText(System.targetGameId, 40) or System.targetGameId == "0" then
         System.targetGameId = tostring(game.GameId or 0)
@@ -4971,15 +4978,18 @@ EMP.heroStroke = stroke(EMP.hero, Color3.fromRGB(217,169,78), 0.58, 1)
 EMP.sky = frame(EMP.hero, "Sky", 0, 0, W, 160, Color3.fromRGB(255,250,235), 0)
 EMP.sky.ZIndex = 1
 EMP.skyGradient = make("UIGradient", EMP.sky, {Rotation=90, Color=ColorSequence.new({
-    ColorSequenceKeypoint.new(0,Color3.fromRGB(255,253,247)), ColorSequenceKeypoint.new(0.48,Color3.fromRGB(253,238,199)), ColorSequenceKeypoint.new(1,Color3.fromRGB(238,226,194))
+    ColorSequenceKeypoint.new(0,Color3.fromRGB(255,250,240)), ColorSequenceKeypoint.new(0.45,Color3.fromRGB(253,238,199)), ColorSequenceKeypoint.new(1,Color3.fromRGB(243,226,186))
 })})
+EMP.vignette = frame(EMP.hero,"Vignette",0,0,W,160,Color3.fromRGB(255,245,210),0)
+EMP.vignette.BackgroundTransparency=.88; EMP.vignette.ZIndex=3
+EMP.vignetteGradient=make("UIGradient",EMP.vignette,{Rotation=90,Color=ColorSequence.new(Color3.fromRGB(255,255,255),Color3.fromRGB(255,245,210)),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,.82),NumberSequenceKeypoint.new(.5,1),NumberSequenceKeypoint.new(1,.82)})})
 EMP.glow = frame(EMP.hero,"Glow",0,0,150,150,Color3.fromRGB(255,243,200),75); EMP.glow.AnchorPoint=Vector2.new(.5,.5); EMP.glow.Position=UDim2.fromOffset(W*.5,78); EMP.glow.BackgroundTransparency=.84; EMP.glow.ZIndex=2
 EMP.glowStroke=stroke(EMP.glow,Color3.fromRGB(255,224,150),.76,1)
 EMP.rayGroup=frame(EMP.hero,"GodRays",0,0,W,160,Color3.new(1,1,1),0); EMP.rayGroup.BackgroundTransparency=1; EMP.rayGroup.AnchorPoint=Vector2.new(.5,.5); EMP.rayGroup.Position=UDim2.fromOffset(W*.5,78); EMP.rayGroup.ZIndex=2
 EMP.rays={}
 for i=1,12 do
     local width=(i%2==1) and 3 or 2
-    local ray=frame(EMP.rayGroup,"Ray"..i,0,0,math.max(80,W*.10),width,Color3.fromRGB(255,243,200),1)
+    local ray=frame(EMP.rayGroup,"Ray"..i,0,0,math.max(74,W*.10),width,Color3.fromRGB(255,243,200),1)
     ray.AnchorPoint=Vector2.new(.5,.5); ray.Position=UDim2.fromOffset(W*.5,78); ray.Rotation=(i-1)*30; ray.BackgroundTransparency=.50; ray.ZIndex=2
     EMP.rays[#EMP.rays+1]=ray
 end
@@ -5004,7 +5014,16 @@ function EMP.startVisuals()
         if not State.alive or not EMP.hero.Parent or not EMP.hero.Visible or System.theme~="Empyrean" then return end
         local now=os.clock(); local dt=math.min(now-EMP.last,.05); EMP.last=now; local t=now-EMP.clock; local heroWidth=math.max(420,EMP.hero.AbsoluteSize.X); local cx=heroWidth*.5
         EMP.glow.Position=UDim2.fromOffset(cx,78); EMP.rayGroup.Position=UDim2.fromOffset(cx,78); EMP.wingL.Position=UDim2.fromOffset(cx-5,90); EMP.wingR.Position=UDim2.fromOffset(cx+5,90); EMP.haloA.Position=UDim2.fromOffset(cx,78); EMP.haloB.Position=UDim2.fromOffset(cx,78); EMP.core.Position=UDim2.fromOffset(cx,78); EMP.dot.Position=UDim2.fromOffset(cx,78)
-        local breath=(math.sin(t*math.pi*2/4.5)+1)*.5; EMP.core.BackgroundTransparency=.84-breath*.18; EMP.glow.BackgroundTransparency=.92-breath*.10; EMP.haloA.Rotation=math.sin(t*math.pi*2/44)*5+t*8.18; EMP.haloB.Rotation=-t*6; EMP.rayGroup.Rotation=t*4
+        -- Match the supplied Hero Visual Only HTML timings: core 4.5s, rays 90s,
+        -- ring A 44s, ring B 60s, wings 5s/5.4s, sparkles 3s staggered, scan 7s.
+        local breath=(math.sin(t*math.pi*2/4.5)+1)*.5
+        EMP.core.BackgroundTransparency=.84-breath*.18
+        EMP.glow.BackgroundTransparency=.92-breath*.10
+        EMP.haloA.Rotation=t*(360/44)
+        EMP.haloB.Rotation=-t*(360/60)
+        EMP.rayGroup.Rotation=t*(360/90)
+        EMP.wingL.Rotation=-2 + math.sin(t*math.pi*2/5)*4
+        EMP.wingR.Rotation=2 - math.sin(t*math.pi*2/5.4)*4
         for i,ray in ipairs(EMP.rays) do ray.BackgroundTransparency=.90-((math.sin(t*.9+i*.6)+1)*.5)*.16 end
         for i,f in ipairs(EMP.wingStrokes) do f.BackgroundTransparency=.28+((i%4)*.07)+((math.sin(t*1.2+i)+1)*.5)*.10 end
         for _,info in ipairs(EMP.sparkles) do local pulse=(math.sin((t+info.phase)*math.pi*2/3)+1)*.5; info.object.BackgroundTransparency=.86-pulse*.68; info.object.Size=UDim2.fromOffset(2+3*pulse,2+3*pulse) end
@@ -5352,6 +5371,128 @@ function Theme.syncAllThemeVisuals()
             if line then line.BackgroundColor3 = emp and C.violet2 or C.violet2 end
         end
     end
+    if emp then Theme.syncEmpyreanControls() end
+end
+
+function Theme.syncEmpyreanControls()
+    if System.theme ~= "Empyrean" then return end
+    local gold=Color3.fromRGB(217,169,78)
+    local goldLight=Color3.fromRGB(255,243,200)
+    local goldDeep=Color3.fromRGB(156,116,32)
+    local cream=Color3.fromRGB(255,253,247)
+    local cream2=Color3.fromRGB(255,248,232)
+    local ink=Color3.fromRGB(58,47,26)
+    local faint=Color3.fromRGB(171,157,120)
+
+    -- Every ordinary page button/textbox is owned by EMPYREAN while this theme
+    -- is active. This removes constructor-time Blackhole colors from nested UI.
+    for key,page in pairs(pageMap) do
+        if key ~= "Theme" then
+            for _,obj in ipairs(page:GetDescendants()) do
+                if obj:IsA("TextButton") then
+                    obj.BackgroundColor3=cream2
+                    obj.BackgroundTransparency=.08
+                    obj.TextColor3=ink
+                    obj.AutoButtonColor=false
+                    local st=obj:FindFirstChildOfClass("UIStroke")
+                    if st then st.Color=gold; st.Transparency=.42 end
+                elseif obj:IsA("TextBox") then
+                    obj.BackgroundColor3=cream2
+                    obj.BackgroundTransparency=.08
+                    obj.TextColor3=ink
+                    local st=obj:FindFirstChildOfClass("UIStroke")
+                    if st then st.Color=gold; st.Transparency=.42 end
+                end
+            end
+        end
+    end
+
+    -- The loadout keys are nested TextButtons and were one of the remaining
+    -- Blackhole-colored objects.
+    local loadout=skillsPage and skillsPage:FindFirstChild("KeyLoadout")
+    if loadout then
+        for _,obj in ipairs(loadout:GetDescendants()) do
+            if obj:IsA("TextButton") then
+                obj.BackgroundColor3=cream2
+                obj.BackgroundTransparency=.02
+                obj.TextColor3=goldDeep
+                local st=obj:FindFirstChildOfClass("UIStroke")
+                if st then st.Color=gold; st.Transparency=.34 end
+            end
+        end
+    end
+
+    -- Action buttons (SCANNING, map actions, farm actions, etc.) get the same
+    -- light/gold treatment instead of inheriting Blackhole purple.
+    if UI.staticScanButton then
+        UI.staticScanButton.BackgroundColor3=gold
+        UI.staticScanButton.TextColor3=ink
+        local st=UI.staticScanButton:FindFirstChildOfClass("UIStroke")
+        if st then st.Color=goldDeep; st.Transparency=.28 end
+    end
+    if UI.privateMapBox then
+        UI.privateMapBox.BackgroundColor3=cream2
+        UI.privateMapBox.TextColor3=ink
+    end
+
+    -- Theme page itself is explicitly celestial. The icon artwork may represent
+    -- another theme, but its surrounding UI never inherits that theme's colors.
+    if ThemeUI then
+        for _,row in ipairs({ThemeUI.defaultRow,ThemeUI.blackholeRow,ThemeUI.empyreanRow}) do
+            if row then
+                row.BackgroundColor3=cream2
+                row.BackgroundTransparency=.02
+                local st=row:FindFirstChildOfClass("UIStroke")
+                if st then st.Color=gold; st.Transparency=.42 end
+                for _,d in ipairs(row:GetDescendants()) do
+                    if d:IsA("TextLabel") then
+                        d.TextColor3=(d.Name=="Desc") and faint or ink
+                    elseif d:IsA("TextButton") then
+                        local active=(d==ThemeUI.empyreanButton)
+                        d.BackgroundColor3=active and gold or cream
+                        d.TextColor3=active and ink or faint
+                        d.AutoButtonColor=false
+                        local ds=d:FindFirstChildOfClass("UIStroke")
+                        if ds then ds.Color=gold; ds.Transparency=.42 end
+                    end
+                end
+            end
+        end
+    end
+
+    -- HTML nav: light glass buttons, gold active state and muted-gold icons.
+    for key,tab in pairs(navButtons) do
+        local selected=State.tab==key
+        tab.BackgroundColor3=selected and goldLight or cream
+        tab.BackgroundTransparency=selected and .10 or .30
+        tab.TextColor3=selected and ink or faint
+        local st=UI.navStrokes[key]
+        if st then st.Color=gold; st.Transparency=selected and .42 or .78 end
+        local bar=UI.navBars[key]
+        if bar then bar.BackgroundColor3=gold; bar.Visible=selected end
+        local icon=tab:FindFirstChild("Icon")
+        if icon then
+            for _,d in ipairs(icon:GetDescendants()) do
+                if d:IsA("UIStroke") then d.Color=selected and goldDeep or Color3.fromRGB(122,108,74) end
+                if d:IsA("Frame") then d.BackgroundColor3=selected and goldDeep or Color3.fromRGB(122,108,74) end
+            end
+        end
+    end
+
+    for _,page in pairs(pageMap) do
+        page.ScrollBarImageColor3=gold
+        page.ScrollBarImageTransparency=.42
+    end
+
+    -- Keep the animated hero visibly alive.
+    if EMP.hero then
+        EMP.hero.Visible=true
+        EMP.sky.BackgroundColor3=Color3.fromRGB(255,250,240)
+        EMP.sky.BackgroundTransparency=0
+        EMP.rayGroup.Visible=true; EMP.wingL.Visible=true; EMP.wingR.Visible=true
+        EMP.haloA.Visible=true; EMP.haloB.Visible=true; EMP.core.Visible=true
+        EMP.dot.Visible=true; EMP.scan.Visible=true
+    end
 end
 
 function Theme.stopSpecialVisuals()
@@ -5538,8 +5679,11 @@ end
 
 UI.setTheme = function(themeName)
     Theme.apply(themeName)
-    if type(System.savePrefs) == "function" then System.savePrefs() end
-    notify("Theme saved: " .. System.theme)
+    local saved = true
+    if type(System.savePrefs) == "function" then
+        saved = System.savePrefs() ~= false
+    end
+    notify(saved and ("Theme saved: " .. System.theme) or ("Theme changed for this session: " .. System.theme))
     render()
 end
 
@@ -5683,14 +5827,16 @@ connect(Input.InputEnded, function(input)
     end
 end)
 connect(canvas:GetPropertyChangedSignal("AbsoluteSize"), function() fitWindow(false) end)
+-- Startup is intentionally ordered: persisted theme -> theme application -> loader.
+-- Do not render the Default theme first; doing so can leave stale theme visuals behind.
 fitWindow(true)
-render()
-do
-    local __themeOK, __themeERR = pcall(function() Theme.apply(System.theme) end)
-    if not __themeOK then
-        warn("[Void Automation] Theme initialization failed: " .. tostring(__themeERR))
-        pcall(function() Theme.apply("Default") end)
-    end
+local __startupTheme = System.startupTheme
+local __themeOK, __themeERR = pcall(function() Theme.apply(__startupTheme) end)
+if not __themeOK then
+    warn("[Void Automation] Theme initialization failed for saved theme " .. tostring(__startupTheme) .. ": " .. tostring(__themeERR))
+    System.startupTheme = "Default"
+    System.theme = "Default"
+    pcall(function() Theme.apply("Default") end)
 end
 
 do
@@ -5703,7 +5849,8 @@ do
         })
         local loadingLayer = __loaderLayer
 
-        if System.theme == "Empyrean" then
+        local startupTheme = System.startupTheme
+        if startupTheme == "Empyrean" then
             loadingLayer.BackgroundColor3 = Color3.fromRGB(247,242,226); loadingLayer.BackgroundTransparency=0.02
             local loadCard=frame(loadingLayer,"LoadingCard",0,0,326,402,Color3.fromRGB(255,253,247),18); loadCard.AnchorPoint=Vector2.new(.5,.5); loadCard.Position=UDim2.fromScale(.5,.5); loadCard.BackgroundTransparency=.08; loadCard.ZIndex=101; stroke(loadCard,Color3.fromRGB(217,169,78),.34,1)
             local loadScale=make("UIScale",loadCard,{Scale=.88}); TweenService:Create(loadScale,TweenInfo.new(.62,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Scale=1}):Play()
@@ -5754,11 +5901,11 @@ do
         local loadScale = make("UIScale", loadCard, {Scale = 0.88})
         TweenService:Create(loadScale, TweenInfo.new(0.62, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
 
-        local loadTitle = safeText(loadCard, "Title", System.theme == "Blackhole" and "BLACKHOLE V1" or "VOID NEXUS", 0, 16, 326, 22, 17, C.ink, Enum.Font.GothamBold)
+        local loadTitle = safeText(loadCard, "Title", startupTheme == "Blackhole" and "BLACKHOLE V1" or "VOID NEXUS", 0, 16, 326, 22, 17, C.ink, Enum.Font.GothamBold)
         loadTitle.TextXAlignment = Enum.TextXAlignment.Center
         loadTitle.ZIndex = 103
 
-        local loadSub = safeText(loadCard, "Sub", System.theme == "Blackhole" and "GALACTIC REACTOR" or "VOID CORE ONLINE", 0, 40, 326, 16, 8, C.dim, Enum.Font.GothamBold)
+        local loadSub = safeText(loadCard, "Sub", startupTheme == "Blackhole" and "GALACTIC REACTOR" or "VOID CORE ONLINE", 0, 40, 326, 16, 8, C.dim, Enum.Font.GothamBold)
         loadSub.TextXAlignment = Enum.TextXAlignment.Center
         loadSub.ZIndex = 103
 
@@ -5915,7 +6062,7 @@ do
             {0.37, "IGNITING ACCRETION DISK..."},
             {0.56, "BENDING SPACETIME..."},
             {0.75, "SYNCHRONIZING ORBITAL RINGS..."},
-            {0.90, System.theme == "Blackhole" and "BLACKHOLE V1 ONLINE" or "VOID NEXUS ONLINE"},
+            {0.90, startupTheme == "Blackhole" and "BLACKHOLE V1 ONLINE" or "VOID NEXUS ONLINE"},
         }
 
         local loadAnimConn
@@ -5985,7 +6132,7 @@ do
 
             if progress >= 1 then
                 loadAnimConn:Disconnect()
-                loadStatus.Text = System.theme == "Blackhole" and "BLACKHOLE V1 ONLINE" or "VOID NEXUS ONLINE"
+                loadStatus.Text = startupTheme == "Blackhole" and "BLACKHOLE V1 ONLINE" or "VOID NEXUS ONLINE"
                 task.wait(0.10)
                 if not State.alive then return end
 

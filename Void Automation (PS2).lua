@@ -5645,11 +5645,13 @@ function Theme.syncAllThemeVisuals()
             if line then line.BackgroundColor3 = emp and C.violet2 or C.violet2 end
         end
     end
-    if emp then Theme.syncEmpyreanControls() end
+    Theme.canonicalizeControls()
 end
 
 function Theme.syncEmpyreanControls()
-    if System.theme ~= "Empyrean" then return end
+    local emp = System.theme == "Empyrean"
+    local bh = System.theme == "Blackhole"
+    if not emp then return end
     local gold=Color3.fromRGB(217,169,78)
     local goldLight=Color3.fromRGB(255,243,200)
     local goldDeep=Color3.fromRGB(156,116,32)
@@ -5686,7 +5688,7 @@ function Theme.syncEmpyreanControls()
     -- Reset every TextButton/TextBox on ordinary pages for non-EMPYREAN
     -- themes as well. This prevents EMPYREAN cream controls from surviving
     -- when returning to Default/Nexus.
-    if not emp then
+    if System.theme ~= "Empyrean" then
         for _, page in pairs(pageMap) do
             for _, obj in ipairs(page:GetDescendants()) do
                 if obj:IsA("TextButton") then
@@ -5790,6 +5792,233 @@ function Theme.syncEmpyreanControls()
         EMP.rayGroup.Visible=true; EMP.wingL.Visible=true; EMP.wingR.Visible=true
         EMP.haloA.Visible=true; EMP.haloB.Visible=true; EMP.core.Visible=true
         EMP.dot.Visible=true; EMP.scan.Visible=true
+    end
+end
+
+-- FINAL CANONICAL CONTROL PASS
+--
+-- All three themes are now rendered from one authoritative palette here.
+-- Earlier restylers are allowed to run for legacy layout work, but this pass
+-- is always last for control colors.  This prevents a control constructed in
+-- Blackhole/Nexus from carrying its constructor color into EMPYREAN and also
+-- prevents EMPYREAN cream controls from surviving a switch back.
+function Theme.canonicalizeControls()
+    local theme = System.theme
+    if theme ~= "Default" and theme ~= "Blackhole" and theme ~= "Empyrean" then
+        theme = "Default"
+    end
+
+    local emp = theme == "Empyrean"
+    local bh = theme == "Blackhole"
+    local P = emp and {
+        panel = Color3.fromRGB(255,253,247), panel2 = Color3.fromRGB(255,248,232),
+        surface = Color3.fromRGB(255,250,235), line = Color3.fromRGB(217,169,78),
+        accent = Color3.fromRGB(217,169,78), accentDeep = Color3.fromRGB(156,116,32),
+        text = Color3.fromRGB(58,47,26), muted = Color3.fromRGB(171,157,120),
+        bright = Color3.fromRGB(255,243,200), off = Color3.fromRGB(226,220,202),
+        nav = Color3.fromRGB(255,255,255), selected = Color3.fromRGB(255,224,150),
+    } or bh and {
+        panel = Color3.fromRGB(8,8,12), panel2 = Color3.fromRGB(4,4,7),
+        surface = Color3.fromRGB(8,8,12), line = Color3.fromRGB(150,120,230),
+        accent = Color3.fromRGB(122,63,242), accentDeep = Color3.fromRGB(74,37,144),
+        text = Color3.fromRGB(236,234,245), muted = Color3.fromRGB(150,146,170),
+        bright = Color3.fromRGB(238,241,251), off = Color3.fromRGB(24,24,31),
+        nav = Color3.fromRGB(4,4,7), selected = Color3.fromRGB(30,14,48),
+    } or {
+        panel = C.panel, panel2 = C.panel2, surface = C.surface, line = C.violet,
+        accent = C.violet2, accentDeep = C.violet, text = C.ink, muted = C.faint,
+        bright = C.bright, off = C.toggleOff, nav = C.deep, selected = C.panel2,
+    }
+
+    local function paintStroke(obj, color, transparency)
+        local st = obj and obj:FindFirstChildOfClass("UIStroke")
+        if st then st.Color=color; st.Transparency=transparency or 0.5 end
+    end
+    local function paintText(obj, color)
+        if obj and (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) then
+            obj.TextColor3=color
+        end
+    end
+
+    -- Every normal content row.
+    for _,page in pairs(pageMap) do
+        if page then
+            for _,child in ipairs(page:GetChildren()) do
+                local row = child.Name:match("^Row_") or child.Name:match("^Slider_") or child.Name == "KeyLoadout"
+                if row and child:IsA("GuiObject") then
+                    child.BackgroundColor3=P.panel2
+                    child.BackgroundTransparency=emp and 0.08 or 0
+                    paintStroke(child,P.line,emp and 0.42 or 0.72)
+                    for _,d in ipairs(child:GetDescendants()) do
+                        if d:IsA("TextButton") or d:IsA("TextBox") then
+                            d.AutoButtonColor=false
+                            d.BackgroundColor3=P.panel
+                            d.BackgroundTransparency=emp and 0.05 or 0
+                            d.TextColor3=P.text
+                            paintStroke(d,P.line,emp and 0.42 or 0.72)
+                        elseif d:IsA("TextLabel") then
+                            if d.Name=="Desc" or d.Name=="Hint" or d.Name=="Modules" then
+                                d.TextColor3=P.muted
+                            elseif d.Name=="Value" then
+                                d.TextColor3=P.accent
+                            else
+                                d.TextColor3=P.text
+                            end
+                        end
+                    end
+                end
+            end
+
+            -- Catch ALL nested action/key buttons, including the ones that do
+            -- not live directly under Row_/Slider_ containers.
+            for _,obj in ipairs(page:GetDescendants()) do
+                if obj:IsA("TextButton") then
+                    obj.AutoButtonColor=false
+                    -- Theme-page buttons are handled separately below.
+                    if not ThemeUI or (obj ~= ThemeUI.defaultButton and obj ~= ThemeUI.blackholeButton and obj ~= ThemeUI.empyreanButton) then
+                        obj.BackgroundColor3=P.panel
+                        obj.BackgroundTransparency=emp and 0.05 or 0
+                        obj.TextColor3=P.text
+                        paintStroke(obj,P.line,emp and 0.42 or 0.72)
+                    end
+                elseif obj:IsA("TextBox") then
+                    obj.BackgroundColor3=P.panel
+                    obj.BackgroundTransparency=emp and 0.05 or 0
+                    obj.TextColor3=P.text
+                    paintStroke(obj,P.line,emp and 0.42 or 0.72)
+                end
+            end
+        end
+    end
+
+    -- Shared toggles: one palette, no previous-theme colors.
+    for _,view in ipairs(toggleViews) do
+        local value=false
+        local ok,v=pcall(view.getter)
+        if ok then value=v end
+        view.track.BackgroundColor3=value and P.accent or P.off
+        view.track.BackgroundTransparency=emp and 0.10 or 0
+        view.knob.BackgroundColor3=value and P.bright or P.muted
+        paintStroke(view.track,P.line,emp and 0.35 or 0.65)
+    end
+
+    -- Shared sliders: rail, fill, knob, value all come from the same palette.
+    for _,view in ipairs(sliders) do
+        view.fill.BackgroundColor3=P.accent
+        view.knob.BackgroundColor3=P.bright
+        view.valueLabel.TextColor3=P.accentDeep
+        local rail=view.hit and view.hit:FindFirstChild("Rail")
+        if rail then rail.BackgroundColor3=P.off end
+        paintStroke(view.knob,P.line,emp and 0.25 or 0.55)
+    end
+
+    -- Navigation is completely independent from the page controls.
+    if tabs then
+        tabs.BackgroundColor3=emp and Color3.fromRGB(255,250,235) or P.surface
+        tabs.BackgroundTransparency=emp and 0.42 or (bh and 0.28 or 0.35)
+        paintStroke(tabs,P.line,0.72)
+    end
+    for key,tab in pairs(navButtons) do
+        local selected=State.tab==key
+        tab.BackgroundColor3=selected and P.selected or P.nav
+        tab.BackgroundTransparency=emp and (selected and 0.10 or 0.34) or 0
+        tab.TextColor3=selected and P.text or P.muted
+        local st=UI.navStrokes[key]
+        if st then st.Color=P.line; st.Transparency=selected and 0.42 or 0.82 end
+        local bar=UI.navBars[key]
+        if bar then bar.BackgroundColor3=P.accent; bar.Visible=selected end
+        local icon=tab:FindFirstChild("Icon")
+        if icon then
+            for _,d in ipairs(icon:GetDescendants()) do
+                if d:IsA("UIStroke") then d.Color=selected and P.accentDeep or P.muted end
+                if d:IsA("Frame") then d.BackgroundColor3=selected and P.accentDeep or P.muted end
+            end
+        end
+    end
+
+    -- Theme selector is also canonicalized, but each row represents a theme;
+    -- only the ACTIVE selection receives the active accent.
+    if ThemeUI then
+        if ThemeUI.themeInfo then
+            ThemeUI.themeInfo.BackgroundColor3=P.panel2
+            ThemeUI.themeInfo.BackgroundTransparency=emp and 0.06 or 0
+            paintStroke(ThemeUI.themeInfo,P.line,emp and 0.42 or 0.72)
+        end
+        local entries={
+            {ThemeUI.defaultRow,ThemeUI.defaultButton,"Default"},
+            {ThemeUI.blackholeRow,ThemeUI.blackholeButton,"Blackhole"},
+            {ThemeUI.empyreanRow,ThemeUI.empyreanButton,"Empyrean"},
+        }
+        for _,entry in ipairs(entries) do
+            local row,button,name=entry[1],entry[2],entry[3]
+            if row then
+                row.BackgroundColor3=P.panel2
+                row.BackgroundTransparency=emp and 0.02 or 0
+                paintStroke(row,P.line,emp and 0.42 or 0.72)
+                local title=row:FindFirstChild("Title"); local desc=row:FindFirstChild("Desc")
+                if title then title.TextColor3=P.text end
+                if desc then desc.TextColor3=P.muted end
+            end
+            if button then
+                local active=name==theme
+                button.AutoButtonColor=false
+                button.BackgroundColor3=active and P.accent or P.panel
+                button.BackgroundTransparency=0
+                button.TextColor3=active and (emp and P.text or P.bright) or P.muted
+                paintStroke(button,P.line,active and 0.35 or 0.65)
+            end
+        end
+        if ThemeUI.activeLabel then
+            ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or (emp and "EMPYREAN" or "DEFAULT")
+            ThemeUI.activeLabel.TextColor3=P.text
+        end
+        if ThemeUI.hint then ThemeUI.hint.TextColor3=P.muted end
+    end
+
+    -- System/Farm action buttons are explicitly included; these were among the
+    -- controls visible in the user's screenshots.
+    if UI.staticScanButton then
+        UI.staticScanButton.BackgroundColor3=emp and P.panel2 or P.accent
+        UI.staticScanButton.TextColor3=emp and P.text or P.bright
+        paintStroke(UI.staticScanButton,P.line,0.45)
+    end
+    if UI.privateMapBox then
+        UI.privateMapBox.BackgroundColor3=P.panel2
+        UI.privateMapBox.TextColor3=P.text
+        paintStroke(UI.privateMapBox,P.line,0.55)
+    end
+
+    -- Page symbols and header identity.
+    local brandAccent=P.accentDeep
+    if brandTitle then
+        brandTitle.Text=emp and "EMPYREAN" or (bh and "BLACKHOLE V1" or "VOID NEXUS")
+        brandTitle.TextColor3=P.text
+    end
+    local sub=header and header:FindFirstChild("Sub")
+    if sub then
+        sub.Text=emp and "GRACE ATTAINED" or (bh and "REACTOR ONLINE" or "CORE LINK STABLE")
+        sub.TextColor3=P.muted
+    end
+    if brandmark then
+        brandmark.BackgroundColor3=P.panel2
+        paintStroke(brandmark,P.line,0.25)
+        if markCore then markCore.BackgroundColor3=P.accent end
+        if markH then markH.BackgroundColor3=brandAccent end
+        if markV then markV.BackgroundColor3=brandAccent end
+    end
+    for _,page in pairs(pageMap) do
+        local head=page:FindFirstChild("PaneHead")
+        if head then
+            local title=head:FindFirstChild("Title"); local modules=head:FindFirstChild("Modules"); local icon=head:FindFirstChild("Icon")
+            if title then title.TextColor3=P.text end
+            if modules then modules.TextColor3=P.muted end
+            if icon then
+                for _,d in ipairs(icon:GetDescendants()) do
+                    if d:IsA("UIStroke") then d.Color=brandAccent end
+                    if d:IsA("Frame") then d.BackgroundColor3=brandAccent end
+                end
+            end
+        end
     end
 end
 
@@ -6193,6 +6422,7 @@ function Theme.apply(themeName)
     Theme.hardResetControls()
     render()
     Theme.hardResetControls()
+    Theme.canonicalizeControls()
 end
 
 UI.setTheme = function(themeName)
@@ -6225,6 +6455,7 @@ UI.setTheme = function(themeName)
     -- object must not leave the current theme half-applied, so run the isolated
     -- final pass regardless of whether the legacy pass threw.
     pcall(function() Theme.forceThemeControls() end)
+    pcall(function() Theme.canonicalizeControls() end)
 
     if not okApply then
         warn("[Void Automation] legacy theme visual pass skipped: " .. tostring(applyErr))
@@ -6318,6 +6549,7 @@ local function renderPageState()
     end
     updateTabVisuals()
     if Theme.syncAllThemeVisuals then Theme.syncAllThemeVisuals() end
+    if Theme.canonicalizeControls then Theme.canonicalizeControls() end
 end
 
 local uiRenderError = nil

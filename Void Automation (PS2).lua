@@ -5913,6 +5913,107 @@ function Theme.hardResetControls()
     end
 end
 
+-- Defensive final theme pass. This pass is intentionally independent from the
+-- older restylers so one optional/missing object cannot abort visual application.
+function Theme.forceThemeControls()
+    local theme = System.theme
+    local emp = theme == "Empyrean"
+    local bh = theme == "Blackhole"
+    local gold = Color3.fromRGB(217,169,78)
+    local goldDeep = Color3.fromRGB(156,116,32)
+    local cream = Color3.fromRGB(255,253,247)
+    local cream2 = Color3.fromRGB(255,248,232)
+    local ink = Color3.fromRGB(58,47,26)
+    local faint = Color3.fromRGB(171,157,120)
+    local dark = bh and Color3.fromRGB(8,8,12) or Color3.fromRGB(8,4,16)
+    local dark2 = bh and Color3.fromRGB(4,4,7) or Color3.fromRGB(20,10,36)
+    local darkAccent = bh and Color3.fromRGB(122,63,242) or Color3.fromRGB(168,85,247)
+    local darkText = bh and Color3.fromRGB(236,234,245) or Color3.fromRGB(233,226,247)
+    local darkMuted = bh and Color3.fromRGB(150,146,170) or Color3.fromRGB(155,143,184)
+    local line = emp and gold or (bh and Color3.fromRGB(150,120,230) or Color3.fromRGB(82,55,122))
+
+    pcall(function()
+        for key, tab in pairs(navButtons) do
+            local selected = State.tab == key
+            tab.BackgroundColor3 = emp and (selected and Color3.fromRGB(255,224,150) or cream) or (selected and dark2 or dark)
+            tab.BackgroundTransparency = emp and (selected and .10 or .30) or 0
+            tab.TextColor3 = emp and (selected and ink or faint) or (selected and darkText or darkMuted)
+            local st = UI.navStrokes[key]; if st then st.Color=line; st.Transparency=selected and .42 or .82 end
+            local bar = UI.navBars[key]; if bar then bar.Visible=selected; bar.BackgroundColor3=emp and gold or darkAccent end
+            local icon=tab:FindFirstChild("Icon")
+            if icon then for _,d in ipairs(icon:GetDescendants()) do
+                if d:IsA("UIStroke") then d.Color=emp and (selected and goldDeep or Color3.fromRGB(122,108,74)) or (selected and darkAccent or darkMuted)
+                elseif d:IsA("Frame") then d.BackgroundColor3=emp and (selected and goldDeep or Color3.fromRGB(122,108,74)) or (selected and darkAccent or darkMuted) end
+            end end
+        end
+    end)
+
+    pcall(function()
+        for _, view in ipairs(toggleViews) do
+            local value=view.getter()
+            view.track.BackgroundColor3 = emp and (value and gold or Color3.fromRGB(226,220,202)) or (value and (bh and Color3.fromRGB(70,38,125) or Color3.fromRGB(88,48,124)) or (bh and Color3.fromRGB(24,24,31) or Color3.fromRGB(32,24,43)))
+            view.track.BackgroundTransparency=emp and .10 or 0
+            view.knob.BackgroundColor3=emp and (value and Color3.fromRGB(255,243,200) or faint) or (value and (bh and Color3.fromRGB(238,241,251) or Color3.fromRGB(143,227,255)) or (bh and Color3.fromRGB(85,80,105) or Color3.fromRGB(92,82,122)))
+            local st=view.track:FindFirstChildOfClass("UIStroke"); if st then st.Color=line end
+        end
+    end)
+
+    pcall(function()
+        for _, view in ipairs(sliders) do
+            view.fill.BackgroundColor3=emp and gold or darkAccent
+            view.knob.BackgroundColor3=emp and Color3.fromRGB(255,243,200) or (bh and Color3.fromRGB(238,241,251) or Color3.fromRGB(143,227,255))
+            view.valueLabel.TextColor3=emp and goldDeep or (bh and Color3.fromRGB(238,241,251) or Color3.fromRGB(143,227,255))
+            local rail=view.hit:FindFirstChild("Rail"); if rail then rail.BackgroundColor3=emp and Color3.fromRGB(226,220,202) or (bh and Color3.fromRGB(24,24,31) or Color3.fromRGB(47,32,65)) end
+            local st=view.knob:FindFirstChildOfClass("UIStroke"); if st then st.Color=line end
+        end
+    end)
+
+    pcall(function()
+        for _,page in pairs(pageMap) do
+            for _,obj in ipairs(page:GetDescendants()) do
+                if obj:IsA("TextButton") then
+                    obj.AutoButtonColor=false
+                    obj.BackgroundColor3=emp and cream2 or dark
+                    obj.BackgroundTransparency=emp and .08 or 0
+                    obj.TextColor3=emp and ink or darkText
+                    local st=obj:FindFirstChildOfClass("UIStroke"); if st then st.Color=line end
+                elseif obj:IsA("TextBox") then
+                    obj.BackgroundColor3=emp and cream2 or dark
+                    obj.BackgroundTransparency=emp and .08 or 0
+                    obj.TextColor3=emp and ink or darkText
+                    local st=obj:FindFirstChildOfClass("UIStroke"); if st then st.Color=line end
+                end
+            end
+            local head=page:FindFirstChild("PaneHead"); local icon=head and head:FindFirstChild("Icon")
+            if icon then for _,d in ipairs(icon:GetDescendants()) do
+                if d:IsA("UIStroke") then d.Color=emp and goldDeep or darkAccent
+                elseif d:IsA("Frame") then d.BackgroundColor3=emp and goldDeep or darkAccent end
+            end end
+        end
+    end)
+
+    pcall(function()
+        if ThemeUI then
+            local rows={ThemeUI.defaultRow,ThemeUI.blackholeRow,ThemeUI.empyreanRow}
+            local buttons={ThemeUI.defaultButton,ThemeUI.blackholeButton,ThemeUI.empyreanButton}
+            for _,row in ipairs(rows) do if row then row.BackgroundColor3=emp and cream2 or dark; row.BackgroundTransparency=emp and .02 or 0; local st=row:FindFirstChildOfClass("UIStroke"); if st then st.Color=line end end end
+            for i,button in ipairs(buttons) do if button then
+                local active=(i==3 and emp) or (i==2 and bh) or (i==1 and not emp and not bh)
+                button.BackgroundColor3=active and (emp and gold or darkAccent) or (emp and cream or dark)
+                button.TextColor3=active and (emp and ink or darkText) or (emp and faint or darkMuted)
+                button.AutoButtonColor=false
+                local st=button:FindFirstChildOfClass("UIStroke"); if st then st.Color=line end
+            end end
+            if ThemeUI.activeLabel then ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or (emp and "EMPYREAN" or "DEFAULT"); ThemeUI.activeLabel.TextColor3=emp and ink or darkText end
+            if ThemeUI.hint then ThemeUI.hint.TextColor3=emp and faint or darkMuted end
+        end
+    end)
+
+    pcall(function()
+        for _,page in pairs(pageMap) do page.ScrollBarImageColor3=emp and gold or darkAccent; page.ScrollBarImageTransparency=emp and .42 or .35 end
+    end)
+end
+
 function Theme.apply(themeName)
     if themeName~="Blackhole" and themeName~="Empyrean" then themeName="Default" end
     Theme.stopSpecialVisuals(); System.theme=themeName
@@ -6120,13 +6221,18 @@ UI.setTheme = function(themeName)
         saved = System.savePrefs() ~= false
     end
 
+    -- Theme.apply contains legacy visual code. A failure in any optional visual
+    -- object must not leave the current theme half-applied, so run the isolated
+    -- final pass regardless of whether the legacy pass threw.
+    pcall(function() Theme.forceThemeControls() end)
+
     if not okApply then
-        warn("[Void Automation] Theme apply failed for " .. normalized .. ": " .. tostring(applyErr))
+        warn("[Void Automation] legacy theme visual pass skipped: " .. tostring(applyErr))
     end
 
     -- Session persistence is successful even when the executor's file API is
     -- unavailable. Never claim that the selection was not saved in-session.
-    notify(okApply and ("Theme saved: " .. normalized) or ("Theme saved: " .. normalized .. " | visual apply error"))
+    notify("Theme saved: " .. normalized)
     render()
 end
 
@@ -6275,6 +6381,7 @@ connect(canvas:GetPropertyChangedSignal("AbsoluteSize"), function() fitWindow(fa
 fitWindow(true)
 local __startupTheme = System.startupTheme
 local __themeOK, __themeERR = pcall(function() Theme.apply(__startupTheme) end)
+pcall(function() if Theme.forceThemeControls then Theme.forceThemeControls() end end)
 if not __themeOK then
     warn("[Void Automation] Theme initialization failed for saved theme " .. tostring(__startupTheme) .. ": " .. tostring(__themeERR))
     -- Never substitute Default for a persisted theme. The loader and UI must

@@ -3149,8 +3149,8 @@ System = {
     directTriedAt = 0,
     menuNextAt = 0,
     menuStage = "idle",
-    theme = "Default",
-    startupTheme = "Default",
+    theme = "Pandemonium",
+    startupTheme = "Pandemonium",
     bootstrapTheme = nil,
     _themeFileLoaded = false,
     _sessionThemeLoaded = false,
@@ -3184,6 +3184,7 @@ System = {
         Default={name="Default", loader="VOID NEXUS", effects=true},
         Blackhole={name="Blackhole", loader="BLACKHOLE V1", effects=true},
         Empyrean={name="Empyrean", loader="EMPYREAN", effects=true},
+        Pandemonium={name="Pandemonium", loader="PANDEMONIUM", effects=true},
     },
 }
 
@@ -3248,7 +3249,7 @@ do
     local function normalizeTheme(value)
         if type(value) ~= "string" then return nil end
         value = value:gsub("^%s+", ""):gsub("%s+$", "")
-        if value == "Default" or value == "Blackhole" or value == "Empyrean" then
+        if value == "Default" or value == "Blackhole" or value == "Empyrean" or value == "Pandemonium" then
             return value
         end
         return nil
@@ -3666,6 +3667,7 @@ do
             ["stop"]=System.emergencyStop,
             ["emergency stop"]=System.emergencyStop,
             ["theme empyrean"]=function() if UI.setTheme then UI.setTheme("Empyrean") end end,
+            ["theme pandemonium"]=function() if UI.setTheme then UI.setTheme("Pandemonium") end end,
             ["theme blackhole"]=function() if UI.setTheme then UI.setTheme("Blackhole") end end,
             ["theme default"]=function() if UI.setTheme then UI.setTheme("Default") end end,
             ["core"]=function() State.tab="Core"; render() end,
@@ -3803,7 +3805,7 @@ do
     System.loadPrefs()
     -- Freeze the theme selected by persisted preferences for this execution.
     -- The loader and initial UI must use the same startup theme.
-    if System.theme ~= "Blackhole" and System.theme ~= "Empyrean" and System.theme ~= "Default" then
+    if System.theme ~= "Blackhole" and System.theme ~= "Empyrean" and System.theme ~= "Pandemonium" and System.theme ~= "Default" then
         System.theme = "Default"
     end
     System.startupTheme = System.theme
@@ -5454,6 +5456,11 @@ function ThemeUI.makePreset(y, title, desc, themeName)
         halo.BackgroundTransparency = 1; stroke(halo, Color3.fromRGB(217,169,78), 0.18, 2)
         local core = frame(icon, "Core", 12, 12, 12, 12, Color3.fromRGB(255,243,200), 6)
         core.BackgroundTransparency = 0.05; stroke(core, Color3.fromRGB(156,116,32), 0.42, 1)
+    elseif themeName == "Pandemonium" then
+        local rift = frame(icon, "Rift", 7, 7, 22, 22, Color3.fromRGB(200,30,44), 11)
+        rift.BackgroundTransparency = 0.55; stroke(rift, Color3.fromRGB(255,166,82), 0.18, 2)
+        local core = frame(icon, "Core", 11, 11, 14, 14, Color3.fromRGB(8,2,2), 7)
+        core.BackgroundTransparency = 0; stroke(core, Color3.fromRGB(255,111,54), 0.20, 1)
     else
         local core = frame(icon, "Core", 11, 11, 14, 14, C.violet2, 7)
         core.BackgroundTransparency = 0.25
@@ -5490,7 +5497,10 @@ ThemeUI.blackholeRow, ThemeUI.blackholeButton = ThemeUI.makePreset(
 ThemeUI.empyreanRow, ThemeUI.empyreanButton = ThemeUI.makePreset(
     258, "EMPYREAN", "Celestial gold / heaven-inspired interface", "Empyrean"
 )
-ThemeUI.hint = safeText(ThemeUI.page, "Hint", "Theme changes are saved immediately.", 16, 330, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+ThemeUI.pandemoniumRow, ThemeUI.pandemoniumButton = ThemeUI.makePreset(
+    330, "PANDEMONIUM", "Crimson abyss / rift-core interface", "Pandemonium"
+)
+ThemeUI.hint = safeText(ThemeUI.page, "Hint", "Theme changes are saved immediately.", 16, 402, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
 ThemeUI.hint.TextXAlignment = Enum.TextXAlignment.Center
 
 UI.count = safeText(skillsPage, "Count", "4 / 4 ENABLED", 0, 0, 1, 1, 1, C.dim)
@@ -5603,33 +5613,82 @@ showPage = function(key)
     end
 end
 
+local function navThemeColors()
+    local theme = System.theme
+    if theme == "Empyrean" then
+        return {
+            hover = Color3.fromRGB(255,243,200),
+            normal = Color3.fromRGB(255,255,255),
+            selected = Color3.fromRGB(255,243,200),
+            selectedText = C.ink,
+            normalText = C.faint,
+            selectedIcon = C.violet2,
+            normalIcon = C.faint,
+        }
+    elseif theme == "Pandemonium" then
+        -- PANDEMONIUM must never inherit the old VOID NEXUS purple hover.
+        return {
+            hover = Color3.fromRGB(42,6,8),
+            normal = C.panel2,
+            selected = Color3.fromRGB(40,5,7),
+            selectedText = C.ink,
+            normalText = C.faint,
+            selectedIcon = C.accent,
+            normalIcon = C.faint,
+        }
+    elseif theme == "Blackhole" then
+        return {
+            hover = Color3.fromRGB(30,14,48),
+            normal = C.panel2,
+            selected = Color3.fromRGB(30,14,48),
+            selectedText = C.ink,
+            normalText = C.faint,
+            selectedIcon = C.violet2,
+            normalIcon = C.faint,
+        }
+    else
+        return {
+            hover = Color3.fromRGB(24,13,38),
+            normal = Color3.fromRGB(8,4,16),
+            selected = Color3.fromRGB(30,14,48),
+            selectedText = C.ink,
+            normalText = C.faint,
+            selectedIcon = C.cyan,
+            normalIcon = C.faint,
+        }
+    end
+end
+
 for key, tab in pairs(navButtons) do
     connect(tab.MouseEnter, function()
         if State.tab ~= key then
-            animate(tab, {BackgroundColor3 = System.theme == "Empyrean" and Color3.fromRGB(255,243,200) or Color3.fromRGB(24,13,38)}, false)
+            local colors = navThemeColors()
+            animate(tab, {BackgroundColor3 = colors.hover}, false)
         end
     end)
     connect(tab.MouseLeave, function()
         if State.tab ~= key then
-            animate(tab, {BackgroundColor3 = System.theme == "Empyrean" and Color3.fromRGB(255,255,255) or Color3.fromRGB(8,4,16)}, false)
+            local colors = navThemeColors()
+            animate(tab, {BackgroundColor3 = colors.normal}, false)
         end
     end)
     connect(tab.Activated, function() showPage(key) end)
 end
 
 local function updateTabVisuals()
-    local emp = System.theme == "Empyrean"
+    local colors = navThemeColors()
     for key, tab in pairs(navButtons) do
         local selected = State.tab == key
-        if emp then
-            tab.BackgroundColor3 = selected and Color3.fromRGB(255,243,200) or Color3.fromRGB(255,253,247)
+        tab.BackgroundColor3 = selected and colors.selected or colors.normal
+        if System.theme == "Empyrean" then
             tab.BackgroundTransparency = selected and .04 or .18
-            tab.TextColor3 = selected and C.ink or C.faint
+        elseif System.theme == "Pandemonium" then
+            tab.BackgroundTransparency = selected and .04 or .02
         else
-            tab.BackgroundColor3 = selected and Color3.fromRGB(30,14,48) or Color3.fromRGB(8,4,16)
             tab.BackgroundTransparency = 0
-            tab.TextColor3 = selected and C.ink or C.faint
         end
+        tab.TextColor3 = selected and colors.selectedText or colors.normalText
+
         local strokeObj = UI.navStrokes[key]
         if strokeObj then
             strokeObj.Transparency = selected and .42 or .88
@@ -5638,20 +5697,22 @@ local function updateTabVisuals()
         local bar = UI.navBars[key]
         if bar then
             bar.Visible = selected
-            bar.BackgroundColor3 = C.violet2
+            bar.BackgroundColor3 = System.theme == "Empyrean" and C.violet2 or C.accent
         end
         local icon = tab:FindFirstChild("Icon")
         if icon then
             for _, child in ipairs(icon:GetDescendants()) do
                 if child:IsA("Frame") then
-                    child.BackgroundColor3 = selected and (emp and C.violet2 or C.cyan) or C.faint
+                    child.BackgroundColor3 = selected and colors.selectedIcon or colors.normalIcon
                 elseif child:IsA("UIStroke") then
-                    child.Color = selected and (emp and C.violet2 or C.cyan) or C.faint
+                    child.Color = selected and colors.selectedIcon or colors.normalIcon
                 end
             end
         end
     end
 end
+
+local PND = {connection=nil, hero=nil, rings={}, cracks={}, embers={}, pulse=nil, lastWidth=0, lastHeight=0}
 
 local EMP = {}
 
@@ -5710,6 +5771,12 @@ local function applyWindowWidth(width)
             star.x = (star.baseX or star.x) * (windowWidth / W)
             star.object.Position = UDim2.fromOffset(math.floor(star.x), math.floor(star.y))
         end
+        tabs.Position = UDim2.fromOffset(0, 216)
+        content.Position = UDim2.fromOffset(0, 280)
+        content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
+    elseif System.theme == "Pandemonium" then
+        -- PANDEMONIUM uses the HTML reference's 64/152/64 layout.
+        if PND and PND.layoutResponsive then PND.layoutResponsive(windowWidth, 152) end
         tabs.Position = UDim2.fromOffset(0, 216)
         content.Position = UDim2.fromOffset(0, 280)
         content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
@@ -5917,6 +5984,166 @@ function EMP.layoutResponsive(heroWidth, heroHeight)
             info.object.Size = UDim2.fromOffset(size, size)
         end
     end
+end
+
+-- PANDEMONIUM visual preset.  Roblox-native recreation of the supplied
+-- PANDEMONIUM HTML hero: black/crimson rift field, rotating broken rings,
+-- fracture rays, ember particles and a restrained core pulse.  It is isolated
+-- from the celestial renderer so theme transitions cannot make the two systems
+-- fight over the same objects.
+PND.hero = frame(panel, "PandemoniumHero", 0, 64, W, 152, Color3.fromRGB(8,2,2), 0)
+PND.hero.ZIndex = 4; PND.hero.ClipsDescendants = true; PND.hero.Visible = false
+PND.heroStroke = stroke(PND.hero, Color3.fromRGB(200,30,44), 0.34, 1)
+PND.back = frame(PND.hero, "Abyss", 0, 0, W, 152, Color3.fromRGB(8,2,2), 0)
+PND.back.ZIndex = 1
+PND.backGradient = make("UIGradient", PND.back, {Rotation=90, Color=ColorSequence.new({
+    ColorSequenceKeypoint.new(0,Color3.fromRGB(20,4,5)),
+    ColorSequenceKeypoint.new(.48,Color3.fromRGB(8,2,2)),
+    ColorSequenceKeypoint.new(1,Color3.fromRGB(2,0,0))
+}), Transparency=NumberSequence.new({
+    NumberSequenceKeypoint.new(0,.05), NumberSequenceKeypoint.new(.55,.14), NumberSequenceKeypoint.new(1,.02)
+})})
+PND.scan = frame(PND.hero, "Scan", 0, -54, W, 54, Color3.fromRGB(255,111,54), 0)
+PND.scan.BackgroundTransparency=.97; PND.scan.ZIndex=8
+PND.scanGradient=make("UIGradient",PND.scan,{Rotation=90,Color=ColorSequence.new(Color3.fromRGB(255,255,255),Color3.fromRGB(200,30,44)),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,1),NumberSequenceKeypoint.new(.5,.30),NumberSequenceKeypoint.new(1,1)})})
+PND.glow = frame(PND.hero,"Glow",0,0,118,118,Color3.fromRGB(200,30,44),59); PND.glow.AnchorPoint=Vector2.new(.5,.5); PND.glow.Position=UDim2.fromOffset(W*.5,76); PND.glow.BackgroundTransparency=.86; PND.glow.ZIndex=2
+PND.glowStroke=stroke(PND.glow,Color3.fromRGB(255,111,54),.78,1)
+PND.rift = frame(PND.hero,"RiftCore",0,0,62,62,Color3.fromRGB(3,0,0),31); PND.rift.AnchorPoint=Vector2.new(.5,.5); PND.rift.Position=UDim2.fromOffset(W*.5,76); PND.rift.ZIndex=6; PND.rift.BackgroundTransparency=.03
+PND.riftStroke=stroke(PND.rift,Color3.fromRGB(255,111,54),.10,1)
+PND.riftInner=frame(PND.rift,"Inner",10,10,42,42,Color3.fromRGB(20,2,3),21); PND.riftInner.BackgroundTransparency=.08; PND.riftInner.ZIndex=7
+PND.riftInnerStroke=stroke(PND.riftInner,Color3.fromRGB(200,30,44),.18,1)
+PND.riftDot=frame(PND.hero,"CoreDot",0,0,8,8,Color3.fromRGB(255,242,192),4); PND.riftDot.AnchorPoint=Vector2.new(.5,.5); PND.riftDot.Position=UDim2.fromOffset(W*.5,76); PND.riftDot.ZIndex=9
+for i,diam in ipairs({76,98,124}) do
+    local ring=frame(PND.hero,"RiftRing"..i,0,0,diam,math.floor(diam*.34),Color3.new(1,1,1),math.floor(diam*.17))
+    ring.AnchorPoint=Vector2.new(.5,.5); ring.Position=UDim2.fromOffset(W*.5,76); ring.BackgroundTransparency=1; ring.ZIndex=5
+    local st=stroke(ring,i==1 and Color3.fromRGB(255,242,192) or Color3.fromRGB(200,30,44),i==1 and .18 or .34, i==1 and 2 or 1)
+    PND.rings[#PND.rings+1]={object=ring,stroke=st,phase=(i-1)*.7,base=diam}
+end
+for i=1,12 do
+    local len=(i%2==0) and 58 or 82
+    local crack=frame(PND.hero,"Fracture"..i,0,0,len,2,Color3.fromRGB(200,30,44),1)
+    crack.AnchorPoint=Vector2.new(.5,.5); crack.Position=UDim2.fromOffset(W*.5,76); crack.Rotation=(i-1)*30+(i%3-1)*8; crack.BackgroundTransparency=.48; crack.ZIndex=4
+    PND.cracks[#PND.cracks+1]=crack
+end
+for i=1,10 do
+    local sp=frame(PND.hero,"Ember"..i,0,0,3,3,Color3.fromRGB(255,166,82),2)
+    sp.AnchorPoint=Vector2.new(.5,.5); sp.Position=UDim2.fromOffset(W*.5+(i-5)*28,76+(i%3-1)*18); sp.ZIndex=10; sp.BackgroundTransparency=.40
+    PND.embers[#PND.embers+1]={object=sp,phase=i*.53,baseX=(i-5)*28,baseY=(i%3-1)*18}
+end
+function PND.layoutResponsive(heroWidth, heroHeight)
+    heroWidth=math.max(300,math.floor((heroWidth or W)+.5)); heroHeight=math.max(152,math.floor((heroHeight or 152)+.5))
+    local cx=heroWidth*.5; local cy=76; local sx=heroWidth/300
+    PND.hero.Position=UDim2.fromOffset(0,64); PND.hero.Size=UDim2.fromOffset(heroWidth,heroHeight)
+    PND.back.Size=UDim2.fromOffset(heroWidth,heroHeight); PND.scan.Size=UDim2.fromOffset(heroWidth,54)
+    PND.glow.Position=UDim2.fromOffset(cx,cy); PND.rift.Position=UDim2.fromOffset(cx,cy); PND.riftDot.Position=UDim2.fromOffset(cx,cy)
+    PND.glow.Size=UDim2.fromOffset(math.floor(118*sx),math.floor(118*sx)); PND.rift.Size=UDim2.fromOffset(math.floor(62*sx),math.floor(62*sx))
+    for _,r in ipairs(PND.rings) do r.object.Position=UDim2.fromOffset(cx,cy); r.object.Size=UDim2.fromOffset(math.floor(r.base*sx),math.floor(r.base*.34*sx)) end
+    for i,crack in ipairs(PND.cracks) do crack.Position=UDim2.fromOffset(cx,cy); crack.Size=UDim2.fromOffset(math.floor(((i%2==0) and 58 or 82)*sx),2) end
+end
+function PND.startVisuals()
+    if not PND.hero or not PND.hero.Parent or not State.alive or System.theme~="Pandemonium" then return end
+
+    -- Every theme transition gets a fresh animation generation. A stale
+    -- RenderStepped callback from the previous activation must never be able to
+    -- keep writing into the live PANDEMONIUM composition after a switch.
+    PND.generation=(PND.generation or 0)+1
+    local generation=PND.generation
+
+    if PND.connection then
+        pcall(function() PND.connection:Disconnect() end)
+        PND.connection=nil
+    end
+
+    PND.hero.Visible=true
+    PND.back.Visible=true; PND.scan.Visible=true; PND.glow.Visible=true
+    PND.rift.Visible=true; PND.riftInner.Visible=true; PND.riftDot.Visible=true
+    for _,r in ipairs(PND.rings) do r.object.Visible=true; r.stroke.Enabled=true end
+    for _,crack in ipairs(PND.cracks) do crack.Visible=true end
+    for _,e in ipairs(PND.embers) do e.object.Visible=true end
+
+    PND.layoutResponsive(windowWidth,152)
+    local started=os.clock()
+    PND.connection=connect(RunService.RenderStepped,function()
+        if generation ~= PND.generation then return end
+        if not State.alive or System.theme~="Pandemonium" or State.minimized or not PND.hero.Parent then return end
+        local t=os.clock()-started
+        local pulse=(math.sin(t*math.pi*2/2.8)+1)*.5
+
+        -- Reassert the composition's visibility every frame. This is cheap and
+        -- prevents later theme/control passes from leaving one layer hidden.
+        PND.hero.Visible=true
+        PND.back.Visible=true; PND.scan.Visible=true; PND.glow.Visible=true
+        PND.rift.Visible=true; PND.riftInner.Visible=true; PND.riftDot.Visible=true
+        for _,r in ipairs(PND.rings) do r.object.Visible=true; r.stroke.Enabled=true end
+        for _,crack in ipairs(PND.cracks) do crack.Visible=true end
+        for _,e in ipairs(PND.embers) do e.object.Visible=true end
+
+        PND.glow.BackgroundTransparency=.90-pulse*.13; PND.rift.BackgroundTransparency=.05-pulse*.025; PND.riftInner.BackgroundTransparency=.18-pulse*.08
+        PND.glow.Rotation=t*8; PND.rift.Rotation=math.sin(t*1.7)*3
+        for i,r in ipairs(PND.rings) do
+            r.object.Rotation=(i%2==1 and 1 or -1)*t*(18+i*5)+r.phase*12
+            r.stroke.Transparency=math.clamp((i==1 and .10 or .28)-pulse*.10, .04, .62)
+        end
+        for i,crack in ipairs(PND.cracks) do
+            crack.BackgroundTransparency=.42+((math.sin(t*3.0+i)+1)*.5)*.34
+        end
+        for _,e in ipairs(PND.embers) do
+            local q=(math.sin((t+e.phase)*2.4)+1)*.5
+            local drift=math.sin((t+e.phase)*1.3)*9
+            e.object.Position=UDim2.fromOffset(windowWidth*.5+e.baseX+drift,76+e.baseY-q*26)
+            e.object.BackgroundTransparency=.84-q*.62
+        end
+        local scanY=((t*46)%206)-54
+        PND.scan.Position=UDim2.fromOffset(0,scanY)
+        PND.riftDot.BackgroundTransparency=.04+((math.sin(t*5)+1)*.5)*.22
+    end)
+end
+function PND.ensureVisuals()
+    if System.theme~="Pandemonium" or not State.alive or not PND.hero or not PND.hero.Parent then return end
+
+    local connected=false
+    if PND.connection then
+        local ok,value=pcall(function() return PND.connection.Connected end)
+        connected=ok and value == true
+    end
+    if not connected then
+        PND.startVisuals()
+        return
+    end
+
+    PND.hero.Visible=true
+    PND.back.Visible=true; PND.scan.Visible=true; PND.glow.Visible=true
+    PND.rift.Visible=true; PND.riftInner.Visible=true; PND.riftDot.Visible=true
+    for _,r in ipairs(PND.rings) do r.object.Visible=true; r.stroke.Enabled=true end
+    for _,crack in ipairs(PND.cracks) do crack.Visible=true end
+    for _,e in ipairs(PND.embers) do e.object.Visible=true end
+    PND.layoutResponsive(math.max(MIN_WINDOW_WIDTH,windowWidth),152)
+end
+function PND.recoverAfterShow()
+    if System.theme~="Pandemonium" or not State.alive then return end
+    task.defer(function()
+        if not State.alive or System.theme~="Pandemonium" or State.minimized then return end
+        PND.ensureVisuals()
+    end)
+end
+
+-- PANDEMONIUM has its own lifetime watchdog so switching through another theme
+-- cannot permanently leave the rift renderer disconnected or hidden.
+PND.watchdog=PND.watchdog or RunService.RenderStepped:Connect(function()
+    if not State.alive or System.theme~="Pandemonium" or State.minimized or not PND.hero or not PND.hero.Parent then return end
+    local connected=false
+    if PND.connection then
+        local ok,value=pcall(function() return PND.connection.Connected end)
+        connected=ok and value == true
+    end
+    if not connected then
+        pcall(function() PND.startVisuals() end)
+    end
+end)
+if PND.watchdog then
+    local alreadyTracked=false
+    for _,c in ipairs(connections) do if c==PND.watchdog then alreadyTracked=true break end end
+    if not alreadyTracked then connections[#connections+1]=PND.watchdog end
 end
 
 function EMP.startVisuals()
@@ -6150,6 +6377,17 @@ local Theme = {
         muted = Color3.fromRGB(171, 157, 120), surface = Color3.fromRGB(255, 250, 235),
         text = Color3.fromRGB(74, 58, 28), voidDeep = Color3.fromRGB(245, 238, 218),
         toggleOn = Color3.fromRGB(217, 169, 78), toggleOff = Color3.fromRGB(226, 220, 202),
+    },    Pandemonium = {
+        black = Color3.fromRGB(3, 0, 0), deep = Color3.fromRGB(8, 2, 2),
+        panel = Color3.fromRGB(16, 4, 4), panel2 = Color3.fromRGB(8, 2, 2),
+        violet = Color3.fromRGB(92, 12, 20), violet2 = Color3.fromRGB(200, 30, 44),
+        magenta = Color3.fromRGB(255, 111, 54), cyan = Color3.fromRGB(255, 242, 192),
+        ink = Color3.fromRGB(236, 234, 245), dim = Color3.fromRGB(150, 145, 155),
+        faint = Color3.fromRGB(85, 80, 92), line = Color3.fromRGB(200, 40, 40),
+        accent = Color3.fromRGB(200, 30, 44), bright = Color3.fromRGB(255, 242, 192),
+        muted = Color3.fromRGB(150, 145, 155), surface = Color3.fromRGB(16, 4, 4),
+        text = Color3.fromRGB(236, 234, 245), voidDeep = Color3.fromRGB(26, 3, 4),
+        toggleOn = Color3.fromRGB(92, 12, 20), toggleOff = Color3.fromRGB(30, 12, 13),
     },
     height = H,
     current = nil,
@@ -6479,21 +6717,22 @@ function Theme.syncAllThemeVisuals()
     local theme = System.theme
     local bh = theme == "Blackhole"
     local emp = theme == "Empyrean"
+    local pnd = theme == "Pandemonium"
 
     -- Theme identity must be authoritative too: header title/subtitle and
     -- every page-heading symbol are rebuilt from the ACTIVE theme instead of
     -- retaining the colors they had when the UI was first constructed.
-    local accent = emp and Color3.fromRGB(156,116,32) or C.violet2
-    local accentBright = emp and Color3.fromRGB(217,169,78) or C.violet2
-    local symbolMuted = emp and Color3.fromRGB(122,108,74) or C.faint
+    local accent = emp and Color3.fromRGB(156,116,32) or (pnd and Color3.fromRGB(255,111,54) or C.violet2)
+    local accentBright = emp and Color3.fromRGB(217,169,78) or (pnd and Color3.fromRGB(200,30,44) or C.violet2)
+    local symbolMuted = emp and Color3.fromRGB(122,108,74) or (pnd and Color3.fromRGB(150,145,155) or C.faint)
 
     if brandTitle then
-        brandTitle.Text = emp and "EMPYREAN" or (bh and "BLACKHOLE V1" or "VOID NEXUS")
+        brandTitle.Text = emp and "EMPYREAN" or (bh and "BLACKHOLE V1" or (pnd and "PANDEMONIUM" or "VOID NEXUS"))
         brandTitle.TextColor3 = emp and Color3.fromRGB(58,47,26) or C.ink
     end
     local headerSub = header and header:FindFirstChild("Sub")
     if headerSub and headerSub:IsA("TextLabel") then
-        headerSub.Text = emp and "GRACE ATTAINED" or (bh and "REACTOR ONLINE" or "CORE LINK STABLE")
+        headerSub.Text = emp and "GRACE ATTAINED" or (bh and "REACTOR ONLINE" or (pnd and "ABYSS UNSEALED" or "CORE LINK STABLE"))
         headerSub.TextColor3 = emp and Color3.fromRGB(122,108,74) or C.faint
     end
 
@@ -6533,6 +6772,9 @@ function Theme.syncAllThemeVisuals()
         if emp then
             tabs.BackgroundColor3 = Color3.fromRGB(255,250,235)
             tabs.BackgroundTransparency = 0.42
+        elseif pnd then
+            tabs.BackgroundColor3 = C.black
+            tabs.BackgroundTransparency = 0.20
         elseif bh then
             tabs.BackgroundColor3 = C.black
             tabs.BackgroundTransparency = 0.28
@@ -6550,6 +6792,10 @@ function Theme.syncAllThemeVisuals()
             tab.BackgroundColor3 = selected and Color3.fromRGB(255,224,150) or Color3.fromRGB(255,255,255)
             tab.BackgroundTransparency = selected and 0.10 or 0.34
             tab.TextColor3 = selected and Color3.fromRGB(90,63,16) or C.faint
+        elseif pnd then
+            tab.BackgroundColor3 = selected and Color3.fromRGB(40,5,7) or C.panel2
+            tab.BackgroundTransparency = selected and 0.04 or 0.02
+            tab.TextColor3 = selected and C.ink or C.faint
         elseif bh then
             tab.BackgroundColor3 = selected and Color3.fromRGB(30,14,48) or C.panel2
             tab.BackgroundTransparency = 0
@@ -6582,9 +6828,9 @@ function Theme.syncAllThemeVisuals()
     local contentGradient = content and content:FindFirstChild("EmpyreanSurfaceGradient")
     if not emp and contentGradient then contentGradient:Destroy() end
     if content then
-        if emp then
+        if emp or pnd then
             content.BackgroundColor3 = C.panel
-            content.BackgroundTransparency = 0
+            content.BackgroundTransparency = pnd and 0.04 or 0
         else
             content.BackgroundTransparency = 1
         end
@@ -6654,6 +6900,7 @@ function Theme.syncAllThemeVisuals()
         {ThemeUI.defaultRow, ThemeUI.defaultButton},
         {ThemeUI.blackholeRow, ThemeUI.blackholeButton},
         {ThemeUI.empyreanRow, ThemeUI.empyreanButton},
+        {ThemeUI.pandemoniumRow, ThemeUI.pandemoniumButton},
     }
     for _, pair in ipairs(themeRows) do
         local row, button = pair[1], pair[2]
@@ -6673,7 +6920,7 @@ function Theme.syncAllThemeVisuals()
             if desc then desc.TextColor3 = C.faint end
         end
         if button then
-            local active = (row == ThemeUI.empyreanRow and emp) or (row == ThemeUI.blackholeRow and bh) or (row == ThemeUI.defaultRow and not bh and not emp)
+            local active = (row == ThemeUI.empyreanRow and emp) or (row == ThemeUI.pandemoniumRow and pnd) or (row == ThemeUI.blackholeRow and bh) or (row == ThemeUI.defaultRow and not bh and not emp and not pnd)
             button.BackgroundColor3 = active and C.violet2 or C.panel2
             button.BackgroundTransparency = 0
             button.TextColor3 = active and C.ink or C.faint
@@ -6683,7 +6930,7 @@ function Theme.syncAllThemeVisuals()
         end
     end
     if ThemeUI.activeLabel then
-        ThemeUI.activeLabel.Text = bh and "BLACKHOLE V1" or (emp and "EMPYREAN" or "DEFAULT")
+        ThemeUI.activeLabel.Text = bh and "BLACKHOLE V1" or (emp and "EMPYREAN" or (pnd and "PANDEMONIUM" or "DEFAULT"))
         ThemeUI.activeLabel.TextColor3 = C.ink
     end
     if ThemeUI.hint then ThemeUI.hint.TextColor3 = C.faint end
@@ -6871,12 +7118,13 @@ end
 -- prevents EMPYREAN cream controls from surviving a switch back.
 function Theme.canonicalizeControls()
     local theme = System.theme
-    if theme ~= "Default" and theme ~= "Blackhole" and theme ~= "Empyrean" then
+    if theme ~= "Default" and theme ~= "Blackhole" and theme ~= "Empyrean" and theme ~= "Pandemonium" then
         theme = "Default"
     end
 
     local emp = theme == "Empyrean"
     local bh = theme == "Blackhole"
+    local pnd = theme == "Pandemonium"
     local P = emp and {
         panel = Color3.fromRGB(255,253,247), panel2 = Color3.fromRGB(255,248,232),
         surface = Color3.fromRGB(255,250,235), line = Color3.fromRGB(217,169,78),
@@ -6884,6 +7132,13 @@ function Theme.canonicalizeControls()
         text = Color3.fromRGB(58,47,26), muted = Color3.fromRGB(171,157,120),
         bright = Color3.fromRGB(255,243,200), off = Color3.fromRGB(226,220,202),
         nav = Color3.fromRGB(255,255,255), selected = Color3.fromRGB(255,224,150),
+    } or pnd and {
+        panel = Color3.fromRGB(16,4,4), panel2 = Color3.fromRGB(8,2,2),
+        surface = Color3.fromRGB(16,4,4), line = Color3.fromRGB(200,40,40),
+        accent = Color3.fromRGB(200,30,44), accentDeep = Color3.fromRGB(92,12,20),
+        text = Color3.fromRGB(236,234,245), muted = Color3.fromRGB(150,145,155),
+        bright = Color3.fromRGB(255,242,192), off = Color3.fromRGB(30,12,13),
+        nav = Color3.fromRGB(8,2,2), selected = Color3.fromRGB(40,5,7),
     } or bh and {
         panel = Color3.fromRGB(8,8,12), panel2 = Color3.fromRGB(4,4,7),
         surface = Color3.fromRGB(8,8,12), line = Color3.fromRGB(150,120,230),
@@ -7015,6 +7270,7 @@ function Theme.canonicalizeControls()
             {ThemeUI.defaultRow,ThemeUI.defaultButton,"Default"},
             {ThemeUI.blackholeRow,ThemeUI.blackholeButton,"Blackhole"},
             {ThemeUI.empyreanRow,ThemeUI.empyreanButton,"Empyrean"},
+            {ThemeUI.pandemoniumRow,ThemeUI.pandemoniumButton,"Pandemonium"},
         }
         for _,entry in ipairs(entries) do
             local row,button,name=entry[1],entry[2],entry[3]
@@ -7093,12 +7349,12 @@ function Theme.canonicalizeControls()
     -- Page symbols and header identity.
     local brandAccent=P.accentDeep
     if brandTitle then
-        brandTitle.Text=emp and "EMPYREAN" or (bh and "BLACKHOLE V1" or "VOID NEXUS")
+        brandTitle.Text=emp and "EMPYREAN" or (bh and "BLACKHOLE V1" or (pnd and "PANDEMONIUM" or "VOID NEXUS"))
         brandTitle.TextColor3=P.text
     end
     local sub=header and header:FindFirstChild("Sub")
     if sub then
-        sub.Text=emp and "GRACE ATTAINED" or (bh and "REACTOR ONLINE" or "CORE LINK STABLE")
+        sub.Text=emp and "GRACE ATTAINED" or (bh and "REACTOR ONLINE" or (pnd and "ABYSS UNSEALED" or "CORE LINK STABLE"))
         sub.TextColor3=P.muted
     end
     if brandmark then
@@ -7134,6 +7390,8 @@ function Theme.stopSpecialVisuals()
         EMP.connection=nil
     end
     if EMP and EMP.hero then EMP.hero.Visible=false end
+    if PND and PND.connection then pcall(function() PND.connection:Disconnect() end); PND.connection=nil end
+    if PND and PND.hero then PND.hero.Visible=false end
     if BH and BH.hero then BH.hero.Visible=false end
 end
 
@@ -7145,15 +7403,16 @@ function Theme.hardResetControls()
     local theme = System.theme
     local bh = theme == "Blackhole"
     local emp = theme == "Empyrean"
+    local pnd = theme == "Pandemonium"
 
-    local darkPanel = bh and Color3.fromRGB(4,4,7) or Color3.fromRGB(20,10,36)
-    local darkPanelAlt = bh and Color3.fromRGB(8,8,12) or Color3.fromRGB(30,14,48)
-    local darkLine = bh and Color3.fromRGB(150,120,230) or Color3.fromRGB(82,55,122)
-    local darkText = bh and Color3.fromRGB(236,234,245) or Color3.fromRGB(233,226,247)
-    local darkMuted = bh and Color3.fromRGB(150,146,170) or Color3.fromRGB(155,143,184)
-    local darkFaint = bh and Color3.fromRGB(85,80,105) or Color3.fromRGB(92,82,122)
-    local darkAccent = bh and Color3.fromRGB(122,63,242) or Color3.fromRGB(168,85,247)
-    local darkBright = bh and Color3.fromRGB(238,241,251) or Color3.fromRGB(143,227,255)
+    local darkPanel = bh and Color3.fromRGB(4,4,7) or (pnd and C.panel or Color3.fromRGB(20,10,36))
+    local darkPanelAlt = bh and Color3.fromRGB(8,8,12) or (pnd and C.panel2 or Color3.fromRGB(30,14,48))
+    local darkLine = bh and Color3.fromRGB(150,120,230) or (pnd and C.line or Color3.fromRGB(82,55,122))
+    local darkText = bh and Color3.fromRGB(236,234,245) or (pnd and C.text or Color3.fromRGB(233,226,247))
+    local darkMuted = bh and Color3.fromRGB(150,146,170) or (pnd and C.muted or Color3.fromRGB(155,143,184))
+    local darkFaint = bh and Color3.fromRGB(85,80,105) or (pnd and C.faint or Color3.fromRGB(92,82,122))
+    local darkAccent = bh and Color3.fromRGB(122,63,242) or (pnd and C.accent or Color3.fromRGB(168,85,247))
+    local darkBright = bh and Color3.fromRGB(238,241,251) or (pnd and C.bright or Color3.fromRGB(143,227,255))
 
     for _, page in pairs(pageMap) do
         for _, child in ipairs(page:GetChildren()) do
@@ -7219,6 +7478,7 @@ function Theme.hardResetControls()
             {ThemeUI.defaultRow,ThemeUI.defaultButton},
             {ThemeUI.blackholeRow,ThemeUI.blackholeButton},
             {ThemeUI.empyreanRow,ThemeUI.empyreanButton},
+            {ThemeUI.pandemoniumRow,ThemeUI.pandemoniumButton},
         }) do
             local row,button=pair[1],pair[2]
             if row then
@@ -7227,7 +7487,7 @@ function Theme.hardResetControls()
                 if st then st.Color=emp and C.line or darkLine end
             end
             if button then
-                local active=(row==ThemeUI.empyreanRow and emp) or (row==ThemeUI.blackholeRow and bh) or (row==ThemeUI.defaultRow and not bh and not emp)
+                local active=(row==ThemeUI.empyreanRow and emp) or (row==ThemeUI.pandemoniumRow and pnd) or (row==ThemeUI.blackholeRow and bh) or (row==ThemeUI.defaultRow and not bh and not emp and not pnd)
                 button.BackgroundColor3=active and (emp and C.violet2 or darkAccent) or (emp and C.panel2 or darkPanel)
                 button.TextColor3=active and (emp and Color3.fromRGB(58,47,26) or darkText) or (emp and C.faint or darkFaint)
                 local st=button:FindFirstChildOfClass("UIStroke")
@@ -7256,6 +7516,7 @@ end
 function Theme.forceThemeControls()
     local theme = System.theme
     local emp = theme == "Empyrean"
+    local pnd = theme == "Pandemonium"
     local bh = theme == "Blackhole"
     local gold = Color3.fromRGB(217,169,78)
     local goldDeep = Color3.fromRGB(156,116,32)
@@ -7263,12 +7524,12 @@ function Theme.forceThemeControls()
     local cream2 = Color3.fromRGB(255,248,232)
     local ink = Color3.fromRGB(58,47,26)
     local faint = Color3.fromRGB(171,157,120)
-    local dark = bh and Color3.fromRGB(8,8,12) or Color3.fromRGB(8,4,16)
-    local dark2 = bh and Color3.fromRGB(4,4,7) or Color3.fromRGB(20,10,36)
-    local darkAccent = bh and Color3.fromRGB(122,63,242) or Color3.fromRGB(168,85,247)
-    local darkText = bh and Color3.fromRGB(236,234,245) or Color3.fromRGB(233,226,247)
-    local darkMuted = bh and Color3.fromRGB(150,146,170) or Color3.fromRGB(155,143,184)
-    local line = emp and gold or (bh and Color3.fromRGB(150,120,230) or Color3.fromRGB(82,55,122))
+    local dark = bh and Color3.fromRGB(8,8,12) or (pnd and Color3.fromRGB(8,2,2) or Color3.fromRGB(8,4,16))
+    local dark2 = bh and Color3.fromRGB(4,4,7) or (pnd and Color3.fromRGB(16,4,4) or Color3.fromRGB(20,10,36))
+    local darkAccent = bh and Color3.fromRGB(122,63,242) or (pnd and Color3.fromRGB(200,30,44) or Color3.fromRGB(168,85,247))
+    local darkText = bh and Color3.fromRGB(236,234,245) or (pnd and Color3.fromRGB(236,234,245) or Color3.fromRGB(233,226,247))
+    local darkMuted = bh and Color3.fromRGB(150,146,170) or (pnd and Color3.fromRGB(150,145,155) or Color3.fromRGB(155,143,184))
+    local line = emp and gold or (pnd and Color3.fromRGB(200,40,40) or (bh and Color3.fromRGB(150,120,230) or Color3.fromRGB(82,55,122)))
 
     pcall(function()
         for key, tab in pairs(navButtons) do
@@ -7289,9 +7550,9 @@ function Theme.forceThemeControls()
     pcall(function()
         for _, view in ipairs(toggleViews) do
             local value=view.getter()
-            view.track.BackgroundColor3 = emp and (value and gold or Color3.fromRGB(226,220,202)) or (value and (bh and Color3.fromRGB(70,38,125) or Color3.fromRGB(88,48,124)) or (bh and Color3.fromRGB(24,24,31) or Color3.fromRGB(32,24,43)))
+            view.track.BackgroundColor3 = emp and (value and gold or Color3.fromRGB(226,220,202)) or (value and (pnd and Color3.fromRGB(92,12,20) or (bh and Color3.fromRGB(70,38,125) or Color3.fromRGB(88,48,124))) or (pnd and Color3.fromRGB(30,12,13) or (bh and Color3.fromRGB(24,24,31) or Color3.fromRGB(32,24,43))))
             view.track.BackgroundTransparency=emp and .10 or 0
-            view.knob.BackgroundColor3=emp and (value and Color3.fromRGB(255,243,200) or faint) or (value and (bh and Color3.fromRGB(238,241,251) or Color3.fromRGB(143,227,255)) or (bh and Color3.fromRGB(85,80,105) or Color3.fromRGB(92,82,122)))
+            view.knob.BackgroundColor3=emp and (value and Color3.fromRGB(255,243,200) or faint) or (value and (pnd and Color3.fromRGB(255,242,192) or (bh and Color3.fromRGB(238,241,251) or Color3.fromRGB(143,227,255))) or (pnd and Color3.fromRGB(85,80,92) or (bh and Color3.fromRGB(85,80,105) or Color3.fromRGB(92,82,122))))
             local st=view.track:FindFirstChildOfClass("UIStroke"); if st then st.Color=line end
         end
     end)
@@ -7299,9 +7560,9 @@ function Theme.forceThemeControls()
     pcall(function()
         for _, view in ipairs(sliders) do
             view.fill.BackgroundColor3=emp and gold or darkAccent
-            view.knob.BackgroundColor3=emp and Color3.fromRGB(255,243,200) or (bh and Color3.fromRGB(238,241,251) or Color3.fromRGB(143,227,255))
-            view.valueLabel.TextColor3=emp and goldDeep or (bh and Color3.fromRGB(238,241,251) or Color3.fromRGB(143,227,255))
-            local rail=view.hit:FindFirstChild("Rail"); if rail then rail.BackgroundColor3=emp and Color3.fromRGB(226,220,202) or (bh and Color3.fromRGB(24,24,31) or Color3.fromRGB(47,32,65)) end
+            view.knob.BackgroundColor3=emp and Color3.fromRGB(255,243,200) or (pnd and Color3.fromRGB(255,242,192) or (bh and Color3.fromRGB(238,241,251) or Color3.fromRGB(143,227,255)))
+            view.valueLabel.TextColor3=emp and goldDeep or (pnd and Color3.fromRGB(255,111,54) or (bh and Color3.fromRGB(238,241,251) or Color3.fromRGB(143,227,255)))
+            local rail=view.hit:FindFirstChild("Rail"); if rail then rail.BackgroundColor3=emp and Color3.fromRGB(226,220,202) or (pnd and Color3.fromRGB(30,12,13) or (bh and Color3.fromRGB(24,24,31) or Color3.fromRGB(47,32,65))) end
             local st=view.knob:FindFirstChildOfClass("UIStroke"); if st then st.Color=line end
         end
     end)
@@ -7332,17 +7593,17 @@ function Theme.forceThemeControls()
 
     pcall(function()
         if ThemeUI then
-            local rows={ThemeUI.defaultRow,ThemeUI.blackholeRow,ThemeUI.empyreanRow}
-            local buttons={ThemeUI.defaultButton,ThemeUI.blackholeButton,ThemeUI.empyreanButton}
+            local rows={ThemeUI.defaultRow,ThemeUI.blackholeRow,ThemeUI.empyreanRow,ThemeUI.pandemoniumRow}
+            local buttons={ThemeUI.defaultButton,ThemeUI.blackholeButton,ThemeUI.empyreanButton,ThemeUI.pandemoniumButton}
             for _,row in ipairs(rows) do if row then row.BackgroundColor3=emp and cream2 or dark; row.BackgroundTransparency=emp and .02 or 0; local st=row:FindFirstChildOfClass("UIStroke"); if st then st.Color=line end end end
             for i,button in ipairs(buttons) do if button then
-                local active=(i==3 and emp) or (i==2 and bh) or (i==1 and not emp and not bh)
+                local active=(i==4 and pnd) or (i==3 and emp) or (i==2 and bh) or (i==1 and not emp and not bh and not pnd)
                 button.BackgroundColor3=active and (emp and gold or darkAccent) or (emp and cream or dark)
                 button.TextColor3=active and (emp and ink or darkText) or (emp and faint or darkMuted)
                 button.AutoButtonColor=false
                 local st=button:FindFirstChildOfClass("UIStroke"); if st then st.Color=line end
             end end
-            if ThemeUI.activeLabel then ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or (emp and "EMPYREAN" or "DEFAULT"); ThemeUI.activeLabel.TextColor3=emp and ink or darkText end
+            if ThemeUI.activeLabel then ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or (emp and "EMPYREAN" or (pnd and "PANDEMONIUM" or "DEFAULT")); ThemeUI.activeLabel.TextColor3=emp and ink or darkText end
             if ThemeUI.hint then ThemeUI.hint.TextColor3=emp and faint or darkMuted end
         end
     end)
@@ -7353,14 +7614,29 @@ function Theme.forceThemeControls()
 end
 
 function Theme.apply(themeName)
-    if themeName~="Blackhole" and themeName~="Empyrean" then themeName="Default" end
+    if themeName~="Blackhole" and themeName~="Empyrean" and themeName~="Pandemonium" then themeName="Default" end
     Theme.stopSpecialVisuals(); System.theme=themeName
-    local bh=themeName=="Blackhole"; local emp=themeName=="Empyrean"
-    Theme.current=bh and Theme.Blackhole or(emp and Theme.Empyrean or Theme.Default); Theme.copy(Theme.current)
+    local bh=themeName=="Blackhole"; local emp=themeName=="Empyrean"; local pnd=themeName=="Pandemonium"
+    Theme.current=bh and Theme.Blackhole or(emp and Theme.Empyrean or(pnd and Theme.Pandemonium or Theme.Default)); Theme.copy(Theme.current)
     if bh then
         Theme.height=600; windowHeight=Theme.height; holder.Size=UDim2.fromOffset(windowWidth,windowHeight); shadow.Size=UDim2.fromOffset(windowWidth+12,windowHeight+12); panel.Size=UDim2.fromOffset(windowWidth,windowHeight); panel.BackgroundColor3=C.panel; panel.BackgroundTransparency=.18; panelStroke.Color=C.line; panelStroke.Transparency=.72; panelBackdrop.Visible=false; voidFX.Visible=false; ticker.Visible=false; content.BackgroundTransparency=1
         local panelGradient=panel:FindFirstChildOfClass("UIGradient"); if panelGradient then panelGradient.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(23,12,39)),ColorSequenceKeypoint.new(.45,Color3.fromRGB(14,7,26)),ColorSequenceKeypoint.new(1,Color3.fromRGB(5,2,12))}); panelGradient.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,.18),NumberSequenceKeypoint.new(.48,.28),NumberSequenceKeypoint.new(1,.12)}) end
         header.Position=UDim2.fromOffset(0,0); header.Size=UDim2.fromOffset(windowWidth,64); header.BackgroundColor3=C.panel; header.BackgroundTransparency=.08; local headerGradient=header:FindFirstChildOfClass("UIGradient"); if headerGradient then headerGradient.Color=ColorSequence.new(C.violet,C.panel); headerGradient.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,.82),NumberSequenceKeypoint.new(1,1)}) end; headerLine.BackgroundColor3=C.line; headerLine.BackgroundTransparency=.70; brandTitle.Text="BLACKHOLE V1"; brandTitle.TextColor3=C.ink; header:FindFirstChild("Sub").Text="REACTOR ONLINE"; BH.hero.Visible=true; BH.hero.Position=UDim2.fromOffset(0,64); BH.hero.Size=UDim2.fromOffset(windowWidth,152); BH.hero.BackgroundColor3=C.black; BH.heroStroke.Color=C.line; BH.heroStroke.Transparency=.82; tabs.Position=UDim2.fromOffset(0,216); tabs.BackgroundColor3=C.black; tabs.BackgroundTransparency=.28; content.Position=UDim2.fromOffset(0,280); content.Size=UDim2.fromOffset(windowWidth,windowHeight-280); edgeSheen.BackgroundColor3=C.cyan; BH.atmosphere.BackgroundColor3=Color3.fromRGB(12,8,20)
+    elseif pnd then
+        Theme.height=600; windowHeight=Theme.height
+        holder.Size=UDim2.fromOffset(windowWidth,windowHeight); shadow.Size=UDim2.fromOffset(windowWidth+12,windowHeight+12); panel.Size=UDim2.fromOffset(windowWidth,windowHeight)
+        panel.BackgroundColor3=C.panel; panel.BackgroundTransparency=.10; panelStroke.Color=C.line; panelStroke.Transparency=.42
+        panelBackdrop.Visible=false; voidFX.Visible=false; ticker.Visible=false
+        local panelGradient=panel:FindFirstChildOfClass("UIGradient")
+        if panelGradient then panelGradient.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(22,4,5)),ColorSequenceKeypoint.new(.48,Color3.fromRGB(12,2,3)),ColorSequenceKeypoint.new(1,Color3.fromRGB(4,0,0))}); panelGradient.Transparency=NumberSequence.new({ColorSequenceKeypoint.new(0,.08),ColorSequenceKeypoint.new(.55,.20),ColorSequenceKeypoint.new(1,.06)}) end
+        header.Position=UDim2.fromOffset(0,0); header.Size=UDim2.fromOffset(windowWidth,64); header.BackgroundColor3=C.panel; header.BackgroundTransparency=.08
+        local headerGradient=header:FindFirstChildOfClass("UIGradient"); if headerGradient then headerGradient.Color=ColorSequence.new(Color3.fromRGB(50,7,9),Color3.fromRGB(16,4,4)); headerGradient.Transparency=NumberSequence.new({ColorSequenceKeypoint.new(0,.20),ColorSequenceKeypoint.new(1,.88)}) end
+        headerLine.BackgroundColor3=C.line; headerLine.BackgroundTransparency=.48; brandTitle.Text="PANDEMONIUM"; brandTitle.TextColor3=C.ink; header:FindFirstChild("Sub").Text="ABYSS UNSEALED"
+        PND.hero.Visible=true; PND.hero.Position=UDim2.fromOffset(0,64); PND.hero.Size=UDim2.fromOffset(windowWidth,152); PND.hero.BackgroundColor3=C.black; PND.heroStroke.Color=C.line; PND.heroStroke.Transparency=.30
+        tabs.Position=UDim2.fromOffset(0,216); tabs.BackgroundColor3=C.black; tabs.BackgroundTransparency=.20
+        content.Position=UDim2.fromOffset(0,280); content.Size=UDim2.fromOffset(windowWidth,windowHeight-280); content.BackgroundColor3=C.panel; content.BackgroundTransparency=.04
+        local cg=content:FindFirstChild("EmpyreanSurfaceGradient"); if cg then cg:Destroy() end
+        edgeSheen.BackgroundColor3=Color3.fromRGB(255,111,54)
     elseif emp then
         -- EMPYREAN follows EMPYREAN (1).html: cream glass, gold primary accent,
         -- pale sky secondary accent, light celestial navigation and content.
@@ -7454,11 +7730,15 @@ function Theme.apply(themeName)
     ticker.BackgroundColor3=emp and C.panel2 or C.black
     tickerText.TextColor3=C.faint
     tabs:FindFirstChildOfClass("UIStroke").Color=C.line
-    edgeSheenGradient.Color=emp and ColorSequence.new(Color3.fromRGB(255,243,200),Color3.fromRGB(207,230,255)) or ColorSequence.new(C.cyan,C.violet2)
+    edgeSheenGradient.Color=emp and ColorSequence.new(Color3.fromRGB(255,243,200),Color3.fromRGB(207,230,255)) or (pnd and ColorSequence.new(Color3.fromRGB(255,242,192),Color3.fromRGB(200,30,44)) or ColorSequence.new(C.cyan,C.violet2))
     for key,tab in pairs(navButtons) do
         if emp then
             tab.BackgroundColor3=Color3.fromRGB(255,255,255)
             tab.BackgroundTransparency=.34
+            tab.TextColor3=C.faint
+        elseif pnd then
+            tab.BackgroundColor3=C.panel2
+            tab.BackgroundTransparency=.02
             tab.TextColor3=C.faint
         else
             tab.BackgroundColor3=bh and C.panel2 or Color3.fromRGB(8,4,16)
@@ -7467,7 +7747,7 @@ function Theme.apply(themeName)
         local st=UI.navStrokes[key]
         if st then st.Color=C.line end
         local bar=UI.navBars[key]
-        if bar then bar.BackgroundColor3=emp and Color3.fromRGB(217,169,78) or C.violet2 end
+        if bar then bar.BackgroundColor3=emp and Color3.fromRGB(217,169,78) or (pnd and C.accent or C.violet2) end
     end
     Theme.restyleRows(); Theme.restyleText()
     if emp then
@@ -7517,15 +7797,20 @@ function Theme.apply(themeName)
             ThemeUI.empyreanButton.TextColor3=C.ink
         end
     end
-    if ThemeUI.activeLabel then ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or(emp and "EMPYREAN" or "DEFAULT"); ThemeUI.activeLabel.TextColor3=C.ink end
+    if ThemeUI.activeLabel then ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or(emp and "EMPYREAN" or (pnd and "PANDEMONIUM" or "DEFAULT")); ThemeUI.activeLabel.TextColor3=C.ink end
     if ThemeUI.defaultButton then ThemeUI.defaultButton.BackgroundColor3=(not bh and not emp) and C.violet2 or C.panel2; ThemeUI.defaultButton.TextColor3=(not bh and not emp) and C.ink or C.faint end
     if ThemeUI.blackholeButton then ThemeUI.blackholeButton.BackgroundColor3=bh and C.violet2 or C.panel2; ThemeUI.blackholeButton.TextColor3=bh and C.ink or C.faint end
     if ThemeUI.empyreanButton then ThemeUI.empyreanButton.BackgroundColor3=emp and C.violet2 or C.panel2; ThemeUI.empyreanButton.TextColor3=emp and C.ink or C.faint end
+    if ThemeUI.pandemoniumButton then ThemeUI.pandemoniumButton.BackgroundColor3=pnd and C.accent or C.panel2; ThemeUI.pandemoniumButton.TextColor3=pnd and C.ink or C.faint end
     if ThemeUI.defaultRow then local st=ThemeUI.defaultRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=(not bh and not emp) and C.violet2 or C.line end end
     if ThemeUI.blackholeRow then local st=ThemeUI.blackholeRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=bh and C.violet2 or C.line end end
     if ThemeUI.empyreanRow then local st=ThemeUI.empyreanRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=emp and C.violet2 or C.line end end
+    if ThemeUI.pandemoniumRow then local st=ThemeUI.pandemoniumRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=pnd and C.accent or C.line end end
     if bh then
         BH.core.BackgroundColor3=Color3.new(0,0,0); BH.coreGlow.BackgroundColor3=Color3.fromRGB(65,35,135); BH.silverStroke.Color=Color3.fromRGB(238,241,251); BH.purpleStroke.Color=Color3.fromRGB(122,63,242)
+    elseif pnd then
+        pcall(function() PND.startVisuals() end)
+        task.defer(function() if State.alive and System.theme=="Pandemonium" then pcall(function() PND.ensureVisuals() end) end end)
     elseif emp then
         -- Restart the active EMPYREAN renderer after every theme transition.
         -- The lifetime watchdog below remains alive even while another theme is
@@ -7558,7 +7843,7 @@ function Theme.apply(themeName)
 end
 
 UI.setTheme = function(themeName)
-    local normalized = (themeName == "Blackhole" or themeName == "Empyrean" or themeName == "Default")
+    local normalized = (themeName == "Blackhole" or themeName == "Empyrean" or themeName == "Pandemonium" or themeName == "Default")
         and themeName or "Default"
 
     -- Commit the selection BEFORE touching any visuals. This is the single
@@ -7598,6 +7883,17 @@ UI.setTheme = function(themeName)
     notify("Theme saved: " .. normalized)
     pcall(function() if MiniMode and MiniMode.applyTheme then MiniMode.applyTheme() end end)
     render()
+
+    -- The renderer is intentionally rebound one scheduler turn AFTER all theme
+    -- control passes. This is the final guard against a legacy visual pass or
+    -- render cycle leaving PANDEMONIUM's effect stack disconnected/hidden.
+    if normalized == "Pandemonium" then
+        task.defer(function()
+            if State.alive and System.theme == "Pandemonium" then
+                pcall(function() PND.ensureVisuals() end)
+            end
+        end)
+    end
 end
 
 
@@ -7695,7 +7991,9 @@ render = function()
     return ok
 end
 
-if System.theme=="Empyrean" and EMP.ensureVisuals then
+if System.theme=="Pandemonium" and PND.ensureVisuals then
+    task.defer(function() if State.alive then PND.ensureVisuals() end end)
+elseif System.theme=="Empyrean" and EMP.ensureVisuals then
     task.defer(function() if State.alive then EMP.ensureVisuals() end end)
 end
 
@@ -7762,7 +8060,7 @@ if not __themeOK then
     System.theme = __startupTheme
     pcall(function()
         local selected = __startupTheme
-        Theme.current = selected == "Blackhole" and Theme.Blackhole or (selected == "Empyrean" and Theme.Empyrean or Theme.Default)
+        Theme.current = selected == "Blackhole" and Theme.Blackhole or (selected == "Empyrean" and Theme.Empyrean or (selected == "Pandemonium" and Theme.Pandemonium or Theme.Default))
         Theme.copy(Theme.current)
         Theme.hardResetControls()
         render()
@@ -7780,7 +8078,36 @@ do
         local loadingLayer = __loaderLayer
 
         local startupTheme = System.startupTheme
-        if startupTheme == "Empyrean" then
+        if startupTheme == "Pandemonium" then
+            loadingLayer.BackgroundColor3=Color3.fromRGB(3,0,0); loadingLayer.BackgroundTransparency=.02
+            local loadCard=frame(loadingLayer,"LoadingCard",0,0,326,402,Color3.fromRGB(16,4,4),18); loadCard.AnchorPoint=Vector2.new(.5,.5); loadCard.Position=UDim2.fromScale(.5,.5); loadCard.BackgroundTransparency=.08; loadCard.ZIndex=101; stroke(loadCard,Color3.fromRGB(200,40,40),.30,1)
+            local loadScale=make("UIScale",loadCard,{Scale=.88}); TweenService:Create(loadScale,TweenInfo.new(.62,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Scale=1}):Play()
+            local loadTitle=safeText(loadCard,"Title","PANDEMONIUM",0,16,326,22,17,Color3.fromRGB(255,242,192),Enum.Font.GothamBold); loadTitle.TextXAlignment=Enum.TextXAlignment.Center; loadTitle.ZIndex=103
+            local loadSub=safeText(loadCard,"Sub","ABYSS UNSEALED",0,40,326,16,8,Color3.fromRGB(150,145,155),Enum.Font.GothamBold); loadSub.TextXAlignment=Enum.TextXAlignment.Center; loadSub.ZIndex=103
+            local symbol=frame(loadCard,"Symbol",0,0,220,220,Color3.new(1,1,1),110); symbol.AnchorPoint=Vector2.new(.5,.5); symbol.Position=UDim2.new(.5,0,0,156); symbol.BackgroundTransparency=1; symbol.ZIndex=102
+            local bloom=frame(symbol,"Bloom",0,0,150,150,Color3.fromRGB(200,30,44),75); bloom.AnchorPoint=Vector2.new(.5,.5); bloom.Position=UDim2.fromScale(.5,.5); bloom.BackgroundTransparency=.90; bloom.ZIndex=102
+            local outer=frame(symbol,"Outer",0,0,126,52,Color3.new(1,1,1),26); outer.AnchorPoint=Vector2.new(.5,.5); outer.Position=UDim2.fromScale(.5,.5); outer.BackgroundTransparency=1; outer.ZIndex=105; stroke(outer,Color3.fromRGB(200,30,44),.16,2)
+            local inner=frame(symbol,"Inner",0,0,92,36,Color3.new(1,1,1),18); inner.AnchorPoint=Vector2.new(.5,.5); inner.Position=UDim2.fromScale(.5,.5); inner.BackgroundTransparency=1; inner.ZIndex=106; stroke(inner,Color3.fromRGB(255,111,54),.28,1)
+            local cracks={}; for i=1,10 do local c=frame(symbol,"Crack"..i,0,0,70+(i%3)*10,2,Color3.fromRGB(200,30,44),1); c.AnchorPoint=Vector2.new(.5,.5); c.Position=UDim2.fromScale(.5,.5); c.Rotation=(i-1)*36+(i%2)*7; c.BackgroundTransparency=.40; c.ZIndex=104; cracks[#cracks+1]=c end
+            local core=frame(symbol,"Core",0,0,58,58,Color3.fromRGB(3,0,0),29); core.AnchorPoint=Vector2.new(.5,.5); core.Position=UDim2.fromScale(.5,.5); core.ZIndex=108; stroke(core,Color3.fromRGB(255,111,54),.12,1)
+            local dot=frame(core,"Dot",0,0,8,8,Color3.fromRGB(255,242,192),4); dot.AnchorPoint=Vector2.new(.5,.5); dot.Position=UDim2.fromScale(.5,.5); dot.ZIndex=109
+            local loadStatus=safeText(loadCard,"Status","UNSEALING ABYSS...",0,286,326,18,9,Color3.fromRGB(255,111,54),Enum.Font.GothamBold); loadStatus.TextXAlignment=Enum.TextXAlignment.Center; loadStatus.ZIndex=121
+            local loadRail=frame(loadCard,"Rail",39,318,248,4,Color3.fromRGB(92,12,20),2); loadRail.ZIndex=121; local loadFill=frame(loadRail,"Fill",0,0,0,4,Color3.fromRGB(200,30,44),2); loadFill.ZIndex=122
+            local loadPercent=safeText(loadCard,"Percent","0%",0,330,326,16,8,Color3.fromRGB(150,145,155),Enum.Font.GothamMedium); loadPercent.TextXAlignment=Enum.TextXAlignment.Center; loadPercent.ZIndex=121
+            local loadHint=safeText(loadCard,"Hint","RIFT LINK // ESTABLISHING",0,365,326,14,7,Color3.fromRGB(150,145,155),Enum.Font.GothamMedium); loadHint.TextXAlignment=Enum.TextXAlignment.Center; loadHint.ZIndex=121
+            local loadStart=os.clock(); local loadDuration=2.8
+            local stages={{0,"UNSEALING ABYSS..."},{.18,"INITIALIZING SYSTEM CORE..."},{.37,"IGNITING RIFT..."},{.56,"ALIGNING FRACTURES..."},{.75,"SYNCHRONIZING RIFT LINK..."},{.90,"PANDEMONIUM ONLINE"}}
+            local conn; conn=connect(RunService.RenderStepped,function()
+                if not State.alive or not loadingLayer.Parent then if conn then conn:Disconnect() end; return end
+                local elapsed=os.clock()-loadStart; local progress=math.clamp(elapsed/loadDuration,0,1); local pulse=(math.sin(elapsed*math.pi*2/1.8)+1)*.5
+                bloom.BackgroundTransparency=.94-pulse*.12; outer.Rotation=elapsed*28; inner.Rotation=-elapsed*48
+                for i,c in ipairs(cracks) do c.BackgroundTransparency=.30+((math.sin(elapsed*4+i)+1)*.5)*.48 end
+                core.BackgroundTransparency=.02+((math.sin(elapsed*4.4)+1)*.5)*.12; dot.BackgroundTransparency=.04+((math.sin(elapsed*5)+1)*.5)*.28
+                loadStatus.Text=stages[1][2]; for i=#stages,1,-1 do if progress>=stages[i][1] then loadStatus.Text=stages[i][2]; break end end
+                loadFill.Size=UDim2.new(progress,0,1,0); loadPercent.Text=string.format("%d%%",math.floor(progress*100+.5))
+                if progress>=1 then conn:Disconnect(); loadStatus.Text="PANDEMONIUM ONLINE"; task.wait(.10); if not State.alive then return end; TweenService:Create(loadScale,TweenInfo.new(.25,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{Scale=.78}):Play(); TweenService:Create(loadingLayer,TweenInfo.new(.32,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{BackgroundTransparency=1}):Play(); task.delay(.36,function() if not State.alive then return end; if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled=false end; if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end; holder.Visible=true; root.Enabled=true; if System.theme=="Pandemonium" and PND.ensureVisuals then PND.ensureVisuals() end; local bootStroke=panel:FindFirstChildOfClass("UIStroke"); if bootStroke then bootStroke.Transparency=1; TweenService:Create(bootStroke,TweenInfo.new(.55,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Transparency=.30}):Play() end; if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end end) end
+            end)
+        elseif startupTheme == "Empyrean" then
             loadingLayer.BackgroundColor3 = Color3.fromRGB(247,242,226); loadingLayer.BackgroundTransparency=0.02
             local loadCard=frame(loadingLayer,"LoadingCard",0,0,326,402,Color3.fromRGB(255,253,247),18); loadCard.AnchorPoint=Vector2.new(.5,.5); loadCard.Position=UDim2.fromScale(.5,.5); loadCard.BackgroundTransparency=.08; loadCard.ZIndex=101; stroke(loadCard,Color3.fromRGB(217,169,78),.34,1)
             local loadScale=make("UIScale",loadCard,{Scale=.88}); TweenService:Create(loadScale,TweenInfo.new(.62,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Scale=1}):Play()
@@ -8642,7 +8969,9 @@ connect(Input.InputBegan, function(input, gameProcessed)
                 State.visibilityTween = tween
                 tween:Play()
 
-                if System.theme == "Empyrean" and EMP.recoverAfterShow then
+                if System.theme == "Pandemonium" and PND.recoverAfterShow then
+                    PND.recoverAfterShow()
+                elseif System.theme == "Empyrean" and EMP.recoverAfterShow then
                     EMP.recoverAfterShow()
                 end
             end
@@ -8879,7 +9208,7 @@ local __env = (type(getgenv) == "function" and getgenv()) or _G
 local function __normalizeStartupTheme(v)
     if type(v) ~= "string" then return nil end
     v = v:gsub("^%s+", ""):gsub("%s+$", "")
-    if v == "Default" or v == "Blackhole" or v == "Empyrean" then return v end
+    if v == "Default" or v == "Blackhole" or v == "Empyrean" or v == "Pandemonium" then return v end
     return nil
 end
 local __startupTheme
@@ -8911,7 +9240,7 @@ if not __startupTheme then
     end
     __startupTheme = __themeFileTheme
 end
-__startupTheme = __startupTheme or "Default"
+__startupTheme = __startupTheme or "Pandemonium"
 -- IMPORTANT: do not write the startup fallback back into session state here.
 -- Session state is only written by an actual theme selection. Otherwise a stale
 -- Blackhole disk value would become a new "authoritative" session value and

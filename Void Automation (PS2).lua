@@ -1,13 +1,17 @@
 loadstring([=====[
--- AutoSkills / Void bootstrap (compact build)
+-- AutoSkills / Void bootstrap (STABLE PERSISTENCE BUILD)
 local __AUTOSKILLS_SOURCE = [====[
 
+-- VOID AUTOMATION BUILD: FINAL_STARTUP_FIXED_2026-09-29
+-- Profile initialization is intentionally lazy; it is not part of critical startup.
 local Settings = {
     BossAutoSave = true, BossFirstDiscovery = false, BossGridSearch = true,
     BossDwell = 1.5, BossGridRadius = 2048,
     AutoBoss = false, BossAutoRange = 500000, BossLocalScanRadius = 2500, BossNoAttackTimeout = 5,
     GuardianDamageTimeout = 0.75, GuardianStuckTimeout = 6, GuardianCombatStallTimeout = 25,
     GuardianVerifyInterval = 1.0, GuardianMaxRecoveries = 1,
+    SmartReacquire = true, BossRouteMode = "Nearest",
+    OverlayLock = false,
     StaticMapScan = true, StaticScanRange = 500000,
     AutoRejoin = true, AutoExecute = true,
     PrivateServerMap = "Ouwigahara", PrivateJoinHold = 1.35,
@@ -25,12 +29,15 @@ local Settings = {
     ESPMaxDistance = 2500,
     HealthLock = true, FarmEnabled = false, FarmDepth = 7, FarmHealthOnly = true,
     FarmMinHP = 3000, FarmMaxHP = 3200,
-    FarmM1 = true, FarmAutoLoot = true,
+    FarmM1 = true, FarmAutoLoot = true, LootTimeout = 10, LootSettleTime = 1.5,
     FarmUseSkills = true, FarmExpandHitbox = false, FarmHitboxSize = 16,
     HealthEscapeEnabled = false, HealthThreshold = 30, HealthSource = "Auto",
     UICompact = false, UIOpacity = 1, UIScale = 1, NotificationsEnabled = true,
     SafetyEnabled = true, SafetyStuckTimeout = 8, SafetyAutoRecover = true,
     SafetyPauseOnUnexpected = true, StatsEnabled = true,
+    WebhookEnabled = false, WebhookURL = "",
+    WebhookBoss = true, WebhookLoot = true, WebhookRecovery = true,
+    WebhookSession = true, WebhookDeath = true, WebhookRateLimit = 2.0,
 }
 
 local CustomHealthReader = false
@@ -66,7 +73,16 @@ local playerGui = Player:WaitForChild("PlayerGui")
 local environment = type(getgenv) == "function" and getgenv() or _G
 local slot = "__AutoSkills_ZXCVB"
 local previous = environment[slot]
-if type(previous) == "table" and type(previous.Stop) == "function" then previous.Stop() end
+if type(previous) == "table" and type(previous.Stop) == "function" then
+    local ok, err = pcall(previous.Stop)
+    if not ok then warn("AutoSkills previous-instance cleanup: " .. tostring(err)) end
+end
+
+-- Shared runtime namespaces/geometry are intentionally kept in the execution environment.
+-- This avoids pushing the already-large Luau chunk over its 200-register local limit.
+local C
+local Webhook
+windowWidth, windowHeight = windowWidth or 420, windowHeight or 560
 
 local State = {
     alive = true, enabled = false, focused = true, minimized = false,
@@ -87,6 +103,7 @@ local stopMovement = function() end
 local pauseFarmForEscape = function() end
 local root
 local loaderRoot
+local System, Farm, setESPEnabled, fitWindow, Theme
 
 environment[slot] = controller
 local function connect(signal, callback)
@@ -105,6 +122,7 @@ if virtualUserOK and VirtualUser then
 end
 
 local function notify(message)
+    if not Settings.NotificationsEnabled then return end
     print("AutoSkills: " .. message)
     pcall(function()
         StarterGui:SetCore("SendNotification", {
@@ -122,24 +140,27 @@ local function releaseKey()
 end
 function controller.Stop()
     if not State.alive then return end
+    pcall(function() if controller.CustomTheme then controller.CustomTheme.stop() end end)
     if MiniMode and MiniMode.hide then pcall(MiniMode.hide) end
     -- IMPORTANT: do not persist the theme from Stop().
     -- Re-execution calls the OLD instance's Stop() before the NEW bootstrap
     -- resolves the saved theme. If the old instance is stale (for example
     -- Blackhole), saving here can overwrite a newer EMPYREAN selection.
     -- Theme persistence happens immediately inside UI.setTheme/System.savePrefs.
+    pcall(function() if Webhook and Settings.WebhookEnabled and Settings.WebhookSession then Webhook.queueEvent("session","VOID AUTOMATION STOPPED","Automation instance is unloading or being replaced.") end end)
+    pcall(function() if Farm and Farm.flushLootWebhook then Farm.flushLootWebhook("script stopped") end end)
     State.alive, State.enabled = false, false
     State.gesture = nil
-    stopFarm()
-    stopHealthGuard()
-    stopMovement()
-    clearESP()
+    for _, cleanup in ipairs({stopFarm, stopHealthGuard, stopMovement, clearESP}) do
+        local ok, err = pcall(cleanup)
+        if not ok then warn("AutoSkills cleanup: " .. tostring(err)) end
+    end
     local released, err = releaseKey()
     if not released then warn("AutoSkills: key release failed: " .. tostring(err)) end
-    for _, connection in ipairs(connections) do connection:Disconnect() end
-    for _, tween in pairs(tweens) do tween:Cancel() end
-    if root then root:Destroy() end
-    if loaderRoot then loaderRoot:Destroy() end
+    for _, connection in ipairs(connections) do pcall(function() connection:Disconnect() end) end
+    for _, tween in pairs(tweens) do pcall(function() tween:Cancel() end) end
+    if root then pcall(function() root:Destroy() end) end
+    if loaderRoot then pcall(function() loaderRoot:Destroy() end) end
     if environment[slot] == controller then environment[slot] = nil end
 end
 local function inputFault(err)
@@ -183,16 +204,21 @@ local function isChatTextBox(box)
 end
 
 local function shouldPauseForTextEntry()
+    if controller.CustomTheme and controller.CustomTheme.editing then return true end
     return Settings.PauseWhileTyping and isChatTextBox(Input:GetFocusedTextBox())
 end
 
 local function availability()
+    if not State.alive then return false, "STOPPED", "Automation unloaded." end
+    if Settings.PauseWhenUnfocused and not State.focused then return false, "PAUSED", "Window unfocused." end
     if State.discovering then return false, "DISCOVERING", "Skills paused during location discovery." end
     if State.fault then return false, "INPUT ERROR", State.fault end
     if not State.enabled and not (State.farming and Settings.FarmUseSkills) then return false, "STANDBY", "Choose your keys, then turn Auto skills on." end
     if selectedCount() == 0 then return false, "NO KEYS", "Enable at least one skill to begin." end
     if shouldPauseForTextEntry() then
-        return false, "PAUSED", "Chat typing detected. Resumes when chat closes."
+        return false, "PAUSED", (controller.CustomTheme and controller.CustomTheme.editing)
+            and "Custom theme editor open. Close it to resume."
+            or "Chat typing detected. Resumes when chat closes."
     end
 
     if State.gesture then return false, "PAUSED", "Adjusting controls. Resumes when released." end
@@ -206,6 +232,7 @@ end
 local function setEnabled(value)
     if not State.alive then return end
     State.enabled = value
+    if System and System.queueSavePrefs then System.queueSavePrefs(0.08) end
     if value then State.fault = nil else releaseOrPause() end
     render()
 end
@@ -481,6 +508,7 @@ do
         if not State.alive then return end
         if not value then Guard.release() end
         Settings.HealthEscapeEnabled, Guard.fault = value, nil
+        if System and System.queueSavePrefs then System.queueSavePrefs(0.08) end
         if value then Guard.latched = false end
         Guard.nextScan = 0
         Guard.step()
@@ -504,11 +532,10 @@ do
     end
 end
 
-local System
 local CoreUI
 local showPage
 local BUILT_IN_BOSS_SEED_CODE = "__AUTOSKILLS_BOSS_SEED_PLACEHOLDER__"
-local Farm = {catalog = {}, remembered = {}, pinned = nil, records = {}, selected = nil, nextScan = 0, status = "OFF",
+Farm = {catalog = {}, remembered = {}, pinned = nil, records = {}, selected = nil, nextScan = 0, status = "OFF",
     detail = "Select a target, then enable Auto farm.", count = 0, aliveCount = 0,
     autoVisited = {}, autoCurrent = nil, autoLastPath = nil, autoArrivedAt = 0,
     autoCombatAt = 0, autoLastProgressAt = 0, autoLastHP = nil, autoDefeated = false,
@@ -519,10 +546,11 @@ local Farm = {catalog = {}, remembered = {}, pinned = nil, records = {}, selecte
         lastAction = "STANDBY", lastActionAt = 0, dangerPaths = {}}
 }
 local function attackHealthAllowed(maximum)
-    return type(maximum) == "number"
-        and maximum == maximum
-        and maximum >= Settings.FarmMinHP
-        and maximum <= Settings.FarmMaxHP
+    if type(maximum) ~= "number" or maximum ~= maximum or maximum <= 0 or maximum == math.huge then
+        return false
+    end
+    if not Settings.FarmHealthOnly then return true end
+    return maximum >= Settings.FarmMinHP and maximum <= Settings.FarmMaxHP
 end
 
 do
@@ -1069,15 +1097,17 @@ do
         local attempted = false
 
         for _, connection in ipairs(list) do
-            local enabled = connection.Enabled
-            if enabled == nil or enabled == true then
-                if type(connection.Fire) == "function" then
-                    attempted = true
-                    pcall(connection.Fire, connection, table.unpack(args, 1, args.n))
-                elseif type(connection.Function) == "function" then
-                    attempted = true
-                    pcall(connection.Function, table.unpack(args, 1, args.n))
+            local accessed, enabled, fire, callback = pcall(function()
+                return connection.Enabled, connection.Fire, connection.Function
+            end)
+            if accessed and (enabled == nil or enabled == true) then
+                local ok = false
+                if type(fire) == "function" then
+                    ok = pcall(fire, connection, table.unpack(args, 1, args.n))
+                elseif type(callback) == "function" then
+                    ok = pcall(callback, table.unpack(args, 1, args.n))
                 end
+                attempted = attempted or ok
             end
         end
 
@@ -1170,21 +1200,27 @@ do
     end
 
     local function hardInventoryPulse(downCallback, upCallback, holdTime)
+        if controller.CustomTheme and controller.CustomTheme.editing then return false, nil, 0 end
         local restore, rootCount = suspendInventoryVisual()
 
         task.wait(0.015)
 
+        if not State.alive or (controller.CustomTheme and controller.CustomTheme.editing) then
+            restore(); return false, nil, rootCount
+        end
         local okDown, downResult = pcall(downCallback)
 
-        if okDown and upCallback then
-            task.wait(math.max(0.025, holdTime or 0.03))
-            pcall(upCallback)
+        local okUp = true
+        if upCallback then
+            if okDown then task.wait(math.max(0.025, holdTime or 0.03)) end
+            okUp = pcall(upCallback)
+            if not okUp then okUp = pcall(upCallback) end
         end
 
         task.wait(0.015)
         restore()
 
-        return okDown, downResult, rootCount
+        return okDown and okUp, downResult, rootCount
     end
 
     local function neutralizeInventoryInput()
@@ -1252,9 +1288,13 @@ do
     end
 
     function Farm.directSkillKey(key, down)
+        if down and controller.CustomTheme and controller.CustomTheme.editing then return false end
         local signal = down and Input.InputBegan or Input.InputEnded
         local state = down and Enum.UserInputState.Begin or Enum.UserInputState.End
         local inputObject = syntheticInput(key, Enum.UserInputType.Keyboard, state)
+        if controller.CustomTheme and controller.CustomTheme.editing then
+            return callConnections(signal, inputObject, false)
+        end
 
         local ok, attempted = withInventoryBypass(function()
             return callConnections(signal, inputObject, false)
@@ -1264,6 +1304,8 @@ do
     end
 
     function Farm.inventorySkillPulse(key)
+        if not State.alive or (controller.CustomTheme and controller.CustomTheme.editing) then return false end
+        State.heldKey = key
         local ok, _, roots = hardInventoryPulse(
             function()
                 VirtualInput:SendKeyEvent(true, key, false, game)
@@ -1275,7 +1317,9 @@ do
             Settings.HoldTime
         )
 
-        if roots == 0 and type(Farm.directSkillKey) == "function" then
+        State.heldKey = nil
+        if State.alive and not (controller.CustomTheme and controller.CustomTheme.editing)
+            and roots == 0 and type(Farm.directSkillKey) == "function" then
             Farm.directSkillKey(key, true)
             task.wait(math.max(0.025, Settings.HoldTime))
             Farm.directSkillKey(key, false)
@@ -1285,10 +1329,14 @@ do
     end
 
     local function directMouseM1(down)
+        if down and controller.CustomTheme and controller.CustomTheme.editing then return false end
         local mouseSignal = down and Mouse.Button1Down or Mouse.Button1Up
         local uiSignal = down and Input.InputBegan or Input.InputEnded
         local state = down and Enum.UserInputState.Begin or Enum.UserInputState.End
         local inputObject = syntheticInput(Enum.KeyCode.Unknown, Enum.UserInputType.MouseButton1, state)
+        if controller.CustomTheme and controller.CustomTheme.editing then
+            return callConnections(mouseSignal) or callConnections(uiSignal, inputObject, false)
+        end
 
         local ok, attempted = withInventoryBypass(function()
 
@@ -1335,7 +1383,7 @@ do
             return
         end
 
-        if shouldPauseForTextEntry() or State.gesture then
+        if shouldPauseForTextEntry() or State.gesture or (Settings.PauseWhenUnfocused and not State.focused) then
             Farm.stopM1()
             Farm.m1Status = "M1 paused for chat / script controls"
             return
@@ -1375,6 +1423,9 @@ do
                 return
             end
 
+            if controller.CustomTheme and controller.CustomTheme.editing then
+                Farm.stopM1(); return
+            end
             if directMouseM1(true) then
                 mouseDown = "DIRECT"
                 nextM1, releaseM1At = os.clock() + 0.16, os.clock() + 0.035
@@ -1433,8 +1484,275 @@ do
             pcall(function() prompt:InputHoldEnd() end)
         end
     end
-    function Farm.clearLoot()
+    function Farm.extractLootText(root, keys)
+        if not root then return nil end
+        local wanted, found = {}, nil
+        for _, key in ipairs(keys) do wanted[string.lower(key)] = true end
+
+        local function clean(value)
+            if type(value) ~= "string" then return nil end
+            value = value:gsub("^%s+", ""):gsub("%s+$", "")
+            if value == "" or #value > 120 then return nil end
+            return value
+        end
+
+        pcall(function()
+            for key, value in pairs(root:GetAttributes()) do
+                if wanted[string.lower(tostring(key))] then
+                    local result = clean(value)
+                    if result then found = result; break end
+                end
+            end
+        end)
+        if found then return found end
+
+        for _, node in ipairs(root:GetDescendants()) do
+            local nodeName = string.lower(tostring(node.Name or ""))
+            if wanted[nodeName] and (node:IsA("StringValue") or node:IsA("NumberValue") or node:IsA("IntValue")) then
+                local result = clean(node.Value)
+                if result then return result end
+            end
+        end
+    end
+
+    function Farm.extractLootAmount(root)
+        if not root then return nil end
+        local keys, found = {amount=true, quantity=true, count=true, stacks=true, stack=true, stacksize=true, qty=true}, nil
+        local function numeric(value)
+            value = tonumber(value)
+            if not value or value ~= value or value == math.huge or value == -math.huge then return nil end
+            value = math.floor(value + 0.5)
+            return value >= 1 and math.min(value, 1000000) or nil
+        end
+        pcall(function()
+            for key, value in pairs(root:GetAttributes()) do
+                if keys[string.lower(tostring(key))] then
+                    local result = numeric(value)
+                    if result then found = result; break end
+                end
+            end
+        end)
+        if found then return found end
+        for _, node in ipairs(root:GetDescendants()) do
+            if keys[string.lower(tostring(node.Name or ""))] and (node:IsA("NumberValue") or node:IsA("IntValue")) then
+                local result = numeric(node.Value)
+                if result then return result end
+            end
+        end
+    end
+
+    function Farm.getLootDisplayName(item)
+        if not item then return "Unknown Loot" end
+        if type(item.lootName) == "string" and item.lootName ~= "" then return item.lootName end
+        local entity = item.entity or item.object or item.part
+        local generic = {lootdrop=true, drop=true, itemdrop=true, chest=true, chestdrop=true, reward=true, loot=true, pickup=true, collectible=true, worldeventschest=true}
+        local name = Farm.extractLootText(entity, {"LootName","ItemName","DisplayName","RewardName","DropName","Reward","Item","ProductName","Product","Type","ItemType"})
+        if name and not generic[string.lower(tostring(name))] then return name end
+
+        -- Some games expose only a generic LootDrop model and put the real reward
+        -- name on a nested StringValue/attribute with a slightly different key.
+        if entity then
+            local candidate
+            pcall(function()
+                for key, value in pairs(entity:GetAttributes()) do
+                    local k = string.lower(tostring(key))
+                    if k:find("item",1,true) or k:find("reward",1,true) or k:find("drop",1,true) or k:find("loot",1,true) or k:find("product",1,true) then
+                        if type(value) == "string" and value ~= "" and not generic[string.lower(value)] then candidate=value; break end
+                    end
+                end
+            end)
+            if candidate then return candidate end
+
+            local ranked
+            for _, node in ipairs(entity:GetDescendants()) do
+                if node:IsA("StringValue") then
+                    local textValue = tostring(node.Value or ""):gsub("^%s+",""):gsub("%s+$","")
+                    local nodeKey = string.lower(tostring(node.Name or ""))
+                    if textValue ~= "" and #textValue <= 120 and not generic[string.lower(textValue)] then
+                        local score = 0
+                        if nodeKey:find("item",1,true) then score=score+5 end
+                        if nodeKey:find("reward",1,true) then score=score+5 end
+                        if nodeKey:find("loot",1,true) then score=score+4 end
+                        if nodeKey:find("drop",1,true) then score=score+3 end
+                        if nodeKey:find("name",1,true) then score=score+2 end
+                        if score > 0 and (not ranked or score > ranked.score) then ranked={value=textValue,score=score} end
+                    end
+                end
+            end
+            if ranked then return ranked.value end
+        end
+
+        local fallback = entity and entity.Name or "Unknown Loot"
+        if generic[string.lower(tostring(fallback))] then
+            local parent = entity and entity.Parent
+            if parent and parent ~= World then
+                local parentName = tostring(parent.Name or "")
+                if parentName ~= "" and not generic[string.lower(parentName)] then fallback = parentName end
+            end
+        end
+        return tostring(fallback)
+    end
+
+    function Farm.getLootAmount(item)
+        if not item then return 1 end
+        local explicit = tonumber(item.amount)
+        if explicit and explicit >= 1 then return math.floor(explicit + 0.5) end
+        local entity = item.entity or item.object or item.part
+        return Farm.extractLootAmount(entity) or 1
+    end
+
+    function Farm.inventorySnapshot()
+        local snapshot = {}
+        local roots = {}
+        local seenRoots = {}
+        local function addRoot(node)
+            if node and node.Parent and not seenRoots[node] then
+                seenRoots[node] = true
+                roots[#roots + 1] = node
+            end
+        end
+        addRoot(Player:FindFirstChild("Backpack"))
+        addRoot(Player.Character)
+        for _, child in ipairs(Player:GetChildren()) do
+            local name = string.lower(tostring(child.Name or ""))
+            if name:find("inventory",1,true) or name:find("backpack",1,true)
+                or name:find("storage",1,true) or name:find("equipment",1,true)
+                or name == "items" or name == "bag" then
+                addRoot(child)
+            end
+        end
+        for _, root in ipairs(roots) do
+            for _, node in ipairs(root:GetDescendants()) do
+                local itemName
+                if node:IsA("Tool") then
+                    itemName = tostring(node.Name or "")
+                elseif node:IsA("Folder") or node:IsA("Model") then
+                    local parentName = string.lower(tostring(node.Parent and node.Parent.Name or ""))
+                    if parentName:find("inventory",1,true) or parentName:find("storage",1,true) or parentName:find("equipment",1,true) then
+                        itemName = tostring(node.Name or "")
+                    end
+                end
+                if itemName and itemName ~= "" then
+                    snapshot[itemName] = (snapshot[itemName] or 0) + 1
+                end
+            end
+        end
+        return snapshot
+    end
+
+    function Farm.formatLootWebhook(session, reason)
+        if not session or session.finalized then return nil end
+        session.finalized = true
+
+        local generic = {
+            ["lootdrop"] = true, ["drop"] = true, ["itemdrop"] = true, ["chest"] = true,
+            ["chestdrop"] = true, ["reward"] = true, ["loot"] = true, ["pickup"] = true,
+            ["collectible"] = true, ["unknown loot"] = true, ["world events chest"] = true,
+        }
+
+        -- IMPORTANT: one row represents ONE physical/registered loot drop.
+        -- A drop may contain a stack/quantity (for example 3x Metal Scraps),
+        -- so quantity belongs to that row and must never be merged into another
+        -- drop simply because the item names match.
+        local rows = {}
+        local genericRows = {}
+        for _, drop in ipairs(session.drops or {}) do
+            local name = tostring(drop.name or "Unknown Loot")
+            local amount = math.max(1, math.floor(tonumber(drop.amount) or 1))
+            local isGeneric = generic[string.lower(name)] == true
+            local row = {name=name, amount=amount, generic=isGeneric}
+            rows[#rows + 1] = row
+            if isGeneric then genericRows[#genericRows + 1] = row end
+        end
+
+        -- Inventory delta is used ONLY to turn generic drop names into concrete
+        -- item names. It is deliberately NOT used to collapse duplicate drops.
+        -- This keeps two separate Metal Scrap drops as two separate rows.
+        local before, after = session.inventoryBefore, Farm.inventorySnapshot()
+        local inventoryRewards = {}
+        if before and after then
+            for name, count in pairs(after) do
+                local oldCount = before[name] or 0
+                local gained = count - oldCount
+                if gained > 0 and not generic[string.lower(tostring(name))] then
+                    inventoryRewards[name] = gained
+                end
+            end
+        end
+
+        local concrete = {}
+        for name, amount in pairs(inventoryRewards) do
+            concrete[#concrete + 1] = {name=name, amount=amount}
+        end
+        table.sort(concrete, function(a,b) return a.name < b.name end)
+
+        if #genericRows > 0 and #concrete > 0 then
+            -- Case 1: one generic physical drop and one concrete inventory
+            -- result. This is the strongest possible before/after inference,
+            -- so preserve the real stack amount (e.g. 3x Metal Scraps).
+            if #genericRows == 1 and #concrete == 1 then
+                genericRows[1].name = concrete[1].name
+                genericRows[1].amount = concrete[1].amount
+                genericRows[1].generic = false
+            else
+                -- Multiple generic drops: assign concrete item names one-to-one
+                -- while preserving each drop's own extracted quantity. We do not
+                -- copy the inventory total onto every row.
+                local index = 1
+                for _, row in ipairs(genericRows) do
+                    local concreteRow = concrete[index]
+                    if not concreteRow then break end
+                    row.name = concreteRow.name
+                    row.generic = false
+                    index = index + 1
+                end
+            end
+        end
+
+        -- A real inventory delta with no physical rows is still useful. Add it
+        -- only when the pickup system did not expose individual drop objects.
+        if #rows == 0 and #concrete > 0 then
+            for _, entry in ipairs(concrete) do
+                rows[#rows + 1] = {name=entry.name, amount=entry.amount, generic=false}
+            end
+        end
+
+        -- Generic rows are only omitted when concrete inventory evidence actually
+        -- replaced them. If there is no evidence, keep the physical drop visible.
+        if #concrete > 0 then
+            for i = #rows, 1, -1 do
+                if rows[i].generic then table.remove(rows, i) end
+            end
+        end
+
+        if #rows == 0 then return nil end
+
+        local lines = {string.format("%d loot drops:", #rows)}
+        for _, row in ipairs(rows) do
+            lines[#lines + 1] = string.format("• %dx %s", math.max(1, math.floor(tonumber(row.amount) or 1)), tostring(row.name))
+        end
+        if session.sourceName and session.sourceName ~= "" then
+            lines[#lines + 1] = "Source: " .. session.sourceName
+        end
+        if reason and reason ~= "settled" then
+            lines[#lines + 1] = "Status: " .. tostring(reason)
+        end
+        return table.concat(lines, "\n")
+    end
+
+    function Farm.flushLootWebhook(reason)
+        local session = Farm.lootTransaction
+        if not session or session.finalized then return end
+        local message = Farm.formatLootWebhook(session, reason or "settled")
+        Farm.lootTransaction = nil
+        if message and Webhook and type(Webhook.queueEvent) == "function" then
+            Webhook.queueEvent("loot", "LOOT RECEIVED", message)
+        end
+    end
+
+    function Farm.clearLoot(reason)
         endPrompt()
+        local session = loot
         if loot and loot.spawnConnection then
             loot.spawnConnection:Disconnect()
             loot.spawnConnection = nil
@@ -1442,10 +1760,13 @@ do
         loot = nil
         if deathConnection then deathConnection:Disconnect(); deathConnection = nil end
         watched, lastTargetPosition = nil, nil
+        if Farm.lootTransaction then
+            Farm.flushLootWebhook(reason or "ended")
+        end
     end
     function Farm.setLoot(value)
         Settings.FarmAutoLoot = value
-        if not value then Farm.clearLoot() end
+        if not value then Farm.clearLoot("auto loot disabled") end
     end
     local function beginLoot(position)
         if not Settings.FarmEnabled or not Settings.FarmAutoLoot or not State.alive or loot then return end
@@ -1454,7 +1775,10 @@ do
         loot = {
             center = position,
             destination = position + Vector3.new(0, 2, 0),
-            deadline = os.clock() + 10,
+            startedAt = os.clock(),
+            deadline = os.clock() + math.clamp(tonumber(Settings.LootTimeout) or 10, 2, 30),
+            settleTime = math.clamp(tonumber(Settings.LootSettleTime) or 1.5, 0.5, 4),
+            lastCollectionAt = os.clock(),
             nextScan = 0,
             tries = {},
             count = 0,
@@ -1466,6 +1790,16 @@ do
             message = "Waiting for boss drops near the kill.",
         }
 
+        Farm.lootTransaction = {
+            startedAt = loot.startedAt,
+            center = position,
+            rewards = {},
+            drops = {},
+            dropSeen = setmetatable({}, {__mode = "k"}),
+            inventoryBefore = Farm.inventorySnapshot(),
+            finalized = false,
+            sourceName = "LootDrop",
+        }
         local lootSession = loot
         local function indexObject(object, isFresh)
             if not lootSession or lootSession ~= loot or not object then return end
@@ -1683,14 +2017,20 @@ do
             if os.clock() < loot.nextScan then return true end
             loot.nextScan = os.clock() + 0.12
             item = findLoot()
-            if not item then return true end
+            if not item then
+                if loot.indexReady and Farm.lootTransaction and os.clock() - (loot.lastCollectionAt or loot.startedAt) >= loot.settleTime then
+                    Farm.clearLoot("settled")
+                    return false
+                end
+                return true
+            end
             local old = loot.tries[item.object]
             loot.tries[item.object] = {count=old and old.count+1 or 1, nextTry=os.clock()+2}
             loot.pending, loot.readyAt = item, os.clock()+0.15
             loot.destination = item.part.Position + Vector3.new(0,item.touch and 2 or 1,0)
             return true
         end
-        loot.count = loot.count+1; loot.message = "Pickup requested: " .. item.entity.Name
+        loot.count = loot.count+1; loot.message = "Pickup requested: " .. Farm.getLootDisplayName(item)
         local ok, err = pcall(function()
             if item.object:IsA("ProximityPrompt") then
                 local duration = math.max(0,item.object.HoldDuration)
@@ -1713,6 +2053,9 @@ do
         if not ok and loot then
             endPrompt(); loot.message = "Pickup failed: " .. tostring(err)
         elseif ok and System and type(System.recordLoot) == "function" then
+            loot.lastCollectionAt = os.clock()
+            item.lootName = Farm.getLootDisplayName(item)
+            item.amount = Farm.getLootAmount(item)
             pcall(function() System.recordLoot(item) end)
         end
         return true
@@ -1778,26 +2121,63 @@ do
         Farm.scan(true)
         local position = rootPart and rootPart.Position
         if not position then return nil end
+
+        local function eligible(entry, excludeLast)
+            local location = autoBossLocation(entry)
+            if not location then return false, nil end
+            local dangerUntil = Farm.guardian.dangerPaths and Farm.guardian.dangerPaths[entry.path]
+            if dangerUntil and dangerUntil <= os.clock() then
+                Farm.guardian.dangerPaths[entry.path] = nil
+                dangerUntil = nil
+            end
+            if not autoBossEligible(entry) or (dangerUntil and dangerUntil > os.clock()) or Farm.autoVisited[entry.path] then
+                return false, nil
+            end
+            if excludeLast and entry.path == Farm.autoLastPath then return false, nil end
+            local distance = (location - position).Magnitude
+            if distance > Settings.BossAutoRange then return false, nil end
+            return true, distance
+        end
+
+        local mode = tostring(Settings.BossRouteMode or "Nearest")
         local function collect(excludeLast)
+            if mode == "Round Robin" then
+                local startIndex = 0
+                if Farm.autoLastPath then
+                    for i, entry in ipairs(Farm.remembered) do
+                        if entry.path == Farm.autoLastPath then startIndex = i; break end
+                    end
+                end
+                for offset = 1, #Farm.remembered do
+                    local i = ((startIndex + offset - 1) % math.max(#Farm.remembered, 1)) + 1
+                    local entry = Farm.remembered[i]
+                    local ok, distance = eligible(entry, excludeLast)
+                    if ok then return entry, distance end
+                end
+                return nil
+            elseif mode == "Random" then
+                local candidates = {}
+                for _, entry in ipairs(Farm.remembered) do
+                    local ok, distance = eligible(entry, excludeLast)
+                    if ok then candidates[#candidates + 1] = {entry=entry, distance=distance} end
+                end
+                if #candidates > 0 then
+                    local chosen = candidates[math.random(1, #candidates)]
+                    return chosen.entry, chosen.distance
+                end
+                return nil
+            end
+
             local best, bestDistance
             for _, entry in ipairs(Farm.remembered) do
-                local location = autoBossLocation(entry)
-                local dangerUntil = Farm.guardian.dangerPaths and Farm.guardian.dangerPaths[entry.path]
-                local environmentallyUnsafe = dangerUntil and dangerUntil > os.clock()
-                if environmentallyUnsafe and dangerUntil <= os.clock() then
-                    Farm.guardian.dangerPaths[entry.path] = nil
-                    environmentallyUnsafe = false
-                end
-                if autoBossEligible(entry) and not environmentallyUnsafe and not Farm.autoVisited[entry.path]
-                    and (not excludeLast or entry.path ~= Farm.autoLastPath) then
-                    local distance = (location - position).Magnitude
-                    if distance <= Settings.BossAutoRange and (not bestDistance or distance < bestDistance) then
-                        best, bestDistance = entry, distance
-                    end
+                local ok, distance = eligible(entry, excludeLast)
+                if ok and (not bestDistance or distance < bestDistance) then
+                    best, bestDistance = entry, distance
                 end
             end
             return best, bestDistance
         end
+
         local entry, distance = collect(false)
         if not entry then
             local hadVisited = next(Farm.autoVisited) ~= nil
@@ -1936,7 +2316,7 @@ do
     end
 
     local function guardianCombatStalled(hp, targetRoot)
-        if not Settings.AutoBoss or not Farm.autoEngaged or not targetRoot or not hp or hp <= 0 then return false end
+        if not Settings.AutoBoss or not Settings.SmartReacquire or not Farm.autoEngaged or not targetRoot or not hp or hp <= 0 then return false end
         local g, now = Farm.guardian, os.clock()
         if Farm.autoLastProgressAt == 0 then Farm.autoLastProgressAt = now end
         if now - Farm.autoLastProgressAt < Settings.GuardianCombatStallTimeout then return false end
@@ -1990,6 +2370,7 @@ do
         -- any first-frame farm error as a hard Farm failure, which made the
         -- Auto Boss switch visually disable the instant it was activated.
         Settings.AutoBoss = enable
+        if System and System.queueSavePrefs then System.queueSavePrefs(0.08) end
         Farm.fault = nil
         Farm.autoBossError = nil
         Farm.autoBossErrorAt = 0
@@ -2053,6 +2434,7 @@ do
     function Farm.setEnabled(value)
         if Farm.stopDiscovery then Farm.stopDiscovery() end
         Settings.FarmEnabled, Farm.fault = value, nil
+        if System and System.queueSavePrefs then System.queueSavePrefs(0.08) end
         if not value then
             Settings.AutoBoss = false
             resetAutoBossRoute(true)
@@ -2434,7 +2816,7 @@ do
     end
     stopFarm = function()
         if Farm.stopDiscovery then Farm.stopDiscovery() end
-        Farm.saveConfig(true)
+        pcall(Farm.saveConfig, true)
         Settings.FarmEnabled = false
         Settings.AutoBoss = false
         resetAutoBossRoute(true)
@@ -2674,6 +3056,8 @@ do
         render()
 
         task.spawn(function()
+            local scanOK, scanError = pcall(function()
+            if not State.alive then return end
             local character = Player.Character
             local rootPart = character and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart)
             local origin = rootPart and rootPart:IsA("BasePart") and rootPart.Position
@@ -2691,6 +3075,7 @@ do
             local descendants = World:GetDescendants()
 
             for _, object in ipairs(descendants) do
+                if not State.alive then return end
                 inspected = inspected + 1
 
                 if object:IsA("BasePart")
@@ -2727,6 +3112,7 @@ do
 
             local requested, requestLimit = 0, 128
             for _, entry in pairs(Farm.catalog) do
+                if not State.alive then return end
                 if requested >= requestLimit then break end
                 if entry.spawn and (entry.spawn - origin).Magnitude <= Settings.StaticScanRange then
                     requested = requested + 1
@@ -2754,10 +3140,16 @@ do
                 Farm.staticScanCount, Settings.StaticScanRange
             )
             Farm.staticScanBusy = false
-            if System and System.writeFriendReady then
+            if State.alive and System and System.writeFriendReady then
                 System.writeFriendReady()
             end
-            render()
+            if State.alive then render() end
+            end)
+            Farm.staticScanBusy = false
+            if not scanOK then
+                Farm.staticScanStatus = "Static scan failed: " .. tostring(scanError)
+                warn("AutoSkills: " .. Farm.staticScanStatus)
+            end
         end)
 
         return true
@@ -2979,6 +3371,7 @@ end
 
 function Movement.setNoClip(value)
     Settings.NoClip = value
+    if System and System.queueSavePrefs then System.queueSavePrefs(0.08) end
     Movement.updateTBlock()
     if not value and not Settings.FlyEnabled then Movement.restoreNoClip(false) end
     Movement.status = value and "NOCLIP ON" or "NOCLIP OFF"
@@ -2990,6 +3383,7 @@ end
 
 function Movement.setFly(value)
     Settings.FlyEnabled = value
+    if System and System.queueSavePrefs then System.queueSavePrefs(0.08) end
     if value then
 
         Settings.NoClip = true
@@ -3006,6 +3400,7 @@ end
 
 function Movement.setSpeed(value)
     Settings.SpeedEnabled = value
+    if System and System.queueSavePrefs then System.queueSavePrefs(0.08) end
     if not value then Movement.restoreSpeed() end
     Movement.status = value and "SPEED ON" or (Settings.FlyEnabled and "FLY ON" or (Settings.NoClip and "NOCLIP ON" or "MOVEMENT"))
     Movement.detail = value and ("WalkSpeed locked to " .. tostring(Settings.WalkSpeed) .. ".") or "Speed override disabled."
@@ -3057,6 +3452,7 @@ function Movement.step(dt)
 
         local direction = Vector3.new(0, 0, 0)
 
+        if not shouldPauseForTextEntry() and not (Settings.PauseWhenUnfocused and not State.focused) then
         if Input:IsKeyDown(Enum.KeyCode.W) then direction = direction + forward end
         if Input:IsKeyDown(Enum.KeyCode.S) then direction = direction - forward end
         if Input:IsKeyDown(Enum.KeyCode.D) then direction = direction + right end
@@ -3069,6 +3465,7 @@ function Movement.step(dt)
             direction = direction - worldUp
         end
 
+        end
         if direction.Magnitude > 1 then direction = direction.Unit end
 
         local frameDelta = math.clamp(dt or 0, 0, 0.05)
@@ -3172,7 +3569,10 @@ System = {
     -- or the farm switches targets between heartbeat ticks.
     statsHealthSeen = setmetatable({}, {__mode="k"}),
     statsBossTargetSeen = setmetatable({}, {__mode="k"}),
+    webhookKillSeen = setmetatable({}, {__mode="k"}),
+    webhookLootSeen = setmetatable({}, {__mode="k"}),
     statsLastObservedTarget = nil,
+    spawnSeen = false,
     locationsFilter = "",
     keybinds = {
         ToggleAutomation = Enum.KeyCode.F6, StopAutomation = Enum.KeyCode.F7, ToggleUI = Enum.KeyCode.RightShift,
@@ -3249,69 +3649,208 @@ do
     local function normalizeTheme(value)
         if type(value) ~= "string" then return nil end
         value = value:gsub("^%s+", ""):gsub("%s+$", "")
-        if value == "Default" or value == "Blackhole" or value == "Empyrean" or value == "Pandemonium" then
+        if value == "Default" or value == "Blackhole" or value == "Empyrean" or value == "Pandemonium" or value == "Circuit Storm" then
             return value
         end
         return nil
     end
 
-    function System.loadPrefs()
-        -- Theme startup is deliberately isolated from the general JSON settings.
-        -- The dedicated theme state is authoritative; the old JSON Theme field
-        -- is NEVER allowed to select the startup loader/UI.
-        System._themeFileLoaded = false
-        System._sessionThemeLoaded = false
-        local bootstrap = getBootstrapTheme()
-        System.bootstrapTheme = bootstrap
-        -- The dedicated theme files are authoritative when available. This
-        -- prevents an old PlayerGui attribute from pinning the UI to Blackhole.
-        -- Same-session Player/executor state is the fallback when file APIs are
-        -- unavailable.
-        local candidates = {}
-        -- Current Roblox session is authoritative. Old disk state is fallback only.
-        candidates[#candidates + 1] = bootstrap
-        candidates[#candidates + 1] = getSessionTheme()
-        candidates[#candidates + 1] = environment.__AutoSkills_StartupTheme
-        candidates[#candidates + 1] = environment.__AutoSkills_LastTheme
-        if type(reader) == "function" then
-            local ok1, raw1 = pcall(reader, System.themeStatePath)
-            if ok1 then candidates[#candidates + 1] = raw1 end
-            local ok2, raw2 = pcall(reader, System.themeConfigPath)
-            if ok2 then candidates[#candidates + 1] = raw2 end
+    function System.keyCode(name)
+        if type(name) ~= "string" then return nil end
+        local ok, key = pcall(function() return Enum.KeyCode[name] end)
+        if ok and key ~= Enum.KeyCode.Unknown then return key end
+        return nil
+    end
+
+    function System.normalizeSettings()
+        local bounds = {
+            BossDwell={1,5}, BossGridRadius={512,8192}, BossAutoRange={1,500000},
+            BossLocalScanRadius={1,500000}, BossNoAttackTimeout={1,10},
+            GuardianDamageTimeout={0.05,30}, GuardianStuckTimeout={1,120},
+            GuardianCombatStallTimeout={1,300}, GuardianVerifyInterval={0.05,30},
+            GuardianMaxRecoveries={0,100}, StaticScanRange={1,500000}, PrivateJoinHold={0.05,10},
+            FlySpeed={20,200}, WalkSpeed={8,200}, HoldTime={0.03,1}, KeyGap={0.03,1},
+            ESPMaxDistance={100,10000}, FarmDepth={6,7}, FarmMinHP={1,100000},
+            FarmMaxHP={1,100000}, LootTimeout={2,30}, LootSettleTime={0.5,4},
+            FarmHitboxSize={1,100}, HealthThreshold={1,95}, UIOpacity={0.35,1},
+            UIScale={0.75,1.25}, SafetyStuckTimeout={1,300}, WebhookRateLimit={1,10},
+        }
+        for key, range in pairs(bounds) do
+            local value = Settings[key]
+            if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
+                value = range[1]
+            end
+            Settings[key] = math.clamp(value, range[1], range[2])
         end
-        for _, candidate in ipairs(candidates) do
-            local restored = normalizeTheme(candidate)
-            if restored then
-                System.theme = restored
-                System.startupTheme = restored
-                System._themeFileLoaded = true
-                break
+        Settings.FarmMaxHP = math.max(Settings.FarmMinHP, Settings.FarmMaxHP)
+        if not table.find({"Nearest", "Round Robin", "Random"}, Settings.BossRouteMode) then
+            Settings.BossRouteMode = "Nearest"
+        end
+    end
+
+    function System.restorePersistedState(data)
+        if type(data) ~= "table" then return end
+
+        local saved = type(data.settings) == "table" and data.settings or data.Settings
+        if type(saved) ~= "table" then saved = data end
+
+        for key, value in pairs(saved) do
+            local current = Settings[key]
+            if current ~= nil then
+                local currentType = type(current)
+                if type(value) == "table" and value.__enum and value.name and typeof(current) == "EnumItem" then
+                    local enumType = current.EnumType
+                    local enumOK, enumValue = pcall(function() return enumType[value.name] end)
+                    if enumOK and enumValue then Settings[key] = enumValue end
+                elseif currentType == "boolean" or currentType == "number" or currentType == "string" then
+                    if type(value) == currentType then Settings[key] = value end
+                end
             end
         end
 
-        -- Load the rest of the settings independently. The old JSON Theme field
-        -- is intentionally ignored so stale Blackhole data cannot override the
-        -- dedicated theme state.
-        if type(reader) ~= "function" then return end
-        local raw
-        local okRead, result = pcall(reader, System.configPath)
-        if okRead and type(result) == "string" and #result > 0 then
-            raw = result
+        local savedSkills = data.skills or data.Skills
+        if type(savedSkills) == "table" then
+            for i, entry in ipairs(savedSkills) do
+                local skill = Skills[i]
+                if skill and type(entry) == "table" then
+                    if type(entry.enabled) == "boolean" then skill.enabled = entry.enabled end
+                    if type(entry.key) == "string" and System.keyCode(entry.key) then skill.key = System.keyCode(entry.key) end
+                end
+            end
         end
 
-        if raw then
-            local ok, data = pcall(function()
+        local savedKeybinds = data.keybinds or data.Keybinds
+        if type(savedKeybinds) == "table" then
+            for key, value in pairs(savedKeybinds) do
+                if System.keybinds[key] ~= nil and type(value) == "string" and System.keyCode(value) then System.keybinds[key] = System.keyCode(value) end
+            end
+            local map = {ToggleAutomation="ToggleKey", StopAutomation="StopKey", ToggleUI="VisibilityKey", ToggleESP="ESPToggleKey", ToggleHealth="HealthToggleKey"}
+            for source, setting in pairs(map) do
+                if System.keybinds[source] then Settings[setting] = System.keybinds[source] end
+            end
+        end
+
+        System.normalizeSettings()
+
+        if type(data.AutoSkillsEnabled) == "boolean" then
+            State.enabled = data.AutoSkillsEnabled
+        end
+    end
+
+    function System.loadPrefs()
+        -- SAFE PERSISTENCE LOADER ------------------------------------------------
+        -- Never allow a preference file, enum conversion, or executor file API
+        -- mismatch to abort the main UI bootstrap.
+        local ok, err = pcall(function()
+            System._themeFileLoaded = false
+            System._sessionThemeLoaded = false
+
+            local bootstrap = getBootstrapTheme()
+            System.bootstrapTheme = bootstrap
+
+            local candidates = {}
+            local function addCandidate(value)
+                if type(value) == "string" then candidates[#candidates + 1] = value end
+            end
+            addCandidate(bootstrap)
+            addCandidate(getSessionTheme())
+            addCandidate(environment.__AutoSkills_StartupTheme)
+            addCandidate(environment.__AutoSkills_LastTheme)
+
+            if type(reader) == "function" then
+                local ok1, raw1 = pcall(reader, System.themeStatePath)
+                local ok2, raw2 = pcall(reader, System.themeConfigPath)
+                if ok1 then candidates[#candidates + 1] = raw1 end
+                if ok2 then candidates[#candidates + 1] = raw2 end
+            end
+
+            for _, candidate in ipairs(candidates) do
+                local restored = normalizeTheme(candidate)
+                if restored then
+                    System.theme = restored
+                    System.startupTheme = restored
+                    System._themeFileLoaded = true
+                    break
+                end
+            end
+
+            if type(reader) ~= "function" then return end
+
+            local okRead, raw = pcall(reader, System.configPath)
+            if not okRead or type(raw) ~= "string" or #raw == 0 then return end
+            if #raw > 2000000 then error("Preference file is too large") end
+
+            local okDecode, data = pcall(function()
                 return HttpService:JSONDecode(raw)
             end)
-            if ok and type(data) == "table" then
-                if type(data.StaticMapScan) == "boolean" then Settings.StaticMapScan = data.StaticMapScan end
-                if type(data.AutoRejoin) == "boolean" then Settings.AutoRejoin = data.AutoRejoin end
-                if type(data.AutoExecute) == "boolean" then Settings.AutoExecute = data.AutoExecute end
-                if finiteText(data.PrivateServerMap, 80) then Settings.PrivateServerMap = data.PrivateServerMap end
-                if finiteText(data.TargetGameId, 40) then System.targetGameId = data.TargetGameId end
-                if finiteText(data.LastPrivateJob, 120) then System.lastPrivateJob = data.LastPrivateJob end
-                if type(data.LastPrivatePlace) == "number" then System.lastPrivatePlace = data.LastPrivatePlace end
+            if not okDecode or type(data) ~= "table" then return end
+
+            pcall(function()
+                if type(System.restorePersistedState) == "function" then
+                    System.restorePersistedState(data)
+                end
+            end)
+
+            local function take(key, kind)
+                local value = data[key]
+                if kind == "boolean" and type(value) == "boolean" then
+                    Settings[key] = value
+                elseif kind == "number" and type(value) == "number" then
+                    Settings[key] = value
+                elseif kind == "string" and type(value) == "string" and #value <= 400 then
+                    Settings[key] = value
+                end
             end
+
+            take("StaticMapScan", "boolean")
+            take("AutoRejoin", "boolean")
+            take("AutoExecute", "boolean")
+            take("SmartReacquire", "boolean")
+            take("FarmHealthOnly", "boolean")
+            take("StatsEnabled", "boolean")
+            take("NotificationsEnabled", "boolean")
+            take("OverlayLock", "boolean")
+            take("SafetyEnabled", "boolean")
+            take("SafetyAutoRecover", "boolean")
+            take("SafetyPauseOnUnexpected", "boolean")
+            take("WebhookEnabled", "boolean")
+            take("WebhookBoss", "boolean")
+            take("WebhookLoot", "boolean")
+            take("WebhookRecovery", "boolean")
+            take("WebhookSession", "boolean")
+            take("WebhookDeath", "boolean")
+            take("WebhookURL", "string")
+            take("PrivateServerMap", "string")
+            if finiteText(data.TargetGameId, 40) and data.TargetGameId:match("^%d+$") then
+                System.targetGameId = data.TargetGameId
+            end
+            take("WalkSpeed", "number")
+            take("HoldTime", "number")
+            take("LootTimeout", "number")
+            take("LootSettleTime", "number")
+            take("BossRouteMode", "string")
+
+            System.normalizeSettings()
+            Settings.FarmMaxHP = math.max(Settings.FarmMinHP, Settings.FarmMaxHP)
+            Settings.WalkSpeed = math.clamp(Settings.WalkSpeed, 8, 200)
+            Settings.HoldTime = math.clamp(Settings.HoldTime, 0.03, 1.0)
+            Settings.LootTimeout = math.clamp(Settings.LootTimeout, 2, 30)
+            Settings.LootSettleTime = math.clamp(Settings.LootSettleTime, 0.5, 4)
+            if Settings.BossRouteMode ~= "Nearest" and Settings.BossRouteMode ~= "Round Robin" and Settings.BossRouteMode ~= "Random" then
+                Settings.BossRouteMode = "Nearest"
+            end
+            System.targetGameId = System.targetGameId ~= "0" and System.targetGameId or tostring(game.GameId or 0)
+            if type(data.LastPrivateJob) == "string" and #data.LastPrivateJob <= 120 then
+                System.lastPrivateJob = data.LastPrivateJob
+            end
+            if type(data.LastPrivatePlace) == "number" then
+                System.lastPrivatePlace = data.LastPrivatePlace
+            end
+        end)
+
+        if not ok then
+            System.persistStatus = "Preferences skipped: " .. tostring(err)
+            warn("AutoSkills preference restore: " .. tostring(err))
         end
     end
 
@@ -3351,17 +3890,69 @@ do
 
         if type(writer) == "function" then
             local ok, err = pcall(function()
+                local storedSettings = {}
+                for key, value in pairs(Settings) do
+                    local valueType = type(value)
+                    if valueType == "boolean" or valueType == "number" or valueType == "string" then
+                        storedSettings[key] = value
+                    elseif typeof(value) == "EnumItem" then
+                        storedSettings[key] = {__enum = tostring(value.EnumType), name = value.Name}
+                    end
+                end
+
+                local storedSkills = {}
+                for i, skill in ipairs(Skills) do
+                    storedSkills[i] = {name = skill.name, enabled = skill.enabled, key = skill.key.Name}
+                end
+
+                local storedKeybinds = {}
+                for key, value in pairs(System.keybinds) do
+                    if typeof(value) == "EnumItem" then storedKeybinds[key] = value.Name end
+                end
+
                 writer(System.configPath, HttpService:JSONEncode({
-                    schema = 1,
-                    StaticMapScan = Settings.StaticMapScan,
-                    AutoRejoin = Settings.AutoRejoin,
-                    AutoExecute = Settings.AutoExecute,
+                    schema = 2,
+                    schemaVersion = 4,
                     Theme = themeToSave,
+                    Settings = storedSettings,
+                    settings = storedSettings,
+                    Skills = storedSkills,
+                    skills = storedSkills,
+                    Keybinds = storedKeybinds,
+                    keybinds = storedKeybinds,
+                    AutoSkillsEnabled = State.enabled == true,
                     PrivateMap = Settings.PrivateServerMap,
                     PrivateServerMap = Settings.PrivateServerMap,
                     TargetGameId = System.targetGameId,
                     LastPrivatePlace = System.lastPrivatePlace,
                     LastPrivateJob = System.lastPrivateJob,
+                    StaticMapScan = Settings.StaticMapScan,
+                    AutoRejoin = Settings.AutoRejoin,
+                    AutoExecute = Settings.AutoExecute,
+                    SmartReacquire = Settings.SmartReacquire,
+                    BossRouteMode = Settings.BossRouteMode,
+                    LootTimeout = Settings.LootTimeout,
+                    LootSettleTime = Settings.LootSettleTime,
+                    FarmHealthOnly = Settings.FarmHealthOnly,
+                    FarmMinHP = Settings.FarmMinHP,
+                    FarmMaxHP = Settings.FarmMaxHP,
+                    WalkSpeed = Settings.WalkSpeed,
+                    HoldTime = Settings.HoldTime,
+                    StatsEnabled = Settings.StatsEnabled,
+                    NotificationsEnabled = Settings.NotificationsEnabled,
+                    OverlayLock = Settings.OverlayLock,
+                    SafetyEnabled = Settings.SafetyEnabled,
+                    SafetyStuckTimeout = Settings.SafetyStuckTimeout,
+                    SafetyAutoRecover = Settings.SafetyAutoRecover,
+                    SafetyPauseOnUnexpected = Settings.SafetyPauseOnUnexpected,
+                    WebhookEnabled = Settings.WebhookEnabled,
+                    WebhookURL = Settings.WebhookURL,
+                    WebhookBoss = Settings.WebhookBoss,
+                    WebhookLoot = Settings.WebhookLoot,
+                    WebhookRecovery = Settings.WebhookRecovery,
+                    WebhookSession = Settings.WebhookSession,
+                    WebhookDeath = Settings.WebhookDeath,
+                    WebhookRateLimit = Settings.WebhookRateLimit,
                 }))
             end)
             jsonSaved = ok
@@ -3370,6 +3961,10 @@ do
             end
         end
 
+        if themeSaved and type(writer) == "function" and not jsonSaved then
+            -- Keep the actual JSON failure already reported above.
+            return false
+        end
         if themeSaved then
             System.persistStatus = jsonSaved
                 and ("Preferences saved | Theme: " .. themeToSave)
@@ -3386,7 +3981,30 @@ do
         return false
     end
 
+    function System.queueSavePrefs(delay)
+        System._saveGeneration = (System._saveGeneration or 0) + 1
+        local generation = System._saveGeneration
+        task.delay(delay or 0.18, function()
+            if not State.alive or generation ~= System._saveGeneration then return end
+            pcall(System.savePrefs)
+        end)
+    end
+
     -- ========================= CONTROL SERVICES =========================
+    local function deepCopyProfile(value)
+        if type(value) ~= "table" then return value end
+        local copy = {}
+        for k, v in pairs(value) do copy[deepCopyProfile(k)] = deepCopyProfile(v) end
+        return copy
+    end
+
+    local function syncProfileKeybindSettings()
+        local map = {ToggleAutomation="ToggleKey", StopAutomation="StopKey", ToggleUI="VisibilityKey", ToggleESP="ESPToggleKey", ToggleHealth="HealthToggleKey"}
+        for source, setting in pairs(map) do
+            if System.keybinds[source] then Settings[setting] = System.keybinds[source] end
+        end
+    end
+
     local function profileSnapshot()
         local snapshot = {schema=2, theme=System.theme, settings={}, skills={}, keybinds={}, ui={width=windowWidth or 420, height=windowHeight or 560, scale=Settings.UIScale, opacity=Settings.UIOpacity}}
         for k,v in pairs(Settings) do
@@ -3407,47 +4025,68 @@ do
             for i,entry in ipairs(data.skills) do
                 if Skills[i] and type(entry)=="table" then
                     if type(entry.enabled)=="boolean" then Skills[i].enabled=entry.enabled end
-                    if type(entry.key)=="string" and Enum.KeyCode[entry.key] then Skills[i].key=Enum.KeyCode[entry.key] end
+                    if type(entry.key)=="string" and System.keyCode(entry.key) then Skills[i].key=System.keyCode(entry.key) end
                 end
             end
         end
         if type(data.keybinds)=="table" then
-            for k,v in pairs(data.keybinds) do if type(v)=="string" and Enum.KeyCode[v] then System.keybinds[k]=Enum.KeyCode[v] end end
+            for k,v in pairs(data.keybinds) do if System.keybinds[k] ~= nil and type(v)=="string" and System.keyCode(v) then System.keybinds[k]=System.keyCode(v) end end
+            syncProfileKeybindSettings()
         end
         if type(data.ui)=="table" then
             if type(data.ui.scale)=="number" then Settings.UIScale=math.clamp(data.ui.scale,.75,1.25) end
             if type(data.ui.opacity)=="number" then Settings.UIOpacity=math.clamp(data.ui.opacity,.35,1) end
         end
+        System.normalizeSettings()
         return true
     end
     function System.saveProfile(name)
+        if not System._profilesLoaded and not System.initProfiles() then return false end
         name=tostring(name or "Default"):gsub("[^%w _%-]",""):sub(1,32); if name=="" then name="Default" end
         System.profiles[name]=profileSnapshot(); System.activeProfile=name
-        if System.writer then pcall(System.writer,System.profilePath,HttpService:JSONEncode(System.profiles)) end
+        if System.writer then
+            local ok, err = pcall(function() System.writer(System.profilePath,HttpService:JSONEncode(System.profiles)) end)
+            if not ok then System.notify("Profile write failed: "..tostring(err)); return false end
+        end
         System.notify("Profile saved: "..name); render(); return true
     end
     function System.loadProfile(name)
+        if not System._profilesLoaded and not System.initProfiles() then return false end
         name=tostring(name or System.activeProfile or "Default"); local data=System.profiles[name]
-        if not data and System.reader and System.exists and pcall(System.exists,System.profilePath) then
-            local ok,raw=pcall(System.reader,System.profilePath); if ok then local good,parsed=pcall(HttpService.JSONDecode,HttpService,raw); if good and type(parsed)=="table" then System.profiles=parsed; data=System.profiles[name] end end
-        end
+
         if not data then System.notify("Profile not found: "..name); return false end
-        applyProfileSnapshot(data); System.activeProfile=name
-        if data.theme and UI and UI.setTheme then task.defer(function() UI.setTheme(data.theme) end) end
+        if not applyProfileSnapshot(data) then System.notify("Invalid profile: "..name); return false end
+        System.activeProfile=name
+        System.savePrefs()
+        if normalizeTheme(data.theme) and UI and UI.setTheme then task.defer(function() if State.alive then UI.setTheme(data.theme) end end) end
         System.notify("Profile loaded: "..name); render(); return true
     end
     function System.duplicateProfile(name)
-        local base=System.profiles[name] or profileSnapshot(); local target=(name=="Default" and "Custom 01" or name.." Copy"):sub(1,32); local i=1
-        while System.profiles[target] do i=i+1; target=(name.." Copy "..i):sub(1,32) end
-        System.profiles[target]=base; System.activeProfile=target
+        if not System._profilesLoaded and not System.initProfiles() then return false end
+        name = tostring(name or System.activeProfile or "Default")
+        local base=System.profiles[name] or profileSnapshot()
+        local target=(name=="Default" and "Custom 01" or name:sub(1,27).." Copy"); local i=1
+        while System.profiles[target] do
+            i=i+1
+            local suffix=" Copy "..i
+            target=name:sub(1,32-#suffix)..suffix
+        end
+        System.profiles[target]=deepCopyProfile(base); System.activeProfile=target
         if CoreUI and CoreUI.profileInput then CoreUI.profileInput.Text=target end
-        if System.writer then pcall(System.writer,System.profilePath,HttpService:JSONEncode(System.profiles)) end
+        if System.writer then
+            local ok, err = pcall(function() System.writer(System.profilePath,HttpService:JSONEncode(System.profiles)) end)
+            if not ok then System.notify("Profile write failed: "..tostring(err)); return false end
+        end
         System.notify("Profile duplicated: "..target); render(); return true
     end
     function System.deleteProfile(name)
+        if not System._profilesLoaded and not System.initProfiles() then return false end
         if name=="Default" then System.notify("Default profile is protected."); return false end
         System.profiles[name]=nil; if System.activeProfile==name then System.activeProfile="Default" end
-        if System.writer then pcall(System.writer,System.profilePath,HttpService:JSONEncode(System.profiles)) end
+        if System.writer then
+            local ok, err = pcall(function() System.writer(System.profilePath,HttpService:JSONEncode(System.profiles)) end)
+            if not ok then System.notify("Profile write failed: "..tostring(err)); return false end
+        end
         System.notify("Profile deleted: "..name); render(); return true
     end
     function System.notify(message)
@@ -3516,6 +4155,10 @@ do
             local action = tostring((Farm and Farm.status) or "IDLE")
             CoreUI.liveLabel.Text = string.format("LIVE   %s\nHP %s   |   %s studs   |   %s", targetName, hpText, distanceText, action)
         end
+        if CoreUI.diag then
+            local function mark(ok) return ok and "OK" or "--" end
+            CoreUI.diag.Text=string.format("HTTP request: %s\nFile read/write: %s / %s\nQueue-on-teleport: %s\nWebhook: %s",mark(Webhook.available()),mark(type(System.reader)=="function"),mark(type(System.writer)=="function"),mark(type(queue_on_teleport)=="function" or type(queueteleport)=="function"),tostring(Webhook.status or "disabled"))
+        end
         if CoreUI.targetLabel then CoreUI.targetLabel.Text="Last Target: "..tostring(System.stats.lastTarget or "--") end
         if CoreUI.safetyLabel then
             CoreUI.safetyLabel.Text="Safety: "..tostring(System.safetyStatus)
@@ -3540,6 +4183,7 @@ do
 
     function System.recordTarget(record)
         if not record or not record.humanoid then return false end
+        if not Settings.StatsEnabled then return false end
         local humanoid = record.humanoid
         if not humanoid.Parent then return false end
         if System.statsTargetSeen[humanoid] then
@@ -3558,12 +4202,18 @@ do
     function System.recordKill(record)
         if not record or not record.humanoid then return false end
         local humanoid = record.humanoid
-        if System.statsKillSeen[humanoid] then return false end
         local hp = tonumber(humanoid.Health)
         if hp and hp > 0 then return false end
 
-        -- A kill must always have been a tracked engagement.  If the kill was
-        -- observed before the target-acquisition tick, register the target first.
+        local bossKill = statsRecordIsBoss(record)
+        if Webhook and bossKill and not System.webhookKillSeen[humanoid] then
+            System.webhookKillSeen[humanoid] = true
+            Webhook.queueEvent("boss","BOSS DEFEATED",string.format("%s was defeated.%s",tostring(record.name or "Unknown"), Settings.StatsEnabled and string.format(" Session bosses: %d | kills: %d",System.stats.bosses + 1,System.stats.kills + 1) or ""))
+        end
+
+        if not Settings.StatsEnabled then return false end
+        if System.statsKillSeen[humanoid] then return false end
+
         if not System.statsTargetSeen[humanoid] then
             System.recordTarget(record)
         end
@@ -3571,9 +4221,7 @@ do
         System.statsKillSeen[humanoid] = true
         System.stats.kills = System.stats.kills + 1
         System.stats.lastTarget = tostring(record.name or System.stats.lastTarget or "--")
-        if System.statsBossTargetSeen[humanoid] or statsRecordIsBoss(record) then
-            System.stats.bosses = System.stats.bosses + 1
-        end
+        if bossKill then System.stats.bosses = System.stats.bosses + 1 end
         System.refreshStatsUI()
         return true
     end
@@ -3581,6 +4229,25 @@ do
     function System.recordLoot(item)
         if not item then return false end
         local key = item.entity or item.object or item.part
+        local amount = tonumber(item.amount) or 1
+        local name = tostring(item.lootName or item.name or Farm.getLootDisplayName(item))
+        local transaction = Farm and Farm.lootTransaction
+        if transaction and not transaction.finalized then
+            local seenKey = key or name .. "|" .. tostring(#transaction.drops + 1)
+            if not transaction.dropSeen[seenKey] then
+                transaction.dropSeen[seenKey] = true
+                transaction.drops[#transaction.drops + 1] = {name=name, amount=amount, key=key}
+            end
+            transaction.rewards[name] = transaction.rewards[name] or {amount=0, seen={}}
+            if key and not transaction.rewards[name].seen[key] then
+                transaction.rewards[name].seen[key] = true
+                transaction.rewards[name].amount = transaction.rewards[name].amount + amount
+            elseif not key then
+                transaction.rewards[name].amount = transaction.rewards[name].amount + amount
+            end
+            transaction.sourceName = transaction.sourceName == "LootDrop" and name == "Unknown Loot" and "LootDrop" or transaction.sourceName
+        end
+        if not Settings.StatsEnabled then return false end
         if key and System.statsLootSeen[key] then return false end
         if key then System.statsLootSeen[key] = true end
         System.stats.loots = System.stats.loots + 1
@@ -3596,6 +4263,7 @@ do
     System.statsLastTeleportPosition = nil
 
     function System.recordTeleport(reason, distance, alreadyMoved)
+        if not Settings.StatsEnabled then return false end
         distance = tonumber(distance) or 0
         if distance < 5 then return false end
 
@@ -3623,6 +4291,7 @@ do
     end
 
     function System.confirmTeleport(reason, distance)
+        if not Settings.StatsEnabled then return false end
         distance = tonumber(distance) or 0
         if distance < 5 then return false end
         System.stats.teleports = System.stats.teleports + 1
@@ -3642,6 +4311,8 @@ do
         System.statsLootSeen=setmetatable({}, {__mode="k"})
         System.statsHealthSeen=setmetatable({}, {__mode="k"})
         System.statsBossTargetSeen=setmetatable({}, {__mode="k"})
+        System.webhookKillSeen=setmetatable({}, {__mode="k"})
+        System.webhookLootSeen=setmetatable({}, {__mode="k"})
         System.statsTeleportPending=nil
         System.statsLastTeleportAt=0
         System.statsLastTeleportPosition=nil
@@ -3669,6 +4340,7 @@ do
             ["theme empyrean"]=function() if UI.setTheme then UI.setTheme("Empyrean") end end,
             ["theme pandemonium"]=function() if UI.setTheme then UI.setTheme("Pandemonium") end end,
             ["theme blackhole"]=function() if UI.setTheme then UI.setTheme("Blackhole") end end,
+            ["theme circuit storm"]=function() if UI.setTheme then UI.setTheme("Circuit Storm") end end,
             ["theme default"]=function() if UI.setTheme then UI.setTheme("Default") end end,
             ["core"]=function() State.tab="Core"; render() end,
             ["stats"]=function() State.tab="Core"; render() end,
@@ -3678,15 +4350,41 @@ do
         System.notify("Unknown command: "..q); return false
     end
     function System.initProfiles()
-        if System.reader and System.exists then
-            local ok,exists=pcall(System.exists,System.profilePath)
-            if ok and exists then local good,raw=pcall(System.reader,System.profilePath); if good then local parsedOK,parsed=pcall(HttpService.JSONDecode,HttpService,raw); if parsedOK and type(parsed)=="table" then System.profiles=parsed end end end
+        if System._profilesLoaded then return true end
+        local ok, err = pcall(function()
+            if type(System.profiles) ~= "table" then System.profiles = {} end
+            if type(System.reader) == "function" and type(System.exists) == "function" then
+                local existsOK, present = pcall(System.exists, System.profilePath)
+                if existsOK and present then
+                    local readOK, raw = pcall(System.reader, System.profilePath)
+                    if readOK and type(raw) == "string" and #raw > 0 and #raw <= 1000000 then
+                        local parseOK, parsed = pcall(function() return HttpService:JSONDecode(raw) end)
+                        if parseOK and type(parsed) == "table" then
+                            System.profiles = parsed
+                        else
+                            error("Profile file is malformed; existing file preserved.")
+                        end
+                    else
+                        error("Profile file is unreadable or too large; existing file preserved.")
+                    end
+                elseif not existsOK then
+                    error("Cannot check profile file: " .. tostring(present))
+                end
+            end
+            if type(System.profiles.Default) ~= "table" then
+                System.profiles.Default = profileSnapshot()
+            end
+            -- Loading the store must not change live settings during Save/Delete.
+            System.activeProfile = System.activeProfile or "Default"
+            System._profilesLoaded = true
+        end)
+        if not ok then
+            System.activeProfile = "Default"
+            if type(System.profiles) ~= "table" then System.profiles = {} end
+            if type(System.profiles.Default) ~= "table" then System.profiles.Default = {} end
+            System.persistStatus = "Profiles skipped: " .. tostring(err)
         end
-        System.profiles.Default=System.profiles.Default or profileSnapshot(); System.activeProfile="Default"
-        local gameProfile="Game_"..tostring(game.PlaceId or 0)
-        if System.profiles[gameProfile] then
-            System.activeProfile=gameProfile; applyProfileSnapshot(System.profiles[gameProfile])
-        end
+        return ok
     end
 
     -- Realtime Session Analytics observer.
@@ -3782,7 +4480,9 @@ do
             -- whether optional statistics collection is desired, not whether the
             -- visible session clock freezes.
             System.stats.runtime=math.max(0,time()-(System.stats.startedAt or time()))
-            if Settings.SafetyEnabled and Settings.SafetyAutoRecover and State.enabled then
+            local automationActive = State.enabled or Settings.AutoBoss or Settings.FarmEnabled or State.farming or State.discovering
+            local genericStuckMonitor = not Settings.AutoBoss and not State.farming and not State.discovering
+            if Settings.SafetyEnabled and Settings.SafetyAutoRecover and automationActive and genericStuckMonitor then
                 local char=Player.Character; local hrp=char and char:FindFirstChild("HumanoidRootPart")
                 if hrp then
                     local pos=hrp.Position
@@ -3790,6 +4490,7 @@ do
                     lastPos=pos
                     if os.clock()-lastMove>=Settings.SafetyStuckTimeout then
                         System.safetyStatus="RECOVERY"; System.safetyDetail="Movement appears stuck; attempting safe pause."
+                        Webhook.queueEvent("recovery","SAFETY RECOVERY","Stuck movement detected; the safety monitor attempted a pause.")
                         -- A stuck detection is not itself a teleport. Only actual
                         -- PivotTo reposition events increment Teleports.
                         if Settings.SafetyPauseOnUnexpected then pcall(setEnabled,false) end
@@ -3800,12 +4501,24 @@ do
             System.refreshStatsUI()
         end
     end)
-    System.initProfiles()
-
-    System.loadPrefs()
+    -- Exactly one startup preference restore. The loader is internally safe and
+    -- this outer guard is an additional last line of defense.
+    pcall(function()
+        if System and type(System.loadPrefs) == "function" then
+            System.loadPrefs()
+        end
+    end)
+    -- Profiles are optional UI state. Never initialize/load the profile store
+    -- during the critical startup path: a malformed profile must not prevent
+    -- the main automation UI from booting. Profiles are loaded lazily by the
+    -- profile controls when needed.
+    System.profiles = type(System.profiles) == "table" and System.profiles or {}
+    if type(System.profiles.Default) ~= "table" then
+        System.profiles.Default = {}
+    end
     -- Freeze the theme selected by persisted preferences for this execution.
     -- The loader and initial UI must use the same startup theme.
-    if System.theme ~= "Blackhole" and System.theme ~= "Empyrean" and System.theme ~= "Pandemonium" and System.theme ~= "Default" then
+    if System.theme ~= "Blackhole" and System.theme ~= "Empyrean" and System.theme ~= "Pandemonium" and System.theme ~= "Circuit Storm" and System.theme ~= "Default" then
         System.theme = "Default"
     end
     System.startupTheme = System.theme
@@ -3817,17 +4530,42 @@ do
     local loader = string.format([[
 pcall(function()
     if tostring(game.GameId or 0) ~= %q then return end
-    local rf = type(readfile) == "function" and readfile
-    local ff = type(isfile) == "function" and isfile
-    if rf and ff and ff(%q) then
+    local env = (type(getgenv) == "function" and getgenv()) or _G
+    if env.__AutoSkills_AutoExecute == false then return end
+    local rf = type(readfile) == "function" and readfile or env.readfile
+    local ff = type(isfile) == "function" and isfile or env.isfile
+    if rf then
+        local ok, raw = pcall(rf, %q)
+        if ok and type(raw) == "string" and #raw <= 2000000 then
+            local parsed, prefs = pcall(function() return game:GetService("HttpService"):JSONDecode(raw) end)
+            if parsed and type(prefs) == "table" then
+                local settings = prefs.settings or prefs.Settings
+                if prefs.AutoExecute == false or (type(settings) == "table" and settings.AutoExecute == false) then return end
+            end
+        end
+    end
+    if type(rf) == "function" and (type(ff) ~= "function" or ff(%q)) then
         local source = rf(%q)
-        local fn = loadstring(source)
-        if fn then fn() end
+        env.__AUTOSKILLS_SOURCE = source
+        local fn, err = loadstring(source)
+        if fn then fn() else warn("AutoSkills auto-execute compile error: " .. tostring(err)) end
     end
 end)
-]], System.targetGameId, System.bodyPath, System.bodyPath)
+]], System.targetGameId, System.configPath, System.bodyPath, System.bodyPath)
 
     function System.applyAutoExecute()
+        environment.__AutoSkills_AutoExecute = Settings.AutoExecute == true
+        if Settings.AutoExecute and type(writer) == "function" then
+            local source = environment.__AUTOSKILLS_SOURCE
+            if type(source) == "string" then
+                local ok, err = pcall(writer, System.bodyPath, source)
+                if not ok then
+                    System.persistStatus = "Auto-execute source write failed: " .. tostring(err)
+                    warn("AutoSkills: " .. System.persistStatus)
+                    return false
+                end
+            end
+        end
         local queue = type(queue_on_teleport) == "function" and queue_on_teleport
             or (type(environment.queue_on_teleport) == "function" and environment.queue_on_teleport)
             or (type(syn) == "table" and type(syn.queue_on_teleport) == "function" and syn.queue_on_teleport)
@@ -3868,7 +4606,9 @@ end)
             System.persistStatus = "Auto-execute OFF"
         end
 
+        local autoStatus = System.persistStatus
         System.savePrefs()
+        System.persistStatus = autoStatus
         render()
     end
 
@@ -3905,6 +4645,119 @@ end)
         System.savePrefs()
         render()
     end
+
+    -- ========================= DISCORD WEBHOOK =========================
+    -- PS2 previously had no Webhook object or sender.  The new module supports
+    -- common executor request APIs, validates Discord URLs, rate-limits sends,
+    -- queues events away from the farm loop, retries transient failures once,
+    -- and treats all HTTP 2xx responses as success.
+    Webhook = {queue={}, processing=false, lastSend=0, status="Webhook disabled.", lastEvent="--", sendCount=0, failCount=0}
+
+    local function webhookRequestFunction()
+        local candidates = {}
+        for _, name in ipairs({"request", "http_request", "httprequest"}) do
+            local fn = rawget(environment, name)
+            if type(fn) == "function" then candidates[#candidates + 1] = fn end
+        end
+        if type(request) == "function" then candidates[#candidates+1] = request end
+        if type(http_request) == "function" then candidates[#candidates+1] = http_request end
+        if type(httprequest) == "function" then candidates[#candidates+1] = httprequest end
+        if type(syn) == "table" and type(syn.request) == "function" then candidates[#candidates+1] = syn.request end
+        if type(fluxus) == "table" and type(fluxus.request) == "function" then candidates[#candidates+1] = fluxus.request end
+        for _, fn in ipairs(candidates) do if type(fn) == "function" then return fn end end
+    end
+
+    local function webhookURLValid(value)
+        value=tostring(value or "")
+        return value:match("^https://discord%.com/api/webhooks/%d+/.+$") ~= nil
+            or value:match("^https://discordapp%.com/api/webhooks/%d+/.+$") ~= nil
+    end
+
+    local function webhookEventAllowed(kind)
+        if kind=="boss" then return Settings.WebhookBoss end
+        if kind=="loot" then return Settings.WebhookLoot end
+        if kind=="recovery" then return Settings.WebhookRecovery end
+        if kind=="session" then return Settings.WebhookSession end
+        if kind=="death" then return Settings.WebhookDeath end
+        return true
+    end
+
+    function Webhook.available() return webhookRequestFunction() ~= nil end
+
+    function Webhook.send(title, message, force)
+        if not force and not Settings.WebhookEnabled then Webhook.status="Webhook disabled."; return false,Webhook.status end
+        if not webhookURLValid(Settings.WebhookURL) then Webhook.status="Invalid Discord webhook URL."; return false,Webhook.status end
+        local requestFn=webhookRequestFunction()
+        if not requestFn then Webhook.status="No compatible HTTP request API was found in this runner."; return false,Webhook.status end
+        local waitFor=math.max(0,(tonumber(Settings.WebhookRateLimit) or 2)-(os.clock()-Webhook.lastSend))
+        if waitFor>0 then task.wait(waitFor) end
+        Webhook.lastSend=os.clock()
+        local payload={username="VOID AUTOMATION",embeds={{title=tostring(title or "VOID AUTOMATION"),description=tostring(message or ""),color=0xC81E2C,footer={text="PANDEMONIUM / VOID AUTOMATION"},timestamp=os.date("!%Y-%m-%dT%H:%M:%SZ")}}}
+        local ok,response=pcall(requestFn,{Url=Settings.WebhookURL,Method="POST",Headers={ ["Content-Type"]="application/json" },Body=HttpService:JSONEncode(payload)})
+        if not ok then Webhook.failCount=Webhook.failCount+1; Webhook.status="Webhook request failed: "..tostring(response); return false,Webhook.status end
+        local code=type(response)=="table" and tonumber(response.StatusCode or response.Status or response.status_code) or nil
+        if code and code>=200 and code<300 then Webhook.sendCount=Webhook.sendCount+1; Webhook.status="Webhook sent successfully."; return true,Webhook.status end
+        if code==429 then
+            local headers=type(response)=="table" and (response.Headers or response.headers) or nil
+            local retry=type(headers)=="table" and tonumber(headers["Retry-After"] or headers["retry-after"]) or nil
+            Webhook.status="Discord rate-limited the webhook"..(retry and string.format(" (retry in %.1fs)",retry) or "")
+            return false,Webhook.status,retry
+        end
+        Webhook.failCount=Webhook.failCount+1; Webhook.status="Discord returned HTTP "..tostring(code or "unknown status"); return false,Webhook.status
+    end
+
+    function Webhook.queueEvent(kind,title,message)
+        if not Settings.WebhookEnabled or not webhookEventAllowed(kind) then return false end
+        if not webhookURLValid(Settings.WebhookURL) then Webhook.status="Webhook enabled, but URL is invalid."; return false end
+        if #Webhook.queue>=32 then table.remove(Webhook.queue,1) end
+        Webhook.queue[#Webhook.queue+1]={kind=kind,title=title,message=message}
+        Webhook.lastEvent=tostring(title or kind)
+        return true
+    end
+
+    -- Startup webhook must be queued only after queueEvent itself has been defined.
+    -- The previous build called this during bootstrap, while queueEvent was still nil.
+    if Settings.WebhookEnabled and webhookURLValid(Settings.WebhookURL) then
+        pcall(function()
+            Webhook.queueEvent("session", "VOID AUTOMATION STARTED", "Session started successfully. Theme: " .. tostring(System.startupTheme))
+        end)
+    end
+
+    function Webhook.setEnabled(value)
+        Settings.WebhookEnabled=value==true
+        if Settings.WebhookEnabled then
+            Webhook.status=webhookURLValid(Settings.WebhookURL) and (Webhook.available() and "Webhook armed." or "Webhook armed; HTTP request API unavailable.") or "Webhook enabled, but URL is invalid."
+            if webhookURLValid(Settings.WebhookURL) then Webhook.queueEvent("session","VOID AUTOMATION ONLINE","Webhook event stream enabled.") end
+        else
+            Webhook.status="Webhook disabled."
+        end
+        System.savePrefs(); render()
+    end
+
+    function Webhook.setURL(value)
+        Settings.WebhookURL=tostring(value or ""):gsub("^%s+",""):gsub("%s+$",""):sub(1,400)
+        if Settings.WebhookURL=="" then Webhook.status="Webhook URL cleared."
+        elseif not webhookURLValid(Settings.WebhookURL) then Webhook.status="Invalid Discord webhook URL."
+        else Webhook.status=Webhook.available() and "Webhook URL accepted." or "URL accepted; HTTP request API unavailable." end
+        System.savePrefs(); render()
+    end
+
+    task.spawn(function()
+        while State.alive or #Webhook.queue>0 do
+            local item=table.remove(Webhook.queue,1)
+            if item then
+                Webhook.processing=true
+                local success=false
+                for attempt=1,2 do
+                    local ok,detail,retry=Webhook.send(item.title,item.message,false)
+                    if ok then success=true; break end
+                    if attempt<2 then task.wait(math.clamp(tonumber(retry) or .5,.5,10)) end
+                end
+                if not success then warn("AutoSkills Webhook: "..tostring(Webhook.status)) end
+                Webhook.processing=false
+            else task.wait(.15) end
+        end
+    end)
 
     function System.writeFriendReady()
         if type(writer) ~= "function" then
@@ -4147,7 +5000,7 @@ end)
     end)
 end
 
-local C = {
+C = {
 
     panel = Color3.fromRGB(8, 4, 15),
     surface = Color3.fromRGB(16, 8, 29),
@@ -4164,7 +5017,6 @@ local C = {
     magenta = Color3.fromRGB(217, 70, 199),
     voidDeep = Color3.fromRGB(11, 6, 22),
 }
-local W, H = 720, 760
 local function make(className, parent, properties)
     local object = Instance.new(className)
     for name, value in pairs(properties or {}) do object[name] = value end
@@ -4344,9 +5196,10 @@ local function refreshESP()
         notify("ESP stopped. Check the runner output for details.")
     end
 end
-local function setESPEnabled(value)
+setESPEnabled = function(value)
     if not State.alive then return end
     Settings.ESPEnabled, State.espFault = value, nil
+    if System and System.queueSavePrefs then System.queueSavePrefs(0.08) end
     if value then refreshESP() else clearESP() end
     render()
 end
@@ -4354,7 +5207,7 @@ end
 root = make("ScreenGui", playerGui, {
     Name = "AutoSkillsVoidUI", ResetOnSpawn = false, IgnoreGuiInset = true,
     DisplayOrder = 100, ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-    Enabled = false,
+    Enabled = true,
 })
 local canvas = make("Frame", root, {
     Name = "Canvas", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
@@ -4372,8 +5225,8 @@ loaderCanvas = make("Frame", loaderRoot, {
 })
 
 local W, H = 420, 560
-local windowWidth = W
-local C = {
+windowWidth = W
+C = {
     black = Color3.fromRGB(2, 1, 5),
     deep = Color3.fromRGB(11, 6, 22),
     panel = Color3.fromRGB(14, 8, 26),
@@ -4403,7 +5256,7 @@ local C = {
 local uiScale = make("UIScale", canvas, {Scale = 1})
 local holder = make("Frame", canvas, {
     Name = "Window", Size = UDim2.fromOffset(W, H), Position = UDim2.fromOffset(0, 0),
-    BackgroundTransparency = 1, BorderSizePixel = 0, Active = true, Visible = false,
+    BackgroundTransparency = 1, BorderSizePixel = 0, Active = true, Visible = true,
 })
 local shadow = frame(holder, "Shadow", -6, 8, W + 12, H + 12, Color3.new(0, 0, 0), 15)
 shadow.BackgroundTransparency = 0.58
@@ -5041,7 +5894,7 @@ connect(RunService.RenderStepped, function()
     local cx = heroWidth * 0.5
     local cy = 76
     BH.atmosphere.Size = UDim2.fromOffset(heroWidth, 152)
-    local coreScale = math.clamp(0.92 + (heroWidth / 420) * 0.28, 0.92, 1.65)
+    local coreScale = math.clamp((0.92 + (heroWidth / 420) * 0.28) * 1.10, 1.00, 1.80)
     BH.core.Position = UDim2.fromOffset(cx, cy)
     BH.coreGlow.Position = UDim2.fromOffset(cx, cy)
     BH.horizonSilver.Position = UDim2.fromOffset(cx, cy)
@@ -5105,17 +5958,16 @@ connect(RunService.RenderStepped, function()
     BH.scanGradient.Offset = Vector2.new(0, ((t * 0.14) % 2) - 1)
 end)
 
-local tabs = frame(panel, "Nav", 0, 88, W, 64, C.black, 0)
-tabs.BackgroundTransparency = 0.35
-tabs.ZIndex = 5
-stroke(tabs, C.line, 0.55, 1)
-local navNames = {"Skills", "ESP", "Health", "Farm", "Move", "System", "Theme", "Core"}
-local navKinds = {"skills", "esp", "health", "farm", "move", "system", "theme", "system"}
-local navButtons = {}
+nav = nav or {}
+UI.tabs = make("ScrollingFrame", panel, {Name="Nav", Position=UDim2.fromOffset(0,88), Size=UDim2.fromOffset(W,64), BackgroundColor3=C.black, BackgroundTransparency=.35, BorderSizePixel=0, CanvasSize=UDim2.fromOffset(0,64), ScrollBarThickness=2, ScrollingDirection=Enum.ScrollingDirection.X, ScrollingEnabled=true, Active=true, ZIndex=5})
+stroke(UI.tabs, C.line, 0.55, 1)
+nav.names = {"Skills", "ESP", "Health", "Farm", "Move", "System", "Theme", "Core", "Webhook"}
+nav.kinds = {"skills", "esp", "health", "farm", "move", "system", "theme", "system", "webhook"}
+nav.buttons = {}
 UI.navStrokes, UI.navBars = {}, {}
-local navX, navW, navGap = 12, 61, 6
-for i, key in ipairs(navNames) do
-    local b = button(tabs, key .. "Tab", string.upper(key), navX + (i - 1) * (navW + navGap), 10, navW, 44, Color3.fromRGB(8, 4, 16), 9)
+nav.x, nav.w, nav.gap = 12, 61, 6
+for i, key in ipairs(nav.names) do
+    local b = button(UI.tabs, key .. "Tab", string.upper(key), nav.x + (i - 1) * (nav.w + nav.gap), 10, nav.w, 44, Color3.fromRGB(8, 4, 16), 9)
     b.ZIndex = 6
     b.TextTransparency = 0
     b.TextColor3 = C.faint
@@ -5124,20 +5976,20 @@ for i, key in ipairs(navNames) do
     b.TextYAlignment = Enum.TextYAlignment.Bottom
     b.TextXAlignment = Enum.TextXAlignment.Center
     b.Text = string.upper(key)
-    navIcon(b, navKinds[i], 20, 5, C.faint)
+    navIcon(b, nav.kinds[i], 20, 5, C.faint)
     UI.navStrokes[key] = stroke(b, C.line, 0.88, 1)
     UI.navBars[key] = frame(b, "ActiveBar", 8, 40, 43, 2, C.violet2, 2)
     UI.navBars[key].Visible = false
-    navButtons[key] = b
+    nav.buttons[key] = b
 end
-UI.skillsTab = navButtons.Skills
-UI.espTab = navButtons.ESP
-UI.healthTab = navButtons.Health
-UI.farmTab = navButtons.Farm
-UI.moveTab = navButtons.Move
-UI.systemTab = navButtons.System
-UI.themeTab = navButtons.Theme
-UI.coreTab = navButtons.Core
+UI.skillsTab = nav.buttons.Skills
+UI.espTab = nav.buttons.ESP
+UI.healthTab = nav.buttons.Health
+UI.farmTab = nav.buttons.Farm
+UI.moveTab = nav.buttons.Move
+UI.systemTab = nav.buttons.System
+UI.themeTab = nav.buttons.Theme
+UI.coreTab = nav.buttons.Core
 
 local content = make("Frame", panel, {
     Name = "Content", Position = UDim2.fromOffset(0, 152), Size = UDim2.fromOffset(W, H - 152),
@@ -5179,6 +6031,7 @@ local function makeRow(parent, y, name, desc, getter, setter)
     toggleViews[#toggleViews + 1] = view
     connect(track.Activated, function()
         setter(not getter())
+        if System and System.queueSavePrefs then System.queueSavePrefs(0.08) end
         render()
     end)
     return row, view
@@ -5204,6 +6057,7 @@ local function makeSlider(parent, y, name, getter, setter, min, max, format)
         local f = math.clamp((x - hit.AbsolutePosition.X) / width, 0, 1)
         local value = min + (max - min) * f
         setter(value)
+        if System and System.queueSavePrefs then System.queueSavePrefs(0.35) end
         render()
     end
     view.updateFromX = updateFromX
@@ -5227,6 +6081,7 @@ local function addKeyLoadout(parent, y)
         connect(b.Activated, function()
             s.enabled = not s.enabled
             if not s.enabled and State.heldKey == s.key then releaseOrPause() end
+            if System and System.queueSavePrefs then System.queueSavePrefs(0.08) end
             render()
         end)
     end
@@ -5237,12 +6092,13 @@ local skillsPage = newPage("Skills")
 body = skillsPage
 pageHead(skillsPage, "skills", "SKILLS", "4 MODULES")
 makeRow(skillsPage, 48, "Auto Cast", "Queues abilities on repeat", function() return State.enabled end, setEnabled)
-makeRow(skillsPage, 108, "Cooldown Sync", "Keeps the selected key cycle aligned", function() return Settings.FarmUseSkills end, function(v) Settings.FarmUseSkills = v; releaseOrPause() end)
-makeRow(skillsPage, 168, "Combo Assist", "Uses the reliable inventory-safe input path", function() return Settings.FarmM1 end, function(v) Settings.FarmM1 = v; releaseOrPause() end)
+makeRow(skillsPage, 108, "Farm Skills", "Allows the farm worker to use the selected skills", function() return Settings.FarmUseSkills end, function(v) Settings.FarmUseSkills = v; releaseOrPause() end)
+makeRow(skillsPage, 168, "M1 Assist", "Uses the inventory-safe primary attack path", function() return Settings.FarmM1 end, function(v) Settings.FarmM1 = v; releaseOrPause() end)
 makeSlider(skillsPage, 228, "Cast Priority", function() return Settings.KeyGap end, function(v) Settings.KeyGap = math.clamp(v, 0.03, 1.0) end, 0.03, 1.0, "%.2fs")
-addKeyLoadout(skillsPage, 308)
-local skillHint = safeText(skillsPage, "Hint", "F6 toggles skills  /  F7 unloads  /  R-SHIFT hides the panel", 16, 376, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
-skillHint.TextXAlignment = Enum.TextXAlignment.Center
+makeSlider(skillsPage, 288, "Hold Time", function() return Settings.HoldTime end, function(v) Settings.HoldTime = math.clamp(v, 0.03, 1.0) end, 0.03, 1.0, "%.2fs")
+addKeyLoadout(skillsPage, 368)
+UI.skillHint = safeText(skillsPage, "Hint", "F6 toggles skills  /  F7 unloads  /  R-SHIFT hides the panel", 16, 432, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+UI.skillHint.TextXAlignment = Enum.TextXAlignment.Center
 
 local espPage = newPage("ESP")
 espBody = espPage
@@ -5252,16 +6108,26 @@ makeRow(espPage, 108, "Outline Layer", "Highlights players through geometry", fu
 makeRow(espPage, 168, "Info Tags", "Shows name and health information", function() return Settings.ESPShowNames end, function(v) Settings.ESPShowNames = v; refreshESP() end)
 makeRow(espPage, 228, "Health Bars", "Shows current player health", function() return Settings.ESPShowHealth end, function(v) Settings.ESPShowHealth = v; refreshESP() end)
 makeSlider(espPage, 288, "Render Range", function() return Settings.ESPMaxDistance end, function(v) Settings.ESPMaxDistance = math.floor(v / 50 + 0.5) * 50; refreshESP() end, 100, 10000, "%.0f studs")
+makeRow(espPage, 348, "Through Walls", "Keeps ESP visible behind geometry", function() return Settings.ESPThroughWalls end, function(v) Settings.ESPThroughWalls=v; System.savePrefs(); refreshESP() end)
+makeRow(espPage, 408, "Hide Teammates", "Filters players on your team", function() return Settings.ESPHideTeammates end, function(v) Settings.ESPHideTeammates=v; System.savePrefs(); refreshESP() end)
 
 local healthPage = newPage("Health")
 healthBody = healthPage
 pageHead(healthPage, "health", "HEALTH CORE", "3 MODULES")
 makeRow(healthPage, 48, "Health Escape", "Moves 70 studs upward at the threshold", function() return Settings.HealthEscapeEnabled end, Guard.setEnabled)
 makeRow(healthPage, 108, "Escape Lock", "Holds position until released", function() return Settings.HealthLock end, function(v) Settings.HealthLock = v; Guard.step() end)
-makeRow(healthPage, 168, "Automatic Source", "Uses the client-visible health reader", function() return Settings.HealthSource == "Auto" end, function(v) Settings.HealthSource = v and "Auto" or "Custom"; Guard.step() end)
-makeSlider(healthPage, 228, "Alert Threshold", function() return Settings.HealthThreshold end, function(v) Settings.HealthThreshold = math.floor(v + 0.5); Guard.step() end, 5, 80, "%.0f%%")
-local healthHint = safeText(healthPage, "Hint", "Re-arms 5 percentage points above the threshold.", 16, 312, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
-healthHint.TextXAlignment = Enum.TextXAlignment.Center
+makeRow(healthPage, 168, "Automatic Source", "Uses the client-visible health reader", function() return Settings.HealthSource == "Auto" end, function(v)
+    if v then Settings.HealthSource="Auto" else Guard.refreshSources(true); Settings.HealthSource=Guard.sources[1] and Guard.sources[1].id or "Auto" end
+    Guard.step(); System.savePrefs(); render()
+end)
+UI.healthPrev=button(healthPage,"PrevSource","<",16,288,36,28,C.panel2,10)
+UI.healthNext=button(healthPage,"NextSource",">",56,288,36,28,C.panel2,10)
+UI.healthSourcePicker=safeText(healthPage,"SourcePicker","SOURCE: AUTO",102,286,W-118,32,9,C.faint,Enum.Font.GothamBold)
+connect(UI.healthPrev.Activated,function() Guard.cycleSource(-1); System.savePrefs(); render() end)
+connect(UI.healthNext.Activated,function() Guard.cycleSource(1); System.savePrefs(); render() end)
+makeSlider(healthPage, 328, "Alert Threshold", function() return Settings.HealthThreshold end, function(v) Settings.HealthThreshold = math.floor(v + 0.5); System.savePrefs(); Guard.step() end, 5, 80, "%.0f%%")
+UI.healthHint = safeText(healthPage, "Hint", "Re-arms 5 percentage points above the threshold.", 16, 374, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+UI.healthHint.TextXAlignment = Enum.TextXAlignment.Center
 UI.healthStatus = safeText(healthPage, "CompatStatus", "", -100, -100, 1, 1, 1, C.dim)
 UI.healthStatus.Visible = false
 UI.healthDetail = safeText(healthPage, "CompatDetail", "", -100, -100, 1, 1, 1, C.dim)
@@ -5269,15 +6135,22 @@ UI.healthDetail.Visible = false
 
 local farmPage = newPage("Farm")
 farmBody = farmPage
-pageHead(farmPage, "farm", "FARM ROUTE", "5 NODES")
-makeRow(farmPage, 48, "Auto Farm", "Selects eligible 3000-3200 HP targets", function() return Settings.FarmEnabled end, Farm.setEnabled)
+pageHead(farmPage, "farm", "FARM ROUTE", "10 NODES")
+makeRow(farmPage, 48, "Auto Farm", "Selects eligible targets using the HP filter", function() return Settings.FarmEnabled end, Farm.setEnabled)
 makeRow(farmPage, 108, "Auto Boss", "Routes through saved boss locations", function() return Settings.AutoBoss end, Farm.setAutoBoss)
 makeRow(farmPage, 168, "Auto Collect", "Loots boss drops and world rewards", function() return Settings.FarmAutoLoot end, Farm.setLoot)
 makeRow(farmPage, 228, "Auto M1", "Uses the inventory-safe M1 path", function() return Settings.FarmM1 end, function(v) Settings.FarmM1 = v; Farm.step() end)
-makeSlider(farmPage, 288, "Boss Delay", function() return Settings.BossNoAttackTimeout end, function(v) Settings.BossNoAttackTimeout = math.max(1, v) end, 1, 10, "%.1fs")
-local farmHint = safeText(farmPage, "Hint", "Auto Boss keeps the same-boss respawn route when possible.", 16, 372, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
-farmHint.TextXAlignment = Enum.TextXAlignment.Center
-UI.farmHint = farmHint
+makeRow(farmPage, 288, "HP Filter", "Only accepts bosses inside the configured HP window", function() return Settings.FarmHealthOnly end, function(v) Settings.FarmHealthOnly=v; System.savePrefs(); Farm.scan(true); render() end)
+makeSlider(farmPage, 348, "Min Boss HP", function() return Settings.FarmMinHP end, function(v) Settings.FarmMinHP=math.floor(v+0.5); if Settings.FarmMaxHP<Settings.FarmMinHP then Settings.FarmMaxHP=Settings.FarmMinHP end; System.savePrefs(); Farm.scan(true); render() end, 100, 100000, "%.0f")
+makeSlider(farmPage, 408, "Max Boss HP", function() return Settings.FarmMaxHP end, function(v) Settings.FarmMaxHP=math.max(Settings.FarmMinHP,math.floor(v+0.5)); System.savePrefs(); Farm.scan(true); render() end, 100, 100000, "%.0f")
+makeSlider(farmPage, 468, "No-Attack Timeout", function() return Settings.BossNoAttackTimeout end, function(v) Settings.BossNoAttackTimeout=math.max(1,v); System.savePrefs() end, 1, 10, "%.1fs")
+makeSlider(farmPage, 528, "Loot Timeout", function() return Settings.LootTimeout end, function(v) Settings.LootTimeout=math.clamp(v,2,30); System.savePrefs() end, 2, 30, "%.1fs")
+makeSlider(farmPage, 588, "Loot Settle", function() return Settings.LootSettleTime end, function(v) Settings.LootSettleTime=math.clamp(v,0.5,4); System.queueSavePrefs(.15); render() end, 0.5, 4, "%.1fs")
+UI.routeModeButton=button(farmPage,"RouteMode","ROUTE: "..tostring(Settings.BossRouteMode),16,588,190,30,C.panel2,9)
+UI.routeModeButton.TextColor3=C.ink; stroke(UI.routeModeButton,C.line,.55,1)
+connect(UI.routeModeButton.Activated,function() local order={"Nearest","Round Robin","Random"}; local i=table.find(order,Settings.BossRouteMode) or 1; Settings.BossRouteMode=order[i%#order+1]; UI.routeModeButton.Text="ROUTE: "..Settings.BossRouteMode; System.savePrefs(); render() end)
+UI.farmHint=safeText(farmPage,"Hint","Auto Boss supports nearest, round-robin, and random routing; same-boss respawn recovery remains active.",16,632,W-32,30,9,C.faint,Enum.Font.GothamMedium)
+UI.farmHint.TextXAlignment = Enum.TextXAlignment.Center
 UI.farmCount = safeText(farmPage, "Count", "0", 0, 0, 1, 1, 1, C.dim)
 UI.farmName = safeText(farmPage, "Target", "None", 0, 0, 1, 1, 1, C.dim)
 UI.farmID = safeText(farmPage, "ID", "--", 0, 0, 1, 1, 1, C.dim)
@@ -5297,9 +6170,10 @@ pageHead(movePage, "move", "MOVEMENT", "3 MODULES")
 makeRow(movePage, 48, "NoClip", "Prevents collision while moving", function() return Settings.NoClip end, function(v) Settings.NoClip = v; Movement.step(0) end)
 makeRow(movePage, 108, "Fly", "Camera-relative full-direction flight", function() return Settings.FlyEnabled end, Movement.setFly)
 makeRow(movePage, 168, "Speed", "Adjusts local walk speed", function() return Settings.SpeedEnabled end, function(v) Settings.SpeedEnabled = v; Movement.step(0) end)
-makeSlider(movePage, 228, "Speed Multiplier", function() return Settings.FlySpeed end, function(v) Settings.FlySpeed = math.floor(v + 0.5); Movement.step(0) end, 20, 200, "%.0f")
-local moveHint = safeText(movePage, "Hint", "T is blocked while NoClip is active.", 16, 312, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
-moveHint.TextXAlignment = Enum.TextXAlignment.Center
+makeSlider(movePage, 228, "Fly Speed", function() return Settings.FlySpeed end, function(v) Settings.FlySpeed = math.floor(v + 0.5); System.savePrefs(); Movement.step(0) end, 20, 200, "%.0f")
+makeSlider(movePage, 288, "Walk Speed", function() return Settings.WalkSpeed end, function(v) Settings.WalkSpeed = math.floor(v + 0.5); System.savePrefs(); Movement.step(0) end, 8, 200, "%.0f")
+UI.moveHint = safeText(movePage, "Hint", "T is blocked while NoClip is active.", 16, 372, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+UI.moveHint.TextXAlignment = Enum.TextXAlignment.Center
 UI.moveStatus = safeText(movePage, "CompatStatus", "", -100, -100, 1, 1, 1, C.dim)
 UI.moveStatus.Visible = false
 UI.moveDetail = safeText(movePage, "CompatDetail", "", -100, -100, 1, 1, 1, C.dim)
@@ -5307,25 +6181,46 @@ UI.moveDetail.Visible = false
 UI.moveStatusDot = frame(movePage, "MoveDot", 0, 0, 1, 1, C.dim, 1)
 UI.moveMasterStroke = stroke(movePage, C.line, 1, 1)
 
+UI.webhookPage = newPage("Webhook")
+pageHead(UI.webhookPage,"system","DISCORD WEBHOOK","EVENT STREAM")
+makeRow(UI.webhookPage,48,"Webhook","Enable queued Discord notifications",function() return Settings.WebhookEnabled end,Webhook.setEnabled)
+safeText(UI.webhookPage,"URLLabel","DISCORD WEBHOOK URL",16,114,220,16,9,C.faint,Enum.Font.GothamBold)
+UI.webhookBox=make("TextBox",UI.webhookPage,{Name="WebhookURL",Text=Settings.WebhookURL,Position=UDim2.fromOffset(16,134),Size=UDim2.fromOffset(W-32,34),BackgroundColor3=C.panel2,BorderSizePixel=0,TextColor3=C.ink,PlaceholderText="https://discord.com/api/webhooks/...",PlaceholderColor3=C.faint,TextSize=9,Font=Enum.Font.Code,ClearTextOnFocus=false,TextTruncate=Enum.TextTruncate.AtEnd,ZIndex=20})
+corner(UI.webhookBox,8); stroke(UI.webhookBox,C.line,.60,1); connect(UI.webhookBox.FocusLost,function() Webhook.setURL(UI.webhookBox.Text) end)
+UI.webhookTest=button(UI.webhookPage,"TestWebhook","SEND TEST",16,180,118,32,C.panel2,9); UI.webhookTest.TextColor3=C.ink; stroke(UI.webhookTest,C.line,.55,1)
+connect(UI.webhookTest.Activated,function() local ok,detail=Webhook.send("VOID AUTOMATION TEST","Webhook connection verified.",true); Webhook.status=detail; if ok then System.notify("Webhook test sent.") else System.notify(detail) end; render() end)
+function System._webhookRow(y,name,desc,key) return makeRow(UI.webhookPage,y,name,desc,function() return Settings[key] end,function(v) Settings[key]=v; System.savePrefs(); render() end) end
+System._webhookRow(230,"Boss Events","Notify when a boss is defeated","WebhookBoss")
+System._webhookRow(290,"Loot Events","Notify when loot is collected","WebhookLoot")
+System._webhookRow(350,"Recovery Events","Notify when safety recovery triggers","WebhookRecovery")
+System._webhookRow(410,"Session Events","Notify when the automation session starts","WebhookSession")
+System._webhookRow(470,"Respawn Events","Notify when your character respawns","WebhookDeath")
+makeSlider(UI.webhookPage,530,"Rate Limit",function() return Settings.WebhookRateLimit end,function(v) Settings.WebhookRateLimit=math.clamp(v,1,10); System.savePrefs(); render() end,1,10,"%.1fs")
+UI.webhookStatus=safeText(UI.webhookPage,"WebhookStatus","Webhook disabled.",16,592,W-32,42,9,C.faint,Enum.Font.GothamMedium); UI.webhookStatus.TextWrapped=true; UI.webhookStatusDot=frame(UI.webhookPage,"WebhookDot",0,0,1,1,C.dim,1)
+
 local systemPage = newPage("System")
 systemBody = systemPage
 pageHead(systemPage, "system", "SYSTEM CORE", "STATUS")
-makeRow(systemPage, 48, "Overlay Lock", "Pins the panel after dragging", function() return false end, function(_) end)
+makeRow(systemPage, 48, "Overlay Lock", "Prevents accidental panel dragging", function() return Settings.OverlayLock end, function(v) Settings.OverlayLock=v; System.savePrefs(); render() end)
 makeRow(systemPage, 108, "Auto Rejoin", "Retries the configured recovery path", function() return Settings.AutoRejoin end, System.setAutoRejoin)
-makeRow(systemPage, 168, "Auto Execute", "Queues the script after teleport", function() return Settings.AutoExecute end, function(v) Settings.AutoExecute = v end)
-makeRow(systemPage, 228, "Static Map Scan", "Discovers replicated boss locations", function() return Settings.StaticMapScan end, function(v) Settings.StaticMapScan = v end)
-local scanButton = button(systemPage, "Scan", "SCAN MAP NOW", 16, 288, 128, 30, C.panel2, 9)
-scanButton.TextColor3 = C.cyan
-stroke(scanButton, C.violet2, 0.55, 1)
-UI.staticScanButton = scanButton
+makeRow(systemPage, 168, "Auto Execute", "Queues the script after teleport", function() return Settings.AutoExecute end, System.setAutoExecute)
+makeRow(systemPage, 228, "Static Map Scan", "Discovers replicated boss locations", function() return Settings.StaticMapScan end, System.setStaticScan)
+UI.staticScanButton = button(systemPage, "Scan", "SCAN MAP NOW", 16, 288, 128, 30, C.panel2, 9)
+UI.staticScanButton.TextColor3 = C.cyan
+stroke(UI.staticScanButton, C.violet2, 0.55, 1)
 UI.staticScanStatus = safeText(systemPage, "ScanStatus", "", 154, 286, 244, 34, 9, C.faint, Enum.Font.GothamMedium)
 UI.staticScanStatus.TextWrapped = true
-connect(scanButton.Activated, function()
+connect(UI.staticScanButton.Activated, function()
     if Farm.staticMapScan then Farm.staticMapScan(true) end
     render()
 end)
-local systemHint = safeText(systemPage, "Hint", "VOID NEXUS  /  LINK STABLE", 16, 336, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
-systemHint.TextXAlignment = Enum.TextXAlignment.Center
+makeRow(systemPage, 420, "Statistics", "Collect session counters and rates", function() return Settings.StatsEnabled end, function(v) Settings.StatsEnabled=v; render() end)
+makeRow(systemPage, 480, "Notifications", "Allow in-game VOID notifications", function() return Settings.NotificationsEnabled end, function(v) Settings.NotificationsEnabled=v; System.savePrefs(); render() end)
+makeSlider(systemPage, 540, "UI Scale", function() return Settings.UIScale end, function(v) Settings.UIScale=math.clamp(v,.75,1.25); System.savePrefs(); render() end, .75, 1.25, "%.2fx")
+makeRow(systemPage, 600, "Auto Discovery", "Searches for new boss locations when the database is empty", function() return Settings.BossFirstDiscovery end, function(v) Settings.BossFirstDiscovery=v; System.savePrefs(); if v then Farm.bootDiscovery() elseif Farm.stopDiscovery then Farm.stopDiscovery("Auto discovery disabled") end; render() end)
+makeRow(systemPage, 660, "Boss Auto-Save", "Persist newly discovered and moved boss locations", function() return Settings.BossAutoSave end, function(v) Farm.setConfig("BossAutoSave",v) end)
+UI.systemHint = safeText(systemPage, "Hint", "VOID NEXUS  /  AUTO-SAVE ARMED", 16, 720, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+UI.systemHint.TextXAlignment = Enum.TextXAlignment.Center
 UI.systemStatus = safeText(systemPage, "CompatStatus", "", -100, -100, 1, 1, 1, C.dim)
 UI.systemStatus.Visible = false
 UI.systemDetail = safeText(systemPage, "CompatDetail", "", -100, -100, 1, 1, 1, C.dim)
@@ -5341,8 +6236,7 @@ UI.privateMapBox = make("TextBox", systemPage, {
 })
 corner(UI.privateMapBox, 8); stroke(UI.privateMapBox, C.line, 0.72, 1)
 connect(UI.privateMapBox.FocusLost, function()
-    Settings.PrivateServerMap = UI.privateMapBox.Text ~= "" and UI.privateMapBox.Text or Settings.PrivateServerMap
-    render()
+    System.setPrivateMap(UI.privateMapBox.Text)
 end)
 
 -- ========================= CONTROL CENTER =========================
@@ -5426,6 +6320,9 @@ end)
 coreButton(coreStats,"MiniMode","MINI MODE",W-276,201,116,function()
     if MiniMode and MiniMode.toggle then MiniMode.toggle() end
 end)
+CoreUI.diagBox=frame(CoreUI.page,"Diagnostics",16,450,W-32,108,C.panel2,10); stroke(CoreUI.diagBox,C.line,.7,1)
+safeText(CoreUI.diagBox,"Title","RUNTIME DIAGNOSTICS",12,8,220,18,11,C.ink,Enum.Font.GothamBold)
+CoreUI.diag=safeText(CoreUI.diagBox,"Status","",12,31,W-56,62,9,C.faint,Enum.Font.Code); CoreUI.diag.TextWrapped=true
 
 local ThemeUI = {page = newPage("Theme")}
 pageHead(ThemeUI.page, "theme", "THEME", "DISPLAY")
@@ -5461,6 +6358,15 @@ function ThemeUI.makePreset(y, title, desc, themeName)
         rift.BackgroundTransparency = 0.55; stroke(rift, Color3.fromRGB(255,166,82), 0.18, 2)
         local core = frame(icon, "Core", 11, 11, 14, 14, Color3.fromRGB(8,2,2), 7)
         core.BackgroundTransparency = 0; stroke(core, Color3.fromRGB(255,111,54), 0.20, 1)
+    elseif themeName == "Circuit Storm" then
+        local ring = frame(icon, "StormRing", 6, 6, 24, 24, Color3.new(1,1,1), 12)
+        ring.BackgroundTransparency = 1; stroke(ring, Color3.fromRGB(47,184,255), 0.20, 2)
+        local core = frame(icon, "Core", 11, 11, 14, 14, Color3.fromRGB(234,246,255), 7)
+        core.BackgroundTransparency = 0.08; stroke(core, Color3.fromRGB(21,74,138), 0.18, 1)
+        local boltA = frame(icon, "BoltA", 18, 5, 2, 12, Color3.fromRGB(234,246,255), 1)
+        boltA.Rotation = 28
+        local boltB = frame(icon, "BoltB", 23, 10, 2, 10, Color3.fromRGB(47,184,255), 1)
+        boltB.Rotation = -34
     else
         local core = frame(icon, "Core", 11, 11, 14, 14, C.violet2, 7)
         core.BackgroundTransparency = 0.25
@@ -5500,7 +6406,10 @@ ThemeUI.empyreanRow, ThemeUI.empyreanButton = ThemeUI.makePreset(
 ThemeUI.pandemoniumRow, ThemeUI.pandemoniumButton = ThemeUI.makePreset(
     330, "PANDEMONIUM", "Crimson abyss / rift-core interface", "Pandemonium"
 )
-ThemeUI.hint = safeText(ThemeUI.page, "Hint", "Theme changes are saved immediately.", 16, 402, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
+ThemeUI.circuitStormRow, ThemeUI.circuitStormButton = ThemeUI.makePreset(
+    402, "CIRCUIT STORM", "Electric blue / grid-charged reactor interface", "Circuit Storm"
+)
+ThemeUI.hint = safeText(ThemeUI.page, "Hint", "Theme changes are saved immediately.", 16, 474, W - 32, 18, 9, C.faint, Enum.Font.GothamMedium)
 ThemeUI.hint.TextXAlignment = Enum.TextXAlignment.Center
 
 UI.count = safeText(skillsPage, "Count", "4 / 4 ENABLED", 0, 0, 1, 1, 1, C.dim)
@@ -5564,8 +6473,8 @@ local function openUtility(title,text) utilityTitle.Text=title; utilityText.Text
 connect(utilityInput.FocusLost,function(enter)
     if not enter then return end
     local action,key=tostring(utilityInput.Text):match("^%s*([%w_]+)%s*=%s*([%w_]+)%s*$")
-    if action and key and Enum.KeyCode[key] then
-        local kc=Enum.KeyCode[key]; System.keybinds[action]=kc
+    if action and key and System.keybinds[action] ~= nil and System.keyCode(key) then
+        local kc=System.keyCode(key); System.keybinds[action]=kc
         local map={ToggleAutomation="ToggleKey",StopAutomation="StopKey",ToggleUI="VisibilityKey",ToggleESP="ESPToggleKey",ToggleHealth="HealthToggleKey"}
         if map[action] then Settings[map[action]]=kc end
         System.savePrefs(); System.notify("Keybind updated: "..action.." = "..key)
@@ -5579,7 +6488,18 @@ System.showLocations=function()
     openUtility("LOCATION DATABASE",table.concat(lines,"\n"))
 end
 System.showKeybinds=function()
-    openUtility("KEYBIND MANAGER",table.concat({"F6  •  Toggle Automation","F7  •  Stop / unload","F8  •  Toggle ESP","F9  •  Toggle Health","RIGHT SHIFT  •  Toggle UI","CTRL+K  •  Command Palette","END  •  Emergency Stop","","To change a keybind, edit the profile after saving it. Keybind state is kept separately from theme state."},"\n"))
+    local kb=System.keybinds
+    openUtility("KEYBIND MANAGER",table.concat({
+        tostring((kb.ToggleAutomation or Settings.ToggleKey).Name).."  •  Toggle Automation",
+        tostring((kb.StopAutomation or Settings.StopKey).Name).."  •  Stop / unload",
+        tostring((kb.ToggleESP or Settings.ESPToggleKey).Name).."  •  Toggle ESP",
+        tostring((kb.ToggleHealth or Settings.HealthToggleKey).Name).."  •  Toggle Health",
+        tostring((kb.ToggleUI or Settings.VisibilityKey).Name).."  •  Toggle UI",
+        tostring((kb.CommandPalette or Enum.KeyCode.K).Name).." + CTRL  •  Command Palette",
+        tostring((kb.EmergencyStop or Enum.KeyCode.End).Name).."  •  Emergency Stop",
+        "",
+        "Use the editor below with Action=KEY (for example ToggleESP=F8)."
+    },"\n"))
 end
 System.showNotifications=function()
     local lines={"NOTIFICATION CENTER",""}; for i=1,math.min(#System.notificationLog,80) do local e=System.notificationLog[i]; lines[#lines+1]=string.format("[%s] %s",e.time,e.message) end; openUtility("NOTIFICATION CENTER",table.concat(lines,"\n"))
@@ -5588,11 +6508,10 @@ connect(commandInput.FocusLost,function(enter) if enter then System.executeComma
 connect(Input.InputBegan,function(input,processed)
     if processed then return end
     if input.KeyCode==Enum.KeyCode.Escape and System.commandOpen then System.commandOpen=false; commandOverlay.Visible=false; return end
-    if input.KeyCode==Enum.KeyCode.K and (Input:IsKeyDown(Enum.KeyCode.LeftControl) or Input:IsKeyDown(Enum.KeyCode.RightControl)) then System.toggleCommandPalette() end
-    if input.KeyCode==System.keybinds.EmergencyStop then System.emergencyStop() end
+    if input.KeyCode==System.keybinds.CommandPalette and (Input:IsKeyDown(Enum.KeyCode.LeftControl) or Input:IsKeyDown(Enum.KeyCode.RightControl)) then System.toggleCommandPalette() end
 end)
 
-local pageMap = {Skills = skillsPage, ESP = espPage, Health = healthPage, Farm = farmPage, Move = movePage, System = systemPage, Theme = ThemeUI.page, Core = CoreUI.page}
+pageMap = {Skills = skillsPage, ESP = espPage, Health = healthPage, Farm = farmPage, Move = movePage, System = systemPage, Theme = ThemeUI.page, Core = CoreUI.page, Webhook = UI.webhookPage}
 local pageBaseY = 0
 
 showPage = function(key)
@@ -5636,6 +6555,16 @@ local function navThemeColors()
             selectedIcon = C.accent,
             normalIcon = C.faint,
         }
+    elseif theme == "Circuit Storm" then
+        return {
+            hover = Color3.fromRGB(5,24,43),
+            normal = Color3.fromRGB(2,5,11),
+            selected = Color3.fromRGB(5,18,32),
+            selectedText = C.ink,
+            normalText = C.faint,
+            selectedIcon = C.cyan,
+            normalIcon = C.faint,
+        }
     elseif theme == "Blackhole" then
         return {
             hover = Color3.fromRGB(30,14,48),
@@ -5659,7 +6588,7 @@ local function navThemeColors()
     end
 end
 
-for key, tab in pairs(navButtons) do
+for key, tab in pairs(nav.buttons) do
     connect(tab.MouseEnter, function()
         if State.tab ~= key then
             local colors = navThemeColors()
@@ -5677,13 +6606,15 @@ end
 
 local function updateTabVisuals()
     local colors = navThemeColors()
-    for key, tab in pairs(navButtons) do
+    for key, tab in pairs(nav.buttons) do
         local selected = State.tab == key
         tab.BackgroundColor3 = selected and colors.selected or colors.normal
         if System.theme == "Empyrean" then
             tab.BackgroundTransparency = selected and .04 or .18
         elseif System.theme == "Pandemonium" then
             tab.BackgroundTransparency = selected and .04 or .02
+        elseif System.theme == "Circuit Storm" then
+            tab.BackgroundTransparency = selected and .04 or .10
         else
             tab.BackgroundTransparency = 0
         end
@@ -5716,10 +6647,272 @@ local PND = {connection=nil, hero=nil, rings={}, cracks={}, embers={}, pulse=nil
 
 local EMP = {}
 
+-- CIRCUIT STORM visual system.  This recreates the supplied HTML reference as
+-- Roblox-native UI: electric plasma core, counter-rotating storm rings,
+-- white-hot/cyan lightning branches, sparks, corona and a sweeping scan line.
+local CS = {connection=nil, hero=nil, rings={}, bolts={}, sparks={}, filaments={},
+    core=nil, coreGlow=nil, corona=nil, scan=nil, titleGlow=nil, lastWidth=0, lastHeight=0, useFXEngine=true}
+CS.hero = frame(panel, "CircuitStormHero", 0, 64, W, 152, Color3.fromRGB(3,7,14), 0)
+CS.hero.ZIndex = 4; CS.hero.ClipsDescendants = true; CS.hero.Visible = false
+CS.heroStroke = stroke(CS.hero, Color3.fromRGB(47,184,255), 0.66, 1)
+CS.bg = frame(CS.hero, "Background", 0, 0, W, 152, Color3.fromRGB(2,5,11), 0)
+CS.bg.ZIndex = 1
+CS.bgGradient = make("UIGradient", CS.bg, {
+    Rotation = 90,
+    Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(7,18,38)),
+        ColorSequenceKeypoint.new(0.52, Color3.fromRGB(3,8,18)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(0,2,6)),
+    }),
+})
+CS.bgGradient.Transparency = NumberSequence.new({
+    NumberSequenceKeypoint.new(0,0.02), NumberSequenceKeypoint.new(0.58,0.14), NumberSequenceKeypoint.new(1,0.02)
+})
+CS.atmosphere = frame(CS.hero, "Atmosphere", 0, 0, W, 152, Color3.fromRGB(21,74,138), 0)
+CS.atmosphere.BackgroundTransparency = 0.90; CS.atmosphere.ZIndex = 2
+CS.atmosphereGradient = make("UIGradient", CS.atmosphere, {
+    Rotation = 90,
+    Color = ColorSequence.new(Color3.fromRGB(234,246,255), Color3.fromRGB(47,184,255)),
+    Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0,0.95),NumberSequenceKeypoint.new(0.5,0.72),NumberSequenceKeypoint.new(1,0.95)})
+})
+CS.ringLayer = frame(CS.hero, "Rings", 0, 0, W, 152, Color3.new(1,1,1), 0)
+CS.ringLayer.BackgroundTransparency = 1; CS.ringLayer.AnchorPoint = Vector2.new(0.5,0.5); CS.ringLayer.Position=UDim2.fromOffset(W*.5,76); CS.ringLayer.ZIndex=3
+local function csRing(radius, count, width, color, phase, speed)
+    local ring={parts={}, baseRadius=radius, speed=speed, phase=phase or 0}
+    for i=1,count do
+        local a=((i-1)/count)*math.pi*2+(phase or 0)
+        local arc=frame(CS.ringLayer, "Ring", 0,0, math.max(6, radius*0.24), width, color, math.max(1,math.floor(width/2)))
+        arc.AnchorPoint=Vector2.new(.5,.5)
+        arc.Position=UDim2.fromOffset(W*.5+math.cos(a)*radius,76+math.sin(a)*radius)
+        arc.Rotation=math.deg(a)+90
+        arc.BackgroundTransparency=0.10
+        ring.parts[#ring.parts+1]=arc
+    end
+    CS.rings[#CS.rings+1]=ring
+    return ring
+end
+csRing(62, 16, 2, Color3.fromRGB(47,184,255), 0, 22)
+csRing(42, 12, 1, Color3.fromRGB(21,74,138), .17, -15)
+for _,ring in ipairs(CS.rings) do ring.parts[1].BackgroundTransparency = 0.04 end
+
+CS.nodeLayer = frame(CS.hero, "Nodes", 0,0,W,152,Color3.new(1,1,1),0)
+CS.nodeLayer.BackgroundTransparency=1; CS.nodeLayer.ZIndex=4
+for _,pt in ipairs({{0,-62},{62,0},{0,62},{-62,0}}) do
+    local n=frame(CS.nodeLayer,"Node",W*.5+pt[1]-2,76+pt[2]-2,4,4,Color3.fromRGB(234,246,255),2)
+    n.BackgroundTransparency=.08; CS.sparks[#CS.sparks+1]={object=n,kind="node",phase=#CS.sparks*.5}
+end
+
+CS.boltLayer = frame(CS.hero,"Bolts",0,0,W,152,Color3.new(1,1,1),0)
+CS.boltLayer.BackgroundTransparency=1; CS.boltLayer.ZIndex=5
+local function csSegment(parent,x1,y1,x2,y2,width,color,transparency)
+    local dx=x2-x1; local dy=y2-y1; local len=math.sqrt(dx*dx+dy*dy)
+    local line=frame(parent,"Segment",0,0,math.max(1,len),width,color,math.max(.5,width/2))
+    line.AnchorPoint=Vector2.new(.5,.5); line.Position=UDim2.fromOffset((x1+x2)/2,(y1+y2)/2); line.Rotation=math.deg(math.atan2(dy,dx)); line.BackgroundTransparency=transparency or 0
+    return line
+end
+local boltPaths={
+    {{0,0},{8,-30},{-2,-38},{12,-66}},
+    {{0,0},{36,-16},{30,-28},{54,-50}},
+    {{0,0},{46,8},{56,0},{82,10}},
+    {{0,0},{18,36},{30,40},{22,66}},
+    {{0,0},{-32,32},{-24,44},{-46,64}},
+    {{0,0},{-42,6},{-52,-2},{-80,8}},
+    {{0,0},{-28,-26},{-20,-36},{-38,-60}},
+}
+for idx,path in ipairs(boltPaths) do
+    local glowGroup=frame(CS.boltLayer,"Glow"..idx,0,0,W,152,Color3.new(1,1,1),0); glowGroup.BackgroundTransparency=1; glowGroup.ZIndex=5
+    local coreGroup=frame(CS.boltLayer,"Core"..idx,0,0,W,152,Color3.new(1,1,1),0); coreGroup.BackgroundTransparency=1; coreGroup.ZIndex=6
+    local glowParts,coreParts={},{},{}
+    for i=1,#path-1 do
+        local x1=W*.5+path[i][1]; local y1=76+path[i][2]; local x2=W*.5+path[i+1][1]; local y2=76+path[i+1][2]
+        glowParts[#glowParts+1]=csSegment(glowGroup,x1,y1,x2,y2,4,Color3.fromRGB(47,184,255),.58)
+        coreParts[#coreParts+1]=csSegment(coreGroup,x1,y1,x2,y2,1.4,Color3.fromRGB(234,246,255),.04)
+    end
+    CS.bolts[#CS.bolts+1]={glow=glowParts,core=coreParts,phase=(idx-1)*.46}
+end
+CS.coreGlow=frame(CS.hero,"CoreBloom",0,0,90,90,Color3.fromRGB(47,184,255),45); CS.coreGlow.AnchorPoint=Vector2.new(.5,.5); CS.coreGlow.Position=UDim2.fromOffset(W*.5,76); CS.coreGlow.BackgroundTransparency=.92; CS.coreGlow.ZIndex=6
+CS.coreGlowStroke=stroke(CS.coreGlow,Color3.fromRGB(80,190,255),.76,1)
+CS.core=frame(CS.hero,"Core",0,0,46,46,Color3.fromRGB(234,246,255),23); CS.core.AnchorPoint=Vector2.new(.5,.5); CS.core.Position=UDim2.fromOffset(W*.5,76); CS.core.BackgroundTransparency=.18; CS.core.ZIndex=8
+local coreStroke=stroke(CS.core,Color3.fromRGB(234,246,255),.18,1)
+CS.coreGradient=make("UIGradient",CS.core,{Color=ColorSequence.new(Color3.fromRGB(255,255,255),Color3.fromRGB(47,184,255))})
+CS.coreGradient.Rotation=90
+CS.corona=frame(CS.hero,"Corona",0,0,64,64,Color3.new(1,1,1),32); CS.corona.AnchorPoint=Vector2.new(.5,.5); CS.corona.Position=UDim2.fromOffset(W*.5,76); CS.corona.BackgroundTransparency=1; CS.corona.ZIndex=7; CS.coronaStroke=stroke(CS.corona,Color3.fromRGB(234,246,255),.54,1)
+CS.dot=frame(CS.hero,"CoreDot",0,0,8,8,Color3.fromRGB(255,255,255),4); CS.dot.AnchorPoint=Vector2.new(.5,.5); CS.dot.Position=UDim2.fromOffset(W*.5,76); CS.dot.BackgroundTransparency=.02; CS.dot.ZIndex=9
+CS.filamentLayer=frame(CS.hero,"Filaments",0,0,W,152,Color3.new(1,1,1),0); CS.filamentLayer.BackgroundTransparency=1; CS.filamentLayer.ZIndex=9
+for i,ang in ipairs({15,140,255}) do
+    local f=frame(CS.filamentLayer,"Filament"..i,0,0,2,18,Color3.fromRGB(234,246,255),1); f.AnchorPoint=Vector2.new(.5,0); f.Position=UDim2.fromOffset(W*.5,67); f.Rotation=ang; f.BackgroundTransparency=.55; CS.filaments[#CS.filaments+1]={object=f,phase=(i-1)*.35}
+end
+CS.sparkLayer=frame(CS.hero,"Sparks",0,0,W,152,Color3.new(1,1,1),0); CS.sparkLayer.BackgroundTransparency=1; CS.sparkLayer.ZIndex=10
+local sparkPoints={{.30,.29,.0},{.71,.35,.35},{.27,.73,.70},{.76,.70,1.05},{.50,.16,.45},{.50,.84,.82}}
+for i,p in ipairs(sparkPoints) do
+    local s=frame(CS.sparkLayer,"Spark"..i,0,0,(i%3==0) and 3 or 2,(i%3==0) and 3 or 2,(i%2==0) and Color3.fromRGB(47,184,255) or Color3.fromRGB(234,246,255),2)
+    s.AnchorPoint=Vector2.new(.5,.5); s.Position=UDim2.fromOffset(W*p[1],152*p[2]); s.BackgroundTransparency=.18; CS.sparks[#CS.sparks+1]={object=s,phase=p[3]}
+end
+CS.scan=frame(CS.hero,"Scan",0,-58,W,58,Color3.fromRGB(234,246,255),0); CS.scan.BackgroundTransparency=.95; CS.scan.ZIndex=20
+CS.scanGradient=make("UIGradient",CS.scan,{Rotation=90,Color=ColorSequence.new(Color3.fromRGB(234,246,255),Color3.fromRGB(47,184,255)),Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,1),NumberSequenceKeypoint.new(.5,.22),NumberSequenceKeypoint.new(1,1)})})
+CS.titleGlow=frame(CS.hero,"TitleGlow",0,0,W,1,Color3.fromRGB(234,246,255),0); CS.titleGlow.BackgroundTransparency=.92; CS.titleGlow.ZIndex=20
+function CS.layoutResponsive(width,height)
+    if not CS.hero or not CS.hero.Parent then return end
+    CS.hero.Size=UDim2.fromOffset(width,height); CS.bg.Size=UDim2.fromOffset(width,height); CS.atmosphere.Size=UDim2.fromOffset(width,height)
+    CS.ringLayer.Size=UDim2.fromOffset(width,height); CS.ringLayer.Position=UDim2.fromOffset(width*.5,height*.5)
+    CS.nodeLayer.Size=UDim2.fromOffset(width,height); CS.boltLayer.Size=UDim2.fromOffset(width,height); CS.filamentLayer.Size=UDim2.fromOffset(width,height); CS.sparkLayer.Size=UDim2.fromOffset(width,height); CS.scan.Size=UDim2.fromOffset(width,58)
+    local cy=height*.5; local cx=width*.5
+    for _,ring in ipairs(CS.rings) do
+        for i,part in ipairs(ring.parts) do
+            local a=((i-1)/#ring.parts)*math.pi*2+ring.phase
+            part.Position=UDim2.fromOffset(cx+math.cos(a)*ring.baseRadius,cy+math.sin(a)*ring.baseRadius)
+        end
+    end
+    local np={{0,-62},{62,0},{0,62},{-62,0}}
+    for i,pt in ipairs(np) do CS.sparks[i].object.Position=UDim2.fromOffset(cx+pt[1]-2,cy+pt[2]-2) end
+    for idx,path in ipairs(boltPaths) do
+        local bolt=CS.bolts[idx]
+        for segI=1,#path-1 do
+            local a=path[segI]; local b=path[segI+1]
+            local function setSeg(obj)
+                local x1=cx+a[1]; local y1=cy+a[2]; local x2=cx+b[1]; local y2=cy+b[2]
+                local dx=x2-x1; local dy=y2-y1; local len=math.sqrt(dx*dx+dy*dy)
+                obj.Size=UDim2.fromOffset(math.max(1,len),obj.Size.Y.Offset); obj.Position=UDim2.fromOffset((x1+x2)/2,(y1+y2)/2); obj.Rotation=math.deg(math.atan2(dy,dx))
+            end
+            setSeg(bolt.glow[segI]); setSeg(bolt.core[segI])
+        end
+    end
+    CS.coreGlow.Position=UDim2.fromOffset(cx,cy); CS.core.Position=UDim2.fromOffset(cx,cy); CS.corona.Position=UDim2.fromOffset(cx,cy); CS.dot.Position=UDim2.fromOffset(cx,cy)
+    for _,f in ipairs(CS.filaments) do f.object.Position=UDim2.fromOffset(cx,cy-9) end
+    for i=#CS.sparks-#sparkPoints+1,#CS.sparks do
+        local info=CS.sparks[i]; local p=sparkPoints[i-(#CS.sparks-#sparkPoints)]; info.object.Position=UDim2.fromOffset(width*p[1],height*p[2])
+    end
+end
+function CS.startVisuals()
+    if CS.useFXEngine then
+        if State.alive and System.theme=="Circuit Storm" and CS.hero and CS.hero.Parent then
+            CS.hero.Visible=true
+            CS.setFXEngineMode(true)
+            pcall(function() CS.layoutResponsive(math.max(W,windowWidth),152) end)
+        end
+        return
+    end
+    if not State.alive or System.theme~="Circuit Storm" or not CS.hero then return end
+    if CS.connection then pcall(function() CS.connection:Disconnect() end); CS.connection=nil end
+    CS.hero.Visible=true
+    CS.layoutResponsive(math.max(W,windowWidth),152)
+    local started=os.clock()
+    CS.connection=connect(RunService.RenderStepped, function()
+        if not State.alive or System.theme~="Circuit Storm" or not CS.hero.Parent then
+            if CS.connection then pcall(function() CS.connection:Disconnect() end); CS.connection=nil end
+            return
+        end
+        local t=os.clock()-started
+        local beat=(math.sin(t*math.pi*2/2.2)+1)*.5
+        local flick=(math.sin(t*math.pi*2/2.2+.45)+1)*.5
+        CS.coreGlow.BackgroundTransparency=.96-beat*.18
+        CS.core.BackgroundTransparency=.14+flick*.08
+        CS.coronaStroke.Transparency=.70-beat*.38
+        CS.corona.Size=UDim2.fromOffset(60+beat*8,60+beat*8)
+        CS.dot.Size=UDim2.fromOffset(7+math.floor(beat*3),7+math.floor(beat*3))
+        for _,ring in ipairs(CS.rings) do
+            for i,part in ipairs(ring.parts) do
+                local a=((i-1)/#ring.parts)*math.pi*2+ring.phase+t*ring.speed*math.pi/180
+                part.Position=UDim2.fromOffset(windowWidth*.5+math.cos(a)*ring.baseRadius,76+math.sin(a)*ring.baseRadius)
+                local pulse=(math.sin(t*2.0+i*.7)+1)*.5
+                part.BackgroundTransparency=.12+pulse*.25
+            end
+        end
+        for i,bolt in ipairs(CS.bolts) do
+            local blink=(math.sin((t+bolt.phase)*math.pi*2/(2.6+(i%3)*.22))+1)*.5
+            local on=blink>.60
+            for _,p in ipairs(bolt.glow) do p.BackgroundTransparency=on and .45 or .78 end
+            for _,p in ipairs(bolt.core) do p.BackgroundTransparency=on and .02 or .98 end
+        end
+        for _,info in ipairs(CS.sparks) do
+            local p=(math.sin((t+info.phase)*math.pi*2/1.3)+1)*.5
+            info.object.BackgroundTransparency=.10+p*.78
+            info.object.Size=UDim2.fromOffset(1.5+p*2.5,1.5+p*2.5)
+        end
+        for _,info in ipairs(CS.filaments) do
+            local p=(math.sin((t+info.phase)*math.pi*2/1.4)+1)*.5
+            info.object.BackgroundTransparency=.18+p*.65
+            info.object.Size=UDim2.fromOffset(2,14+p*6)
+        end
+        CS.scan.Position=UDim2.fromOffset(0,((t*42)%210)-58)
+        CS.atmosphere.BackgroundTransparency=.94-beat*.08
+        CS.titleGlow.BackgroundTransparency=.94-beat*.12
+    end)
+    CS.lastWidth=windowWidth; CS.lastHeight=152
+end
+function CS.ensureVisuals()
+    -- The dedicated FX engine owns Circuit Storm's animation.  The legacy
+    -- renderer remains available only as a construction fallback and is never
+    -- allowed to compete with the dedicated layer.
+    if CS.useFXEngine then
+        if System.theme=="Circuit Storm" and State.alive and CS.hero and CS.hero.Parent then
+            CS.hero.Visible=true
+            CS.setFXEngineMode(true)
+            pcall(function() CS.layoutResponsive(math.max(W,windowWidth),152) end)
+        end
+        return
+    end
+    if System.theme~="Circuit Storm" or not State.alive or not CS.hero or not CS.hero.Parent then return end
+    local connected=false
+    if CS.connection then
+        local ok,v=pcall(function() return CS.connection.Connected end)
+        connected=ok and v==true
+    end
+    if not connected then
+        local ok,err=pcall(CS.startVisuals)
+        if not ok then CS.lastError=tostring(err) end
+    else
+        CS.hero.Visible=true
+        pcall(function() CS.layoutResponsive(math.max(W,windowWidth),152) end)
+    end
+end
+
+-- Circuit Storm watchdog: unlike the old one-shot theme startup path, this
+-- survives theme switches and repairs a missing RenderStepped connection on the
+-- next frame. It only wakes while Circuit Storm is the active theme.
+CS.watchdog = CS.watchdog or connect(RunService.RenderStepped, function()
+    if CS.useFXEngine then return end
+    if not State.alive or System.theme~="Circuit Storm" or State.minimized or not CS.hero or not CS.hero.Parent then return end
+    local connected=false
+    if CS.connection then
+        local ok,v=pcall(function() return CS.connection.Connected end)
+        connected=ok and v==true
+    end
+    if not connected then
+        pcall(function() CS.startVisuals() end)
+    else
+        CS.hero.Visible=true
+    end
+end)
+if CS.watchdog then
+    local tracked=false
+    for _,c in ipairs(connections) do
+        if c==CS.watchdog then tracked=true break end
+    end
+    if not tracked then connections[#connections+1]=CS.watchdog end
+end
+
+function CS.recoverAfterShow()
+    if not State.alive or System.theme~="Circuit Storm" or State.minimized then return end
+    task.spawn(function()
+        for _=1,2 do
+            if not State.alive or System.theme~="Circuit Storm" or State.minimized then return end
+            RunService.RenderStepped:Wait()
+        end
+        if not State.alive or System.theme~="Circuit Storm" or State.minimized then return end
+        pcall(function()
+            fitWindow(false)
+            CS.hero.Visible=true
+            CS.layoutResponsive(math.max(W,windowWidth),152)
+            CS.ensureVisuals()
+        end)
+    end)
+end
+
 local resizeGrip
 local windowPlaced = false
 local MIN_WINDOW_WIDTH = W
-local windowHeight = H
+windowHeight = H
 
 resizeGrip = button(panel, "ResizeGrip", "", W - 28, H - 28, 28, 28, C.panel, 1)
 resizeGrip.BackgroundTransparency = 1
@@ -5755,7 +6948,7 @@ local function applyWindowWidth(width)
     setObjectWidth(ticker, windowWidth)
     setObjectWidth(tickerClip, windowWidth)
     setObjectWidth(tickerText, windowWidth * 2)
-    setObjectWidth(tabs, windowWidth)
+    setObjectWidth(UI.tabs, windowWidth)
     setObjectWidth(content, windowWidth)
     setObjectWidth(panelBackdrop, windowWidth)
     setObjectWidth(voidFX, windowWidth)
@@ -5771,13 +6964,19 @@ local function applyWindowWidth(width)
             star.x = (star.baseX or star.x) * (windowWidth / W)
             star.object.Position = UDim2.fromOffset(math.floor(star.x), math.floor(star.y))
         end
-        tabs.Position = UDim2.fromOffset(0, 216)
+        UI.tabs.Position = UDim2.fromOffset(0, 216)
+        content.Position = UDim2.fromOffset(0, 280)
+        content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
+    elseif System.theme == "Circuit Storm" then
+        -- CIRCUIT STORM uses the reference's 64/152/64 composition.
+        if CS and CS.layoutResponsive then CS.layoutResponsive(windowWidth, 152) end
+        UI.tabs.Position = UDim2.fromOffset(0, 216)
         content.Position = UDim2.fromOffset(0, 280)
         content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
     elseif System.theme == "Pandemonium" then
         -- PANDEMONIUM uses the HTML reference's 64/152/64 layout.
         if PND and PND.layoutResponsive then PND.layoutResponsive(windowWidth, 152) end
-        tabs.Position = UDim2.fromOffset(0, 216)
+        UI.tabs.Position = UDim2.fromOffset(0, 216)
         content.Position = UDim2.fromOffset(0, 280)
         content.Size = UDim2.fromOffset(windowWidth, windowHeight - 280)
     elseif System.theme == "Empyrean" then
@@ -5785,24 +6984,24 @@ local function applyWindowWidth(width)
         -- The old generic branch was resetting these to 88/152, which put the navigation
         -- directly on top of the hero and made the content appear to be from another theme.
         EMP.layoutResponsive(windowWidth, 160)
-        tabs.Position = UDim2.fromOffset(0, 224)
+        UI.tabs.Position = UDim2.fromOffset(0, 224)
         content.Position = UDim2.fromOffset(0, 288)
         content.Size = UDim2.fromOffset(windowWidth, windowHeight - 288)
     else
-        tabs.Position = UDim2.fromOffset(0, 88)
+        UI.tabs.Position = UDim2.fromOffset(0, 88)
         content.Position = UDim2.fromOffset(0, 152)
         content.Size = UDim2.fromOffset(windowWidth, windowHeight - 152)
     end
     resizeVoidEffects(windowWidth)
 
-    local navCount = #navNames
-    local availableNav = math.max(240, windowWidth - 24 - navGap * math.max(0, navCount - 1))
-    local dynamicNavW = math.floor(availableNav / navCount)
-    for i, key in ipairs(navNames) do
-        local tab = navButtons[key]
+    local navCount = #nav.names
+    local dynamicNavW = nav.w
+    UI.tabs.CanvasSize = UDim2.fromOffset(nav.x + navCount * dynamicNavW + math.max(0, navCount - 1) * nav.gap + 8, 64)
+    for i, key in ipairs(nav.names) do
+        local tab = nav.buttons[key]
         if tab then
             tab.Size = UDim2.fromOffset(dynamicNavW, 44)
-            tab.Position = UDim2.fromOffset(navX + (i - 1) * (dynamicNavW + navGap), 10)
+            tab.Position = UDim2.fromOffset(nav.x + (i - 1) * (dynamicNavW + nav.gap), 10)
             local icon = tab:FindFirstChild("Icon")
             if icon then icon.Position = UDim2.fromOffset(math.floor((dynamicNavW - 19) / 2), 5) end
             local bar = UI.navBars[key]
@@ -5841,7 +7040,7 @@ local function applyWindowWidth(width)
     if Theme and Theme.syncAllThemeVisuals then Theme.syncAllThemeVisuals() end
 end
 
-local function fitWindow(centerIfNeeded)
+fitWindow = function(centerIfNeeded)
     if not State.alive then return end
     local viewport = canvas.AbsoluteSize
     if viewport.X <= 0 or viewport.Y <= 0 then return end
@@ -6129,7 +7328,7 @@ end
 
 -- PANDEMONIUM has its own lifetime watchdog so switching through another theme
 -- cannot permanently leave the rift renderer disconnected or hidden.
-PND.watchdog=PND.watchdog or RunService.RenderStepped:Connect(function()
+PND.watchdog=PND.watchdog or connect(RunService.RenderStepped, function()
     if not State.alive or System.theme~="Pandemonium" or State.minimized or not PND.hero or not PND.hero.Parent then return end
     local connected=false
     if PND.connection then
@@ -6248,7 +7447,7 @@ function EMP.startVisuals()
 
     -- RenderStepped is deliberately used instead of Heartbeat because the
     -- loader and the rest of the UI animation stack already run reliably on it.
-    EMP.connection=RunService.RenderStepped:Connect(animateCelestial)
+    EMP.connection=connect(RunService.RenderStepped, animateCelestial)
     connections[#connections+1]=EMP.connection
     animateCelestial()
 end
@@ -6289,7 +7488,7 @@ end
 -- Lifetime watchdog: this connection deliberately survives theme switches.
 -- It does not animate anything itself; it only guarantees that the active
 -- EMPYREAN renderer exists whenever EMPYREAN is selected.
-EMP.watchdog = EMP.watchdog or RunService.RenderStepped:Connect(function()
+EMP.watchdog = EMP.watchdog or connect(RunService.RenderStepped, function()
     if not State.alive or System.theme ~= "Empyrean" or State.minimized or not EMP.hero or not EMP.hero.Parent then return end
     local connected=false
     if EMP.connection then
@@ -6336,7 +7535,7 @@ function EMP.recoverAfterShow()
     end)
 end
 
-local Theme = {
+Theme = {
     Default = {
         black = C.black, deep = C.deep, panel = C.panel, panel2 = C.panel2,
         violet = C.violet, violet2 = C.violet2, magenta = C.magenta, cyan = C.cyan,
@@ -6388,6 +7587,28 @@ local Theme = {
         muted = Color3.fromRGB(150, 145, 155), surface = Color3.fromRGB(16, 4, 4),
         text = Color3.fromRGB(236, 234, 245), voidDeep = Color3.fromRGB(26, 3, 4),
         toggleOn = Color3.fromRGB(92, 12, 20), toggleOff = Color3.fromRGB(30, 12, 13),
+    },
+    ["Circuit Storm"] = {
+        black = Color3.fromRGB(0, 0, 0),
+        deep = Color3.fromRGB(3, 7, 14),
+        panel = Color3.fromRGB(5, 10, 18),
+        panel2 = Color3.fromRGB(2, 5, 11),
+        violet = Color3.fromRGB(21, 74, 138),
+        violet2 = Color3.fromRGB(47, 184, 255),
+        magenta = Color3.fromRGB(80, 190, 255),
+        cyan = Color3.fromRGB(234, 246, 255),
+        ink = Color3.fromRGB(236, 234, 245),
+        dim = Color3.fromRGB(150, 145, 171),
+        faint = Color3.fromRGB(85, 80, 107),
+        line = Color3.fromRGB(47, 184, 255),
+        accent = Color3.fromRGB(47, 184, 255),
+        bright = Color3.fromRGB(234, 246, 255),
+        muted = Color3.fromRGB(150, 145, 171),
+        surface = Color3.fromRGB(4, 8, 16),
+        text = Color3.fromRGB(236, 234, 245),
+        voidDeep = Color3.fromRGB(5, 11, 26),
+        toggleOn = Color3.fromRGB(21, 74, 138),
+        toggleOff = Color3.fromRGB(18, 24, 34),
     },
     height = H,
     current = nil,
@@ -6543,7 +7764,8 @@ function MiniMode.applyTheme()
     miniClose.BackgroundColor3 = C.panel2
     miniClose.TextColor3 = C.ink
     miniDot.BackgroundColor3 = C.green
-    miniTitle.Text = emp and "✦ EMPYREAN" or (bh and "◉ BLACKHOLE V1" or "✦ VOID AUTOMATION")
+    local cs = System.theme == "Circuit Storm"
+    miniTitle.Text = emp and "✦ EMPYREAN" or (bh and "◉ BLACKHOLE V1" or (cs and "⚡ CIRCUIT STORM" or "✦ VOID AUTOMATION"))
 end
 
 function MiniMode.show()
@@ -6615,7 +7837,9 @@ end
 function Theme.restyleText()
     local bh = System.theme == "Blackhole"
     local emp = System.theme == "Empyrean"
+    local cs = System.theme == "Circuit Storm"
     for _, obj in ipairs(panel:GetDescendants()) do
+        if obj:GetAttribute("VoidCustomOwned") then continue end
         if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
             if obj.Name == "Desc" or obj.Name == "Sub" or obj.Name == "Modules" or obj.Name == "Hint"
                 or obj.Name == "Status" or obj.Name == "Percent" or obj.Name == "ScanStatus"
@@ -6626,7 +7850,7 @@ function Theme.restyleText()
             elseif obj.Name ~= "Status" then
                 obj.TextColor3 = C.ink
             end
-            if (bh or emp) and obj:IsA("TextButton") and obj.Name ~= "Status" then obj.AutoButtonColor = false end
+            if (bh or emp or cs) and obj:IsA("TextButton") and obj.Name ~= "Status" then obj.AutoButtonColor = false end
         end
     end
 end
@@ -6718,28 +7942,29 @@ function Theme.syncAllThemeVisuals()
     local bh = theme == "Blackhole"
     local emp = theme == "Empyrean"
     local pnd = theme == "Pandemonium"
+    local cs = theme == "Circuit Storm"
 
     -- Theme identity must be authoritative too: header title/subtitle and
     -- every page-heading symbol are rebuilt from the ACTIVE theme instead of
     -- retaining the colors they had when the UI was first constructed.
-    local accent = emp and Color3.fromRGB(156,116,32) or (pnd and Color3.fromRGB(255,111,54) or C.violet2)
-    local accentBright = emp and Color3.fromRGB(217,169,78) or (pnd and Color3.fromRGB(200,30,44) or C.violet2)
-    local symbolMuted = emp and Color3.fromRGB(122,108,74) or (pnd and Color3.fromRGB(150,145,155) or C.faint)
+    local accent = emp and Color3.fromRGB(156,116,32) or (pnd and Color3.fromRGB(255,111,54) or (cs and Color3.fromRGB(47,184,255) or C.violet2))
+    local accentBright = emp and Color3.fromRGB(217,169,78) or (pnd and Color3.fromRGB(200,30,44) or (cs and Color3.fromRGB(234,246,255) or C.violet2))
+    local symbolMuted = emp and Color3.fromRGB(122,108,74) or (pnd and Color3.fromRGB(150,145,155) or (cs and Color3.fromRGB(85,80,107) or C.faint))
 
     if brandTitle then
-        brandTitle.Text = emp and "EMPYREAN" or (bh and "BLACKHOLE V1" or (pnd and "PANDEMONIUM" or "VOID NEXUS"))
+        brandTitle.Text = emp and "EMPYREAN" or (bh and "BLACKHOLE V1" or (pnd and "PANDEMONIUM" or (cs and "CIRCUIT STORM" or "VOID NEXUS")))
         brandTitle.TextColor3 = emp and Color3.fromRGB(58,47,26) or C.ink
     end
     local headerSub = header and header:FindFirstChild("Sub")
     if headerSub and headerSub:IsA("TextLabel") then
-        headerSub.Text = emp and "GRACE ATTAINED" or (bh and "REACTOR ONLINE" or (pnd and "ABYSS UNSEALED" or "CORE LINK STABLE"))
+        headerSub.Text = emp and "GRACE ATTAINED" or (bh and "REACTOR ONLINE" or (pnd and "ABYSS UNSEALED" or (cs and "GRID CHARGED" or "CORE LINK STABLE")))
         headerSub.TextColor3 = emp and Color3.fromRGB(122,108,74) or C.faint
     end
 
     -- Header emblem: reset every child so the old Blackhole cyan/purple
     -- strokes cannot survive a theme switch.
     if brandmark then
-        brandmark.BackgroundColor3 = emp and Color3.fromRGB(255,243,200) or C.panel2
+        brandmark.BackgroundColor3 = emp and Color3.fromRGB(255,243,200) or (cs and Color3.fromRGB(2,5,11) or C.panel2)
         local bs = brandmark:FindFirstChildOfClass("UIStroke")
         if bs then bs.Color = accentBright; bs.Transparency = emp and .22 or .12 end
         if markCore then markCore.BackgroundColor3 = accentBright end
@@ -6768,25 +7993,28 @@ function Theme.syncAllThemeVisuals()
     end
 
     -- Navigation container + every navigation button.
-    if tabs then
+    if UI.tabs then
         if emp then
-            tabs.BackgroundColor3 = Color3.fromRGB(255,250,235)
-            tabs.BackgroundTransparency = 0.42
+            UI.tabs.BackgroundColor3 = Color3.fromRGB(255,250,235)
+            UI.tabs.BackgroundTransparency = 0.42
         elseif pnd then
-            tabs.BackgroundColor3 = C.black
-            tabs.BackgroundTransparency = 0.20
+            UI.tabs.BackgroundColor3 = C.black
+            UI.tabs.BackgroundTransparency = 0.20
         elseif bh then
-            tabs.BackgroundColor3 = C.black
-            tabs.BackgroundTransparency = 0.28
+            UI.tabs.BackgroundColor3 = C.black
+            UI.tabs.BackgroundTransparency = 0.28
+        elseif cs then
+            UI.tabs.BackgroundColor3 = Color3.fromRGB(1,4,9)
+            UI.tabs.BackgroundTransparency = 0.18
         else
-            tabs.BackgroundColor3 = C.black
-            tabs.BackgroundTransparency = 0.35
+            UI.tabs.BackgroundColor3 = C.black
+            UI.tabs.BackgroundTransparency = 0.35
         end
-        local navStroke = tabs:FindFirstChildOfClass("UIStroke")
+        local navStroke = UI.tabs:FindFirstChildOfClass("UIStroke")
         if navStroke then navStroke.Color = C.line end
     end
 
-    for key, tab in pairs(navButtons) do
+    for key, tab in pairs(nav.buttons) do
         local selected = State.tab == key
         if emp then
             tab.BackgroundColor3 = selected and Color3.fromRGB(255,224,150) or Color3.fromRGB(255,255,255)
@@ -6799,6 +8027,10 @@ function Theme.syncAllThemeVisuals()
         elseif bh then
             tab.BackgroundColor3 = selected and Color3.fromRGB(30,14,48) or C.panel2
             tab.BackgroundTransparency = 0
+            tab.TextColor3 = selected and C.ink or C.faint
+        elseif cs then
+            tab.BackgroundColor3 = selected and Color3.fromRGB(5,18,32) or Color3.fromRGB(2,5,11)
+            tab.BackgroundTransparency = selected and 0.04 or 0.10
             tab.TextColor3 = selected and C.ink or C.faint
         else
             tab.BackgroundColor3 = selected and Color3.fromRGB(30,14,48) or Color3.fromRGB(8,4,16)
@@ -6828,9 +8060,9 @@ function Theme.syncAllThemeVisuals()
     local contentGradient = content and content:FindFirstChild("EmpyreanSurfaceGradient")
     if not emp and contentGradient then contentGradient:Destroy() end
     if content then
-        if emp or pnd then
+        if emp or pnd or cs then
             content.BackgroundColor3 = C.panel
-            content.BackgroundTransparency = pnd and 0.04 or 0
+            content.BackgroundTransparency = cs and 0.04 or (pnd and 0.04 or 0)
         else
             content.BackgroundTransparency = 1
         end
@@ -6839,7 +8071,7 @@ function Theme.syncAllThemeVisuals()
     -- Every page is transparent over the current theme's content surface.
     for _, page in pairs(pageMap) do
         page.BackgroundTransparency = 1
-        page.ScrollBarImageColor3 = C.violet2
+        page.ScrollBarImageColor3 = cs and C.accent or C.violet2
         page.ScrollBarImageTransparency = emp and 0.55 or 0.35
     end
 
@@ -6870,7 +8102,7 @@ function Theme.syncAllThemeVisuals()
         end
     end
 
-    -- Toggle/slider instances are shared across all tabs.
+    -- Toggle/slider instances are shared across all UI.tabs.
     for _, view in ipairs(toggleViews) do
         local value = view.getter()
         view.track.BackgroundColor3 = value and C.toggleOn or C.toggleOff
@@ -6901,6 +8133,7 @@ function Theme.syncAllThemeVisuals()
         {ThemeUI.blackholeRow, ThemeUI.blackholeButton},
         {ThemeUI.empyreanRow, ThemeUI.empyreanButton},
         {ThemeUI.pandemoniumRow, ThemeUI.pandemoniumButton},
+        {ThemeUI.circuitStormRow, ThemeUI.circuitStormButton},
     }
     for _, pair in ipairs(themeRows) do
         local row, button = pair[1], pair[2]
@@ -6920,7 +8153,7 @@ function Theme.syncAllThemeVisuals()
             if desc then desc.TextColor3 = C.faint end
         end
         if button then
-            local active = (row == ThemeUI.empyreanRow and emp) or (row == ThemeUI.pandemoniumRow and pnd) or (row == ThemeUI.blackholeRow and bh) or (row == ThemeUI.defaultRow and not bh and not emp and not pnd)
+            local active = (row == ThemeUI.empyreanRow and emp) or (row == ThemeUI.pandemoniumRow and pnd) or (row == ThemeUI.circuitStormRow and cs) or (row == ThemeUI.blackholeRow and bh) or (row == ThemeUI.defaultRow and not bh and not emp and not pnd and not cs)
             button.BackgroundColor3 = active and C.violet2 or C.panel2
             button.BackgroundTransparency = 0
             button.TextColor3 = active and C.ink or C.faint
@@ -6930,7 +8163,7 @@ function Theme.syncAllThemeVisuals()
         end
     end
     if ThemeUI.activeLabel then
-        ThemeUI.activeLabel.Text = bh and "BLACKHOLE V1" or (emp and "EMPYREAN" or (pnd and "PANDEMONIUM" or "DEFAULT"))
+        ThemeUI.activeLabel.Text = bh and "BLACKHOLE V1" or (emp and "EMPYREAN" or (pnd and "PANDEMONIUM" or (cs and "CIRCUIT STORM" or "DEFAULT")))
         ThemeUI.activeLabel.TextColor3 = C.ink
     end
     if ThemeUI.hint then ThemeUI.hint.TextColor3 = C.faint end
@@ -6943,6 +8176,11 @@ function Theme.syncAllThemeVisuals()
         headerLine.BackgroundColor3 = C.line
         brandTitle.TextColor3 = C.text
     elseif bh then
+        header.BackgroundColor3 = C.panel
+        header.BackgroundTransparency = 0.08
+        headerLine.BackgroundColor3 = C.line
+        brandTitle.TextColor3 = C.ink
+    elseif cs then
         header.BackgroundColor3 = C.panel
         header.BackgroundTransparency = 0.08
         headerLine.BackgroundColor3 = C.line
@@ -6979,6 +8217,7 @@ function Theme.syncEmpyreanControls()
     for key,page in pairs(pageMap) do
         if key ~= "Theme" then
             for _,obj in ipairs(page:GetDescendants()) do
+                if obj:GetAttribute("VoidCustomOwned") then continue end
                 if obj:IsA("TextButton") then
                     obj.BackgroundColor3=cream2
                     obj.BackgroundTransparency=.08
@@ -7005,6 +8244,7 @@ function Theme.syncEmpyreanControls()
     if System.theme ~= "Empyrean" then
         for _, page in pairs(pageMap) do
             for _, obj in ipairs(page:GetDescendants()) do
+                if obj:GetAttribute("VoidCustomOwned") then continue end
                 if obj:IsA("TextButton") then
                     obj.BackgroundColor3 = bh and Color3.fromRGB(8,8,12) or Color3.fromRGB(8,4,16)
                     obj.BackgroundTransparency = 0
@@ -7075,7 +8315,7 @@ function Theme.syncEmpyreanControls()
     end
 
     -- HTML nav: light glass buttons, gold active state and muted-gold icons.
-    for key,tab in pairs(navButtons) do
+    for key,tab in pairs(nav.buttons) do
         local selected=State.tab==key
         tab.BackgroundColor3=selected and goldLight or cream
         tab.BackgroundTransparency=selected and .10 or .30
@@ -7111,20 +8351,21 @@ end
 
 -- FINAL CANONICAL CONTROL PASS
 --
--- All three themes are now rendered from one authoritative palette here.
+-- All supported themes are rendered from one authoritative palette here.
 -- Earlier restylers are allowed to run for legacy layout work, but this pass
 -- is always last for control colors.  This prevents a control constructed in
 -- Blackhole/Nexus from carrying its constructor color into EMPYREAN and also
 -- prevents EMPYREAN cream controls from surviving a switch back.
 function Theme.canonicalizeControls()
     local theme = System.theme
-    if theme ~= "Default" and theme ~= "Blackhole" and theme ~= "Empyrean" and theme ~= "Pandemonium" then
+    if theme ~= "Default" and theme ~= "Blackhole" and theme ~= "Empyrean" and theme ~= "Pandemonium" and theme ~= "Circuit Storm" then
         theme = "Default"
     end
 
     local emp = theme == "Empyrean"
     local bh = theme == "Blackhole"
     local pnd = theme == "Pandemonium"
+    local cs = theme == "Circuit Storm"
     local P = emp and {
         panel = Color3.fromRGB(255,253,247), panel2 = Color3.fromRGB(255,248,232),
         surface = Color3.fromRGB(255,250,235), line = Color3.fromRGB(217,169,78),
@@ -7146,6 +8387,13 @@ function Theme.canonicalizeControls()
         text = Color3.fromRGB(236,234,245), muted = Color3.fromRGB(150,146,170),
         bright = Color3.fromRGB(238,241,251), off = Color3.fromRGB(24,24,31),
         nav = Color3.fromRGB(4,4,7), selected = Color3.fromRGB(30,14,48),
+    } or cs and {
+        panel = Color3.fromRGB(5,10,18), panel2 = Color3.fromRGB(2,5,11),
+        surface = Color3.fromRGB(4,8,16), line = Color3.fromRGB(47,184,255),
+        accent = Color3.fromRGB(47,184,255), accentDeep = Color3.fromRGB(21,74,138),
+        text = Color3.fromRGB(236,234,245), muted = Color3.fromRGB(150,145,171),
+        bright = Color3.fromRGB(234,246,255), off = Color3.fromRGB(18,24,34),
+        nav = Color3.fromRGB(3,7,14), selected = Color3.fromRGB(5,18,32),
     } or {
         panel = C.panel, panel2 = C.panel2, surface = C.surface, line = C.violet,
         accent = C.violet2, accentDeep = C.violet, text = C.ink, muted = C.faint,
@@ -7194,10 +8442,11 @@ function Theme.canonicalizeControls()
             -- Catch ALL nested action/key buttons, including the ones that do
             -- not live directly under Row_/Slider_ containers.
             for _,obj in ipairs(page:GetDescendants()) do
+                if obj:GetAttribute("VoidCustomOwned") then continue end
                 if obj:IsA("TextButton") then
                     obj.AutoButtonColor=false
                     -- Theme-page buttons are handled separately below.
-                    if not ThemeUI or (obj ~= ThemeUI.defaultButton and obj ~= ThemeUI.blackholeButton and obj ~= ThemeUI.empyreanButton) then
+                    if not ThemeUI or (obj ~= ThemeUI.defaultButton and obj ~= ThemeUI.blackholeButton and obj ~= ThemeUI.empyreanButton and obj ~= ThemeUI.pandemoniumButton and obj ~= ThemeUI.circuitStormButton) then
                         obj.BackgroundColor3=P.panel
                         obj.BackgroundTransparency=emp and 0.05 or 0
                         obj.TextColor3=P.text
@@ -7228,19 +8477,19 @@ function Theme.canonicalizeControls()
     for _,view in ipairs(sliders) do
         view.fill.BackgroundColor3=P.accent
         view.knob.BackgroundColor3=P.bright
-        view.valueLabel.TextColor3=P.accentDeep
+        view.valueLabel.TextColor3=cs and P.bright or P.accentDeep
         local rail=view.hit and view.hit:FindFirstChild("Rail")
         if rail then rail.BackgroundColor3=P.off end
         paintStroke(view.knob,P.line,emp and 0.25 or 0.55)
     end
 
     -- Navigation is completely independent from the page controls.
-    if tabs then
-        tabs.BackgroundColor3=emp and Color3.fromRGB(255,250,235) or P.surface
-        tabs.BackgroundTransparency=emp and 0.42 or (bh and 0.28 or 0.35)
-        paintStroke(tabs,P.line,0.72)
+    if UI.tabs then
+        UI.tabs.BackgroundColor3=emp and Color3.fromRGB(255,250,235) or P.surface
+        UI.tabs.BackgroundTransparency=emp and 0.42 or (bh and 0.28 or 0.35)
+        paintStroke(UI.tabs,P.line,0.72)
     end
-    for key,tab in pairs(navButtons) do
+    for key,tab in pairs(nav.buttons) do
         local selected=State.tab==key
         tab.BackgroundColor3=selected and P.selected or P.nav
         tab.BackgroundTransparency=emp and (selected and 0.10 or 0.34) or 0
@@ -7252,8 +8501,8 @@ function Theme.canonicalizeControls()
         local icon=tab:FindFirstChild("Icon")
         if icon then
             for _,d in ipairs(icon:GetDescendants()) do
-                if d:IsA("UIStroke") then d.Color=selected and P.accentDeep or P.muted end
-                if d:IsA("Frame") then d.BackgroundColor3=selected and P.accentDeep or P.muted end
+                if d:IsA("UIStroke") then d.Color=selected and (cs and P.bright or P.accentDeep) or P.muted end
+                if d:IsA("Frame") then d.BackgroundColor3=selected and (cs and P.bright or P.accentDeep) or P.muted end
             end
         end
     end
@@ -7271,6 +8520,7 @@ function Theme.canonicalizeControls()
             {ThemeUI.blackholeRow,ThemeUI.blackholeButton,"Blackhole"},
             {ThemeUI.empyreanRow,ThemeUI.empyreanButton,"Empyrean"},
             {ThemeUI.pandemoniumRow,ThemeUI.pandemoniumButton,"Pandemonium"},
+            {ThemeUI.circuitStormRow,ThemeUI.circuitStormButton,"Circuit Storm"},
         }
         for _,entry in ipairs(entries) do
             local row,button,name=entry[1],entry[2],entry[3]
@@ -7292,7 +8542,7 @@ function Theme.canonicalizeControls()
             end
         end
         if ThemeUI.activeLabel then
-            ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or (emp and "EMPYREAN" or "DEFAULT")
+            ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or (emp and "EMPYREAN" or (pnd and "PANDEMONIUM" or (cs and "CIRCUIT STORM" or "DEFAULT")))
             ThemeUI.activeLabel.TextColor3=P.text
         end
         if ThemeUI.hint then ThemeUI.hint.TextColor3=P.muted end
@@ -7347,14 +8597,14 @@ function Theme.canonicalizeControls()
     end
 
     -- Page symbols and header identity.
-    local brandAccent=P.accentDeep
+    local brandAccent=cs and P.accent or P.accentDeep
     if brandTitle then
-        brandTitle.Text=emp and "EMPYREAN" or (bh and "BLACKHOLE V1" or (pnd and "PANDEMONIUM" or "VOID NEXUS"))
+        brandTitle.Text=emp and "EMPYREAN" or (bh and "BLACKHOLE V1" or (pnd and "PANDEMONIUM" or (cs and "CIRCUIT STORM" or "VOID NEXUS")))
         brandTitle.TextColor3=P.text
     end
     local sub=header and header:FindFirstChild("Sub")
     if sub then
-        sub.Text=emp and "GRACE ATTAINED" or (bh and "REACTOR ONLINE" or (pnd and "ABYSS UNSEALED" or "CORE LINK STABLE"))
+        sub.Text=emp and "GRACE ATTAINED" or (bh and "REACTOR ONLINE" or (pnd and "ABYSS UNSEALED" or (cs and "GRID CHARGED" or "CORE LINK STABLE")))
         sub.TextColor3=P.muted
     end
     if brandmark then
@@ -7392,6 +8642,8 @@ function Theme.stopSpecialVisuals()
     if EMP and EMP.hero then EMP.hero.Visible=false end
     if PND and PND.connection then pcall(function() PND.connection:Disconnect() end); PND.connection=nil end
     if PND and PND.hero then PND.hero.Visible=false end
+    if CS and CS.connection then pcall(function() CS.connection:Disconnect() end); CS.connection=nil end
+    if CS and CS.hero then CS.hero.Visible=false end
     if BH and BH.hero then BH.hero.Visible=false end
 end
 
@@ -7404,15 +8656,16 @@ function Theme.hardResetControls()
     local bh = theme == "Blackhole"
     local emp = theme == "Empyrean"
     local pnd = theme == "Pandemonium"
+    local cs = theme == "Circuit Storm"
 
-    local darkPanel = bh and Color3.fromRGB(4,4,7) or (pnd and C.panel or Color3.fromRGB(20,10,36))
-    local darkPanelAlt = bh and Color3.fromRGB(8,8,12) or (pnd and C.panel2 or Color3.fromRGB(30,14,48))
-    local darkLine = bh and Color3.fromRGB(150,120,230) or (pnd and C.line or Color3.fromRGB(82,55,122))
-    local darkText = bh and Color3.fromRGB(236,234,245) or (pnd and C.text or Color3.fromRGB(233,226,247))
-    local darkMuted = bh and Color3.fromRGB(150,146,170) or (pnd and C.muted or Color3.fromRGB(155,143,184))
-    local darkFaint = bh and Color3.fromRGB(85,80,105) or (pnd and C.faint or Color3.fromRGB(92,82,122))
-    local darkAccent = bh and Color3.fromRGB(122,63,242) or (pnd and C.accent or Color3.fromRGB(168,85,247))
-    local darkBright = bh and Color3.fromRGB(238,241,251) or (pnd and C.bright or Color3.fromRGB(143,227,255))
+    local darkPanel = bh and Color3.fromRGB(4,4,7) or (pnd and C.panel or (cs and C.panel or Color3.fromRGB(20,10,36)))
+    local darkPanelAlt = bh and Color3.fromRGB(8,8,12) or (pnd and C.panel2 or (cs and C.panel2 or Color3.fromRGB(30,14,48)))
+    local darkLine = bh and Color3.fromRGB(150,120,230) or (pnd and C.line or (cs and C.line or Color3.fromRGB(82,55,122)))
+    local darkText = bh and Color3.fromRGB(236,234,245) or (pnd and C.text or (cs and C.text or Color3.fromRGB(233,226,247)))
+    local darkMuted = bh and Color3.fromRGB(150,146,170) or (pnd and C.muted or (cs and C.muted or Color3.fromRGB(155,143,184)))
+    local darkFaint = bh and Color3.fromRGB(85,80,105) or (pnd and C.faint or (cs and C.faint or Color3.fromRGB(92,82,122)))
+    local darkAccent = bh and Color3.fromRGB(122,63,242) or (pnd and C.accent or (cs and C.accent or Color3.fromRGB(168,85,247)))
+    local darkBright = bh and Color3.fromRGB(238,241,251) or (pnd and C.bright or (cs and C.bright or Color3.fromRGB(143,227,255)))
 
     for _, page in pairs(pageMap) do
         for _, child in ipairs(page:GetChildren()) do
@@ -7427,9 +8680,9 @@ function Theme.hardResetControls()
 
     for _, view in ipairs(toggleViews) do
         local value=view.getter()
-        view.track.BackgroundColor3 = value and (emp and C.toggleOn or (bh and Color3.fromRGB(70,38,125) or Color3.fromRGB(88,48,124))) or (emp and C.toggleOff or (bh and Color3.fromRGB(24,24,31) or Color3.fromRGB(32,24,43)))
+        view.track.BackgroundColor3 = value and (emp and C.toggleOn or (cs and Color3.fromRGB(21,74,138) or (bh and Color3.fromRGB(70,38,125) or Color3.fromRGB(88,48,124)))) or (emp and C.toggleOff or (cs and Color3.fromRGB(18,24,34) or (bh and Color3.fromRGB(24,24,31) or Color3.fromRGB(32,24,43))))
         view.track.BackgroundTransparency = emp and .10 or 0
-        view.knob.BackgroundColor3 = value and (emp and C.bright or darkBright) or (emp and C.faint or darkFaint)
+        view.knob.BackgroundColor3 = value and (emp and C.bright or darkBright) or (emp and C.faint or (cs and Color3.fromRGB(85,80,107) or darkFaint))
         local st=view.track:FindFirstChildOfClass("UIStroke")
         if st then st.Color=emp and C.line or darkLine end
     end
@@ -7479,6 +8732,7 @@ function Theme.hardResetControls()
             {ThemeUI.blackholeRow,ThemeUI.blackholeButton},
             {ThemeUI.empyreanRow,ThemeUI.empyreanButton},
             {ThemeUI.pandemoniumRow,ThemeUI.pandemoniumButton},
+            {ThemeUI.circuitStormRow,ThemeUI.circuitStormButton},
         }) do
             local row,button=pair[1],pair[2]
             if row then
@@ -7487,7 +8741,7 @@ function Theme.hardResetControls()
                 if st then st.Color=emp and C.line or darkLine end
             end
             if button then
-                local active=(row==ThemeUI.empyreanRow and emp) or (row==ThemeUI.pandemoniumRow and pnd) or (row==ThemeUI.blackholeRow and bh) or (row==ThemeUI.defaultRow and not bh and not emp and not pnd)
+                local active=(row==ThemeUI.empyreanRow and emp) or (row==ThemeUI.pandemoniumRow and pnd) or (row==ThemeUI.circuitStormRow and cs) or (row==ThemeUI.blackholeRow and bh) or (row==ThemeUI.defaultRow and not bh and not emp and not pnd and not cs)
                 button.BackgroundColor3=active and (emp and C.violet2 or darkAccent) or (emp and C.panel2 or darkPanel)
                 button.TextColor3=active and (emp and Color3.fromRGB(58,47,26) or darkText) or (emp and C.faint or darkFaint)
                 local st=button:FindFirstChildOfClass("UIStroke")
@@ -7518,21 +8772,22 @@ function Theme.forceThemeControls()
     local emp = theme == "Empyrean"
     local pnd = theme == "Pandemonium"
     local bh = theme == "Blackhole"
+    local cs = theme == "Circuit Storm"
     local gold = Color3.fromRGB(217,169,78)
     local goldDeep = Color3.fromRGB(156,116,32)
     local cream = Color3.fromRGB(255,253,247)
     local cream2 = Color3.fromRGB(255,248,232)
     local ink = Color3.fromRGB(58,47,26)
     local faint = Color3.fromRGB(171,157,120)
-    local dark = bh and Color3.fromRGB(8,8,12) or (pnd and Color3.fromRGB(8,2,2) or Color3.fromRGB(8,4,16))
-    local dark2 = bh and Color3.fromRGB(4,4,7) or (pnd and Color3.fromRGB(16,4,4) or Color3.fromRGB(20,10,36))
-    local darkAccent = bh and Color3.fromRGB(122,63,242) or (pnd and Color3.fromRGB(200,30,44) or Color3.fromRGB(168,85,247))
-    local darkText = bh and Color3.fromRGB(236,234,245) or (pnd and Color3.fromRGB(236,234,245) or Color3.fromRGB(233,226,247))
-    local darkMuted = bh and Color3.fromRGB(150,146,170) or (pnd and Color3.fromRGB(150,145,155) or Color3.fromRGB(155,143,184))
-    local line = emp and gold or (pnd and Color3.fromRGB(200,40,40) or (bh and Color3.fromRGB(150,120,230) or Color3.fromRGB(82,55,122)))
+    local dark = bh and Color3.fromRGB(8,8,12) or (pnd and Color3.fromRGB(8,2,2) or (cs and Color3.fromRGB(5,10,18) or Color3.fromRGB(8,4,16)))
+    local dark2 = bh and Color3.fromRGB(4,4,7) or (pnd and Color3.fromRGB(16,4,4) or (cs and Color3.fromRGB(2,5,11) or Color3.fromRGB(20,10,36)))
+    local darkAccent = bh and Color3.fromRGB(122,63,242) or (pnd and Color3.fromRGB(200,30,44) or (cs and Color3.fromRGB(47,184,255) or Color3.fromRGB(168,85,247)))
+    local darkText = bh and Color3.fromRGB(236,234,245) or (pnd and Color3.fromRGB(236,234,245) or (cs and Color3.fromRGB(236,234,245) or Color3.fromRGB(233,226,247)))
+    local darkMuted = bh and Color3.fromRGB(150,146,170) or (pnd and Color3.fromRGB(150,145,155) or (cs and Color3.fromRGB(150,145,171) or Color3.fromRGB(155,143,184)))
+    local line = emp and gold or (pnd and Color3.fromRGB(200,40,40) or (bh and Color3.fromRGB(150,120,230) or (cs and Color3.fromRGB(47,184,255) or Color3.fromRGB(82,55,122))))
 
     pcall(function()
-        for key, tab in pairs(navButtons) do
+        for key, tab in pairs(nav.buttons) do
             local selected = State.tab == key
             tab.BackgroundColor3 = emp and (selected and Color3.fromRGB(255,224,150) or cream) or (selected and dark2 or dark)
             tab.BackgroundTransparency = emp and (selected and .10 or .30) or 0
@@ -7570,6 +8825,7 @@ function Theme.forceThemeControls()
     pcall(function()
         for _,page in pairs(pageMap) do
             for _,obj in ipairs(page:GetDescendants()) do
+                if obj:GetAttribute("VoidCustomOwned") then continue end
                 if obj:IsA("TextButton") then
                     obj.AutoButtonColor=false
                     obj.BackgroundColor3=emp and cream2 or dark
@@ -7593,17 +8849,17 @@ function Theme.forceThemeControls()
 
     pcall(function()
         if ThemeUI then
-            local rows={ThemeUI.defaultRow,ThemeUI.blackholeRow,ThemeUI.empyreanRow,ThemeUI.pandemoniumRow}
-            local buttons={ThemeUI.defaultButton,ThemeUI.blackholeButton,ThemeUI.empyreanButton,ThemeUI.pandemoniumButton}
+            local rows={ThemeUI.defaultRow,ThemeUI.blackholeRow,ThemeUI.empyreanRow,ThemeUI.pandemoniumRow,ThemeUI.circuitStormRow}
+            local buttons={ThemeUI.defaultButton,ThemeUI.blackholeButton,ThemeUI.empyreanButton,ThemeUI.pandemoniumButton,ThemeUI.circuitStormButton}
             for _,row in ipairs(rows) do if row then row.BackgroundColor3=emp and cream2 or dark; row.BackgroundTransparency=emp and .02 or 0; local st=row:FindFirstChildOfClass("UIStroke"); if st then st.Color=line end end end
             for i,button in ipairs(buttons) do if button then
-                local active=(i==4 and pnd) or (i==3 and emp) or (i==2 and bh) or (i==1 and not emp and not bh and not pnd)
+                local active=(i==5 and cs) or (i==4 and pnd) or (i==3 and emp) or (i==2 and bh) or (i==1 and not emp and not bh and not pnd and not cs)
                 button.BackgroundColor3=active and (emp and gold or darkAccent) or (emp and cream or dark)
                 button.TextColor3=active and (emp and ink or darkText) or (emp and faint or darkMuted)
                 button.AutoButtonColor=false
                 local st=button:FindFirstChildOfClass("UIStroke"); if st then st.Color=line end
             end end
-            if ThemeUI.activeLabel then ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or (emp and "EMPYREAN" or (pnd and "PANDEMONIUM" or "DEFAULT")); ThemeUI.activeLabel.TextColor3=emp and ink or darkText end
+            if ThemeUI.activeLabel then ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or (emp and "EMPYREAN" or (pnd and "PANDEMONIUM" or (cs and "CIRCUIT STORM" or "DEFAULT"))); ThemeUI.activeLabel.TextColor3=emp and ink or darkText end
             if ThemeUI.hint then ThemeUI.hint.TextColor3=emp and faint or darkMuted end
         end
     end)
@@ -7614,26 +8870,51 @@ function Theme.forceThemeControls()
 end
 
 function Theme.apply(themeName)
-    if themeName~="Blackhole" and themeName~="Empyrean" and themeName~="Pandemonium" then themeName="Default" end
+    if themeName~="Blackhole" and themeName~="Empyrean" and themeName~="Pandemonium" and themeName~="Circuit Storm" then themeName="Default" end
     Theme.stopSpecialVisuals(); System.theme=themeName
-    local bh=themeName=="Blackhole"; local emp=themeName=="Empyrean"; local pnd=themeName=="Pandemonium"
-    Theme.current=bh and Theme.Blackhole or(emp and Theme.Empyrean or(pnd and Theme.Pandemonium or Theme.Default)); Theme.copy(Theme.current)
-    if bh then
+    local bh=themeName=="Blackhole"; local emp=themeName=="Empyrean"; local pnd=themeName=="Pandemonium"; local cs=themeName=="Circuit Storm"
+    Theme.current=bh and Theme.Blackhole or(emp and Theme.Empyrean or(pnd and Theme.Pandemonium or(cs and Theme["Circuit Storm"] or Theme.Default))); Theme.copy(Theme.current)
+    if cs then
+        Theme.height=600; windowHeight=Theme.height
+        holder.Size=UDim2.fromOffset(windowWidth,windowHeight); shadow.Size=UDim2.fromOffset(windowWidth+12,windowHeight+12); panel.Size=UDim2.fromOffset(windowWidth,windowHeight)
+        panel.BackgroundColor3=C.panel; panel.BackgroundTransparency=.08; panelStroke.Color=C.line; panelStroke.Transparency=.42
+        panelBackdrop.Visible=false; voidFX.Visible=false; ticker.Visible=false
+        local panelGradient=panel:FindFirstChildOfClass("UIGradient")
+        if panelGradient then
+            panelGradient.Color=ColorSequence.new({
+                ColorSequenceKeypoint.new(0,Color3.fromRGB(7,18,38)),
+                ColorSequenceKeypoint.new(.48,Color3.fromRGB(3,8,18)),
+                ColorSequenceKeypoint.new(1,Color3.fromRGB(0,2,6))
+            })
+            panelGradient.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,.05),NumberSequenceKeypoint.new(.55,.16),NumberSequenceKeypoint.new(1,.04)})
+        end
+        header.Position=UDim2.fromOffset(0,0); header.Size=UDim2.fromOffset(windowWidth,64); header.BackgroundColor3=C.panel; header.BackgroundTransparency=.08
+        local headerGradient=header:FindFirstChildOfClass("UIGradient")
+        if headerGradient then
+            headerGradient.Color=ColorSequence.new(Color3.fromRGB(8,31,60),Color3.fromRGB(2,6,14))
+            headerGradient.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,.15),NumberSequenceKeypoint.new(1,.88)})
+        end
+        headerLine.BackgroundColor3=C.line; headerLine.BackgroundTransparency=.40; brandTitle.Text="CIRCUIT STORM"; brandTitle.TextColor3=C.ink; header:FindFirstChild("Sub").Text="GRID CHARGED"
+        CS.hero.Visible=true; CS.hero.Position=UDim2.fromOffset(0,64); CS.hero.Size=UDim2.fromOffset(windowWidth,152); CS.hero.BackgroundColor3=Color3.fromRGB(2,5,11); CS.heroStroke.Color=C.line; CS.heroStroke.Transparency=.38
+        UI.tabs.Position=UDim2.fromOffset(0,216); UI.tabs.BackgroundColor3=Color3.fromRGB(1,4,9); UI.tabs.BackgroundTransparency=.18
+        content.Position=UDim2.fromOffset(0,280); content.Size=UDim2.fromOffset(windowWidth,windowHeight-280); content.BackgroundColor3=C.panel; content.BackgroundTransparency=.04
+        edgeSheen.BackgroundColor3=C.cyan
+    elseif bh then
         Theme.height=600; windowHeight=Theme.height; holder.Size=UDim2.fromOffset(windowWidth,windowHeight); shadow.Size=UDim2.fromOffset(windowWidth+12,windowHeight+12); panel.Size=UDim2.fromOffset(windowWidth,windowHeight); panel.BackgroundColor3=C.panel; panel.BackgroundTransparency=.18; panelStroke.Color=C.line; panelStroke.Transparency=.72; panelBackdrop.Visible=false; voidFX.Visible=false; ticker.Visible=false; content.BackgroundTransparency=1
         local panelGradient=panel:FindFirstChildOfClass("UIGradient"); if panelGradient then panelGradient.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(23,12,39)),ColorSequenceKeypoint.new(.45,Color3.fromRGB(14,7,26)),ColorSequenceKeypoint.new(1,Color3.fromRGB(5,2,12))}); panelGradient.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,.18),NumberSequenceKeypoint.new(.48,.28),NumberSequenceKeypoint.new(1,.12)}) end
-        header.Position=UDim2.fromOffset(0,0); header.Size=UDim2.fromOffset(windowWidth,64); header.BackgroundColor3=C.panel; header.BackgroundTransparency=.08; local headerGradient=header:FindFirstChildOfClass("UIGradient"); if headerGradient then headerGradient.Color=ColorSequence.new(C.violet,C.panel); headerGradient.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,.82),NumberSequenceKeypoint.new(1,1)}) end; headerLine.BackgroundColor3=C.line; headerLine.BackgroundTransparency=.70; brandTitle.Text="BLACKHOLE V1"; brandTitle.TextColor3=C.ink; header:FindFirstChild("Sub").Text="REACTOR ONLINE"; BH.hero.Visible=true; BH.hero.Position=UDim2.fromOffset(0,64); BH.hero.Size=UDim2.fromOffset(windowWidth,152); BH.hero.BackgroundColor3=C.black; BH.heroStroke.Color=C.line; BH.heroStroke.Transparency=.82; tabs.Position=UDim2.fromOffset(0,216); tabs.BackgroundColor3=C.black; tabs.BackgroundTransparency=.28; content.Position=UDim2.fromOffset(0,280); content.Size=UDim2.fromOffset(windowWidth,windowHeight-280); edgeSheen.BackgroundColor3=C.cyan; BH.atmosphere.BackgroundColor3=Color3.fromRGB(12,8,20)
+        header.Position=UDim2.fromOffset(0,0); header.Size=UDim2.fromOffset(windowWidth,64); header.BackgroundColor3=C.panel; header.BackgroundTransparency=.08; local headerGradient=header:FindFirstChildOfClass("UIGradient"); if headerGradient then headerGradient.Color=ColorSequence.new(C.violet,C.panel); headerGradient.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,.82),NumberSequenceKeypoint.new(1,1)}) end; headerLine.BackgroundColor3=C.line; headerLine.BackgroundTransparency=.70; brandTitle.Text="BLACKHOLE V1"; brandTitle.TextColor3=C.ink; header:FindFirstChild("Sub").Text="REACTOR ONLINE"; BH.hero.Visible=true; BH.hero.Position=UDim2.fromOffset(0,64); BH.hero.Size=UDim2.fromOffset(windowWidth,152); BH.hero.BackgroundColor3=C.black; BH.heroStroke.Color=C.line; BH.heroStroke.Transparency=.82; UI.tabs.Position=UDim2.fromOffset(0,216); UI.tabs.BackgroundColor3=C.black; UI.tabs.BackgroundTransparency=.28; content.Position=UDim2.fromOffset(0,280); content.Size=UDim2.fromOffset(windowWidth,windowHeight-280); edgeSheen.BackgroundColor3=C.cyan; BH.atmosphere.BackgroundColor3=Color3.fromRGB(12,8,20)
     elseif pnd then
         Theme.height=600; windowHeight=Theme.height
         holder.Size=UDim2.fromOffset(windowWidth,windowHeight); shadow.Size=UDim2.fromOffset(windowWidth+12,windowHeight+12); panel.Size=UDim2.fromOffset(windowWidth,windowHeight)
         panel.BackgroundColor3=C.panel; panel.BackgroundTransparency=.10; panelStroke.Color=C.line; panelStroke.Transparency=.42
         panelBackdrop.Visible=false; voidFX.Visible=false; ticker.Visible=false
         local panelGradient=panel:FindFirstChildOfClass("UIGradient")
-        if panelGradient then panelGradient.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(22,4,5)),ColorSequenceKeypoint.new(.48,Color3.fromRGB(12,2,3)),ColorSequenceKeypoint.new(1,Color3.fromRGB(4,0,0))}); panelGradient.Transparency=NumberSequence.new({ColorSequenceKeypoint.new(0,.08),ColorSequenceKeypoint.new(.55,.20),ColorSequenceKeypoint.new(1,.06)}) end
+        if panelGradient then panelGradient.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(22,4,5)),ColorSequenceKeypoint.new(.48,Color3.fromRGB(12,2,3)),ColorSequenceKeypoint.new(1,Color3.fromRGB(4,0,0))}); panelGradient.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,.08),NumberSequenceKeypoint.new(.55,.20),NumberSequenceKeypoint.new(1,.06)}) end
         header.Position=UDim2.fromOffset(0,0); header.Size=UDim2.fromOffset(windowWidth,64); header.BackgroundColor3=C.panel; header.BackgroundTransparency=.08
-        local headerGradient=header:FindFirstChildOfClass("UIGradient"); if headerGradient then headerGradient.Color=ColorSequence.new(Color3.fromRGB(50,7,9),Color3.fromRGB(16,4,4)); headerGradient.Transparency=NumberSequence.new({ColorSequenceKeypoint.new(0,.20),ColorSequenceKeypoint.new(1,.88)}) end
+        local headerGradient=header:FindFirstChildOfClass("UIGradient"); if headerGradient then headerGradient.Color=ColorSequence.new(Color3.fromRGB(50,7,9),Color3.fromRGB(16,4,4)); headerGradient.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,.20),NumberSequenceKeypoint.new(1,.88)}) end
         headerLine.BackgroundColor3=C.line; headerLine.BackgroundTransparency=.48; brandTitle.Text="PANDEMONIUM"; brandTitle.TextColor3=C.ink; header:FindFirstChild("Sub").Text="ABYSS UNSEALED"
         PND.hero.Visible=true; PND.hero.Position=UDim2.fromOffset(0,64); PND.hero.Size=UDim2.fromOffset(windowWidth,152); PND.hero.BackgroundColor3=C.black; PND.heroStroke.Color=C.line; PND.heroStroke.Transparency=.30
-        tabs.Position=UDim2.fromOffset(0,216); tabs.BackgroundColor3=C.black; tabs.BackgroundTransparency=.20
+        UI.tabs.Position=UDim2.fromOffset(0,216); UI.tabs.BackgroundColor3=C.black; UI.tabs.BackgroundTransparency=.20
         content.Position=UDim2.fromOffset(0,280); content.Size=UDim2.fromOffset(windowWidth,windowHeight-280); content.BackgroundColor3=C.panel; content.BackgroundTransparency=.04
         local cg=content:FindFirstChild("EmpyreanSurfaceGradient"); if cg then cg:Destroy() end
         edgeSheen.BackgroundColor3=Color3.fromRGB(255,111,54)
@@ -7674,8 +8955,8 @@ function Theme.apply(themeName)
                 Color3.fromRGB(255,253,247)
             )
             headerGradient.Transparency=NumberSequence.new({
-                ColorSequenceKeypoint.new(0,.18),
-                ColorSequenceKeypoint.new(1,.88)
+                NumberSequenceKeypoint.new(0,.18),
+                NumberSequenceKeypoint.new(1,.88)
             })
         end
         headerLine.BackgroundColor3=C.line
@@ -7692,9 +8973,9 @@ function Theme.apply(themeName)
         EMP.heroStroke.Color=C.line
         EMP.heroStroke.Transparency=.34
 
-        tabs.Position=UDim2.fromOffset(0,224)
-        tabs.BackgroundColor3=Color3.fromRGB(255,250,235)
-        tabs.BackgroundTransparency=.42
+        UI.tabs.Position=UDim2.fromOffset(0,224)
+        UI.tabs.BackgroundColor3=Color3.fromRGB(255,250,235)
+        UI.tabs.BackgroundTransparency=.42
 
         content.Position=UDim2.fromOffset(0,288)
         content.Size=UDim2.fromOffset(windowWidth,windowHeight-288)
@@ -7718,20 +8999,20 @@ function Theme.apply(themeName)
         local contentGradient=content:FindFirstChild("EmpyreanSurfaceGradient")
         if contentGradient then contentGradient:Destroy() end
         Theme.height=H; windowHeight=Theme.height; holder.Size=UDim2.fromOffset(windowWidth,windowHeight); shadow.Size=UDim2.fromOffset(windowWidth+12,windowHeight+12); panel.Size=UDim2.fromOffset(windowWidth,windowHeight); panel.BackgroundColor3=C.panel; panel.BackgroundTransparency=.40; panelStroke.Color=C.violet2; panelStroke.Transparency=.28; panelBackdrop.Visible=true; voidFX.Visible=true; ticker.Visible=true; content.BackgroundTransparency=1
-        local panelGradient=panel:FindFirstChildOfClass("UIGradient"); if panelGradient then panelGradient.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(23,12,39)),ColorSequenceKeypoint.new(.45,Color3.fromRGB(14,7,26)),ColorSequenceKeypoint.new(1,Color3.fromRGB(5,2,12))}); panelGradient.Transparency=NumberSequence.new({ColorSequenceKeypoint.new(0,.18),ColorSequenceKeypoint.new(.48,.28),ColorSequenceKeypoint.new(1,.12)}) end
-        header.Position=UDim2.fromOffset(0,0); header.Size=UDim2.fromOffset(windowWidth,64); header.BackgroundColor3=C.panel; header.BackgroundTransparency=.08; headerLine.BackgroundColor3=C.violet; headerLine.BackgroundTransparency=.48; brandTitle.Text="VOID NEXUS"; brandTitle.TextColor3=C.ink; header:FindFirstChild("Sub").Text="CORE LINK STABLE"; tabs.Position=UDim2.fromOffset(0,88); tabs.BackgroundColor3=C.black; tabs.BackgroundTransparency=.35; content.Position=UDim2.fromOffset(0,152); content.Size=UDim2.fromOffset(windowWidth,windowHeight-152); edgeSheen.BackgroundColor3=C.cyan
+        local panelGradient=panel:FindFirstChildOfClass("UIGradient"); if panelGradient then panelGradient.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(23,12,39)),ColorSequenceKeypoint.new(.45,Color3.fromRGB(14,7,26)),ColorSequenceKeypoint.new(1,Color3.fromRGB(5,2,12))}); panelGradient.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,.18),NumberSequenceKeypoint.new(.48,.28),NumberSequenceKeypoint.new(1,.12)}) end
+        header.Position=UDim2.fromOffset(0,0); header.Size=UDim2.fromOffset(windowWidth,64); header.BackgroundColor3=C.panel; header.BackgroundTransparency=.08; headerLine.BackgroundColor3=C.violet; headerLine.BackgroundTransparency=.48; brandTitle.Text="VOID NEXUS"; brandTitle.TextColor3=C.ink; header:FindFirstChild("Sub").Text="CORE LINK STABLE"; UI.tabs.Position=UDim2.fromOffset(0,88); UI.tabs.BackgroundColor3=C.black; UI.tabs.BackgroundTransparency=.35; content.Position=UDim2.fromOffset(0,152); content.Size=UDim2.fromOffset(windowWidth,windowHeight-152); edgeSheen.BackgroundColor3=C.cyan
     end
     brandmark.BackgroundColor3=C.panel2
     local brandStroke=brandmark:FindFirstChildOfClass("UIStroke")
     if brandStroke then brandStroke.Color=C.line end
-    markCore.BackgroundColor3=emp and Color3.fromRGB(217,169,78) or C.violet2
-    markH.BackgroundColor3=emp and Color3.fromRGB(156,116,32) or C.violet2
-    markV.BackgroundColor3=emp and Color3.fromRGB(156,116,32) or C.cyan
+    markCore.BackgroundColor3=emp and Color3.fromRGB(217,169,78) or (cs and C.cyan or C.violet2)
+    markH.BackgroundColor3=emp and Color3.fromRGB(156,116,32) or (cs and C.cyan or C.violet2)
+    markV.BackgroundColor3=emp and Color3.fromRGB(156,116,32) or (cs and C.bright or C.cyan)
     ticker.BackgroundColor3=emp and C.panel2 or C.black
     tickerText.TextColor3=C.faint
-    tabs:FindFirstChildOfClass("UIStroke").Color=C.line
-    edgeSheenGradient.Color=emp and ColorSequence.new(Color3.fromRGB(255,243,200),Color3.fromRGB(207,230,255)) or (pnd and ColorSequence.new(Color3.fromRGB(255,242,192),Color3.fromRGB(200,30,44)) or ColorSequence.new(C.cyan,C.violet2))
-    for key,tab in pairs(navButtons) do
+    UI.tabs:FindFirstChildOfClass("UIStroke").Color=C.line
+    edgeSheenGradient.Color=emp and ColorSequence.new(Color3.fromRGB(255,243,200),Color3.fromRGB(207,230,255)) or (cs and ColorSequence.new(Color3.fromRGB(234,246,255),Color3.fromRGB(47,184,255)) or (pnd and ColorSequence.new(Color3.fromRGB(255,242,192),Color3.fromRGB(200,30,44)) or ColorSequence.new(C.cyan,C.violet2)))
+    for key,tab in pairs(nav.buttons) do
         if emp then
             tab.BackgroundColor3=Color3.fromRGB(255,255,255)
             tab.BackgroundTransparency=.34
@@ -7740,6 +9021,10 @@ function Theme.apply(themeName)
             tab.BackgroundColor3=C.panel2
             tab.BackgroundTransparency=.02
             tab.TextColor3=C.faint
+        elseif cs then
+            tab.BackgroundColor3=C.panel2
+            tab.BackgroundTransparency=.04
+            tab.TextColor3=C.faint
         else
             tab.BackgroundColor3=bh and C.panel2 or Color3.fromRGB(8,4,16)
             tab.BackgroundTransparency=0
@@ -7747,7 +9032,7 @@ function Theme.apply(themeName)
         local st=UI.navStrokes[key]
         if st then st.Color=C.line end
         local bar=UI.navBars[key]
-        if bar then bar.BackgroundColor3=emp and Color3.fromRGB(217,169,78) or (pnd and C.accent or C.violet2) end
+        if bar then bar.BackgroundColor3=emp and Color3.fromRGB(217,169,78) or (cs and C.accent or (pnd and C.accent or C.violet2)) end
     end
     Theme.restyleRows(); Theme.restyleText()
     if emp then
@@ -7797,20 +9082,25 @@ function Theme.apply(themeName)
             ThemeUI.empyreanButton.TextColor3=C.ink
         end
     end
-    if ThemeUI.activeLabel then ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or(emp and "EMPYREAN" or (pnd and "PANDEMONIUM" or "DEFAULT")); ThemeUI.activeLabel.TextColor3=C.ink end
+    if ThemeUI.activeLabel then ThemeUI.activeLabel.Text=bh and "BLACKHOLE V1" or(emp and "EMPYREAN" or (pnd and "PANDEMONIUM" or (cs and "CIRCUIT STORM" or "DEFAULT"))); ThemeUI.activeLabel.TextColor3=C.ink end
     if ThemeUI.defaultButton then ThemeUI.defaultButton.BackgroundColor3=(not bh and not emp) and C.violet2 or C.panel2; ThemeUI.defaultButton.TextColor3=(not bh and not emp) and C.ink or C.faint end
     if ThemeUI.blackholeButton then ThemeUI.blackholeButton.BackgroundColor3=bh and C.violet2 or C.panel2; ThemeUI.blackholeButton.TextColor3=bh and C.ink or C.faint end
     if ThemeUI.empyreanButton then ThemeUI.empyreanButton.BackgroundColor3=emp and C.violet2 or C.panel2; ThemeUI.empyreanButton.TextColor3=emp and C.ink or C.faint end
     if ThemeUI.pandemoniumButton then ThemeUI.pandemoniumButton.BackgroundColor3=pnd and C.accent or C.panel2; ThemeUI.pandemoniumButton.TextColor3=pnd and C.ink or C.faint end
+    if ThemeUI.circuitStormButton then ThemeUI.circuitStormButton.BackgroundColor3=cs and C.accent or C.panel2; ThemeUI.circuitStormButton.TextColor3=cs and C.ink or C.faint end
     if ThemeUI.defaultRow then local st=ThemeUI.defaultRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=(not bh and not emp) and C.violet2 or C.line end end
     if ThemeUI.blackholeRow then local st=ThemeUI.blackholeRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=bh and C.violet2 or C.line end end
     if ThemeUI.empyreanRow then local st=ThemeUI.empyreanRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=emp and C.violet2 or C.line end end
     if ThemeUI.pandemoniumRow then local st=ThemeUI.pandemoniumRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=pnd and C.accent or C.line end end
+    if ThemeUI.circuitStormRow then local st=ThemeUI.circuitStormRow:FindFirstChildOfClass("UIStroke"); if st then st.Color=cs and C.accent or C.line end end
     if bh then
         BH.core.BackgroundColor3=Color3.new(0,0,0); BH.coreGlow.BackgroundColor3=Color3.fromRGB(65,35,135); BH.silverStroke.Color=Color3.fromRGB(238,241,251); BH.purpleStroke.Color=Color3.fromRGB(122,63,242)
     elseif pnd then
         pcall(function() PND.startVisuals() end)
         task.defer(function() if State.alive and System.theme=="Pandemonium" then pcall(function() PND.ensureVisuals() end) end end)
+    elseif cs then
+        pcall(function() CS.startVisuals() end)
+        task.defer(function() if State.alive and System.theme=="Circuit Storm" then pcall(function() CS.ensureVisuals() end) end end)
     elseif emp then
         -- Restart the active EMPYREAN renderer after every theme transition.
         -- The lifetime watchdog below remains alive even while another theme is
@@ -7843,7 +9133,7 @@ function Theme.apply(themeName)
 end
 
 UI.setTheme = function(themeName)
-    local normalized = (themeName == "Blackhole" or themeName == "Empyrean" or themeName == "Pandemonium" or themeName == "Default")
+    local normalized = (themeName == "Blackhole" or themeName == "Empyrean" or themeName == "Pandemonium" or themeName == "Circuit Storm" or themeName == "Default")
         and themeName or "Default"
 
     -- Commit the selection BEFORE touching any visuals. This is the single
@@ -7893,6 +9183,16 @@ UI.setTheme = function(themeName)
                 pcall(function() PND.ensureVisuals() end)
             end
         end)
+    elseif normalized == "Circuit Storm" then
+        -- Circuit Storm is re-armed LAST. Any legacy theme restyler is allowed
+        -- to finish before the renderer is brought back, so a failed optional
+        -- cosmetic pass can never leave the electrical animation disconnected.
+        task.defer(function()
+            if State.alive and System.theme == "Circuit Storm" then
+                pcall(function() CS.ensureVisuals() end)
+                pcall(function() CS.recoverAfterShow() end)
+            end
+        end)
     end
 end
 
@@ -7907,7 +9207,8 @@ local function renderPageState()
         or State.tab == "ESP" and (Settings.ESPEnabled and "ESP" or "SYNCED")
         or State.tab == "Health" and (Settings.HealthEscapeEnabled and "HP" or "SYNCED")
         or State.tab == "Move" and (Settings.FlyEnabled and "FLY" or Settings.NoClip and "MOVE" or "SYNCED")
-        or State.tab == "Theme" and (System.theme == "Blackhole" and "BLACKHOLE" or (System.theme == "Empyrean" and "EMPYREAN" or "DEFAULT"))
+        or State.tab == "Theme" and (System.theme == "Blackhole" and "BLACKHOLE" or (System.theme == "Empyrean" and "EMPYREAN" or (System.theme == "Pandemonium" and "PANDEMONIUM" or (System.theme == "Circuit Storm" and "CIRCUIT" or "DEFAULT"))))
+        or State.tab == "Webhook" and (Settings.WebhookEnabled and "HOOK" or "SYNCED")
         or "SYNCED")
     UI.badge.TextColor3 = mainColor
     statusDot.BackgroundColor3 = mainColor
@@ -7917,6 +9218,15 @@ local function renderPageState()
     UI.detail.Text = description
     UI.statusDot.BackgroundColor3 = mainColor
 
+    if uiScale then
+        uiScale.Scale = math.clamp(tonumber(Settings.UIScale) or 1, .75, 1.25)
+    end
+    if UI.webhookStatus then
+        UI.webhookStatus.Text=tostring(Webhook.status or "Webhook disabled.").."\n"..string.format("Sent %d | Failed %d | Queue %d",Webhook.sendCount or 0,Webhook.failCount or 0,#Webhook.queue)
+        UI.webhookStatusDot.BackgroundColor3=Settings.WebhookEnabled and (Webhook.available() and C.green or C.amber) or C.faint
+    end
+    if UI.healthSourcePicker then UI.healthSourcePicker.Text="SOURCE: "..tostring(Guard.sourceLabel or "Auto") end
+    if UI.routeModeButton then UI.routeModeButton.Text="ROUTE: "..tostring(Settings.BossRouteMode or "Nearest") end
     UI.espCount.Text = tostring(State.espCount) .. " TRACKED"
     UI.espDetail.Text = State.espFault or (Settings.ESPEnabled and "ESP active" or "Turn on Player ESP or press F8.")
     UI.espStatus.Text = State.espFault and "ESP ERROR" or (Settings.ESPEnabled and "ESP ACTIVE" or "ESP OFF")
@@ -7991,7 +9301,9 @@ render = function()
     return ok
 end
 
-if System.theme=="Pandemonium" and PND.ensureVisuals then
+if System.theme=="Circuit Storm" and CS.ensureVisuals then
+    task.defer(function() if State.alive then pcall(function() CS.ensureVisuals() end) end end)
+elseif System.theme=="Pandemonium" and PND.ensureVisuals then
     task.defer(function() if State.alive then PND.ensureVisuals() end end)
 elseif System.theme=="Empyrean" and EMP.ensureVisuals then
     task.defer(function() if State.alive then EMP.ensureVisuals() end end)
@@ -8007,6 +9319,7 @@ connect(UI.badge.Activated, function()
     else setEnabled(not State.enabled) end
 end)
 connect(header.InputBegan, function(input)
+    if Settings.OverlayLock then return end
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         State.gesture = {kind = "window", input = input, start = input.Position,
             x = holder.Position.X.Offset, y = holder.Position.Y.Offset}
@@ -8048,7 +9361,7 @@ connect(canvas:GetPropertyChangedSignal("AbsoluteSize"), function() fitWindow(fa
 -- changes must never become layout inputs.
 -- Startup is intentionally ordered: persisted theme -> theme application -> loader.
 -- Do not render the Default theme first; doing so can leave stale theme visuals behind.
-fitWindow(true)
+pcall(function() fitWindow(true) end)
 local __startupTheme = System.startupTheme
 local __themeOK, __themeERR = pcall(function() Theme.apply(__startupTheme) end)
 pcall(function() if Theme.forceThemeControls then Theme.forceThemeControls() end end)
@@ -8060,7 +9373,7 @@ if not __themeOK then
     System.theme = __startupTheme
     pcall(function()
         local selected = __startupTheme
-        Theme.current = selected == "Blackhole" and Theme.Blackhole or (selected == "Empyrean" and Theme.Empyrean or (selected == "Pandemonium" and Theme.Pandemonium or Theme.Default))
+        Theme.current = selected == "Blackhole" and Theme.Blackhole or (selected == "Empyrean" and Theme.Empyrean or (selected == "Pandemonium" and Theme.Pandemonium or (selected == "Circuit Storm" and Theme["Circuit Storm"] or Theme.Default)))
         Theme.copy(Theme.current)
         Theme.hardResetControls()
         render()
@@ -8078,7 +9391,92 @@ do
         local loadingLayer = __loaderLayer
 
         local startupTheme = System.startupTheme
-        if startupTheme == "Pandemonium" then
+        if startupTheme == "Circuit Storm" then
+            -- ================================================================
+            -- CIRCUIT STORM LOADER
+            -- Native Roblox recreation of the supplied HTML/CSS reference.
+            -- White-hot core, electric-blue rings, cardinal bolts, sparks,
+            -- three churning filaments and independent pulse timings.
+            -- ================================================================
+            loadingLayer.BackgroundColor3=Color3.fromRGB(0,2,6); loadingLayer.BackgroundTransparency=.02
+            local CSN={white=Color3.fromRGB(234,246,255),blue=Color3.fromRGB(47,184,255),dim=Color3.fromRGB(21,74,138)}
+            local wrap=make("Frame",loadingLayer,{Name="CircuitStormWrap",Position=UDim2.fromScale(.5,.5),Size=UDim2.fromOffset(250,290),AnchorPoint=Vector2.new(.5,.5),BackgroundTransparency=1,ZIndex=101})
+            local stage=frame(wrap,"Stage",0,0,210,210,Color3.new(1,1,1),105); stage.AnchorPoint=Vector2.new(.5,.5); stage.Position=UDim2.fromOffset(125,98); stage.BackgroundTransparency=1; stage.ZIndex=102
+            local bloom=frame(stage,"Bloom",42,42,126,126,CSN.blue,63); bloom.BackgroundTransparency=.78; bloom.ZIndex=102
+            local bloomStroke=stroke(bloom,CSN.white,.82,1)
+            local guide=frame(stage,"Guide",0,0,210,210,Color3.new(1,1,1),105); guide.BackgroundTransparency=1; stroke(guide,CSN.blue,.82,1)
+            local function loaderRing(name,radius,width,startDeg,sweepDeg,count,speed)
+                local group=frame(stage,name,0,0,210,210,Color3.new(1,1,1),105)
+                group.BackgroundTransparency=1; group.ZIndex=104
+                local segments={}
+                local sweep=math.rad(sweepDeg)
+                local startAngle=math.rad(startDeg)
+                local safeCount=math.max(4,count)
+                local segmentLength=math.max(7,(radius*sweep/safeCount)*0.78)
+                for i=1,safeCount do
+                    local t=(i-0.5)/safeCount
+                    local a=startAngle+sweep*t
+                    local seg=frame(group,"Segment"..i,0,0,segmentLength,width,(i/safeCount>0.52) and CSN.blue or CSN.white,math.max(1,math.floor(width/2)))
+                    seg.AnchorPoint=Vector2.new(.5,.5)
+                    seg.Position=UDim2.fromOffset(105+math.cos(a)*radius,105+math.sin(a)*radius)
+                    seg.Rotation=math.deg(a)+90
+                    seg.BackgroundTransparency=.05
+                    segments[#segments+1]={obj=seg,angleOffset=a}
+                end
+                return {group=group,segments=segments,radius=radius,start=startAngle,sweep=sweep,speed=speed}
+            end
+            local outer=loaderRing("OuterRing",82,4,-92,132,18,360)
+            local inner=loaderRing("InnerRing",56,2,54,116,14,-(360/2.6))
+            local core=frame(stage,"Core",67,67,76,76,CSN.blue,38); core.BackgroundTransparency=.16; local cg=make("UIGradient",core,{Rotation=90,Color=ColorSequence.new(CSN.white,CSN.blue)}); cg.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,.02),NumberSequenceKeypoint.new(.36,.12),NumberSequenceKeypoint.new(1,.48)})
+            local coreDot=frame(stage,"CoreDot",96,96,18,18,CSN.white,9); coreDot.BackgroundTransparency=.02; stroke(coreDot,CSN.white,.42,1)
+            local filaments={}
+            for i,ang in ipairs({15,140,255}) do local f=frame(stage,"Filament"..i,0,0,2,18,CSN.white,1); f.AnchorPoint=Vector2.new(.5,0); f.Position=UDim2.fromOffset(105,105); f.Rotation=ang; f.BackgroundTransparency=.45; filaments[#filaments+1]={obj=f,phase=(i-1)*.35} end
+            local bolts={}
+            local boltPos={N={x=105,y=4,a=12},E={x=206,y=105,a=102},S={x=105,y=206,a=192},W={x=4,y=105,a=282}}
+            for name,p in pairs(boltPos) do
+                local g=frame(stage,"Bolt"..name,0,0,210,210,Color3.new(1,1,1),0); g.BackgroundTransparency=1; local a=frame(g,"A",0,0,2,9,CSN.white,1); local b=frame(g,"B",0,0,2,9,CSN.white,1); a.Position=UDim2.fromOffset(p.x,p.y); b.Position=UDim2.fromOffset(p.x,p.y); a.Rotation=p.a; b.Rotation=p.a-26; a.BackgroundTransparency=.15; b.BackgroundTransparency=.15; bolts[#bolts+1]={a=a,b=b,phase=(#bolts)*.6} end
+            local sparks={}
+            for i,pos in ipairs({{105,34},{176,105},{105,176},{34,105}}) do local s=frame(stage,"Spark"..i,pos[1]-2,pos[2]-2,4,4,(i%2==0) and CSN.blue or CSN.white,2); sparks[#sparks+1]={obj=s,phase=(i-1)*.3} end
+            local label=safeText(wrap,"Label","CHARGING...",0,230,250,18,11,Color3.fromRGB(143,196,234),Enum.Font.Code); label.TextXAlignment=Enum.TextXAlignment.Center; label.ZIndex=110
+            local bar=frame(wrap,"Rail",46,258,158,3,Color3.fromRGB(15,35,58),2); bar.ZIndex=110; local fill=frame(bar,"Fill",0,0,0,3,CSN.blue,2); fill.ZIndex=111
+            local percent=safeText(wrap,"Percent","0%",0,267,250,16,8,Color3.fromRGB(85,138,176),Enum.Font.Code); percent.TextXAlignment=Enum.TextXAlignment.Center; percent.ZIndex=110
+            local start=os.clock(); local duration=2.35
+            local conn
+            conn=connect(RunService.RenderStepped,function()
+                if not State.alive or not loadingLayer.Parent then if conn then conn:Disconnect() end; return end
+                local elapsed=os.clock()-start; local progress=math.clamp(elapsed/duration,0,1)
+                local pulse=(math.sin(elapsed*math.pi*2/2.2)+1)*.5
+                bloom.BackgroundTransparency=.87-pulse*.28; bloom.Size=UDim2.fromOffset(120+pulse*18,120+pulse*18); bloom.Position=UDim2.fromOffset(105-(pulse*9),105-(pulse*9))
+                for _,info in ipairs(outer.segments) do
+                    local a=info.angleOffset+elapsed*math.pi*2
+                    info.obj.Position=UDim2.fromOffset(105+math.cos(a)*outer.radius,105+math.sin(a)*outer.radius)
+                    info.obj.Rotation=math.deg(a)+90
+                end
+                for _,info in ipairs(inner.segments) do
+                    local a=info.angleOffset-elapsed*(math.pi*2/2.6)
+                    info.obj.Position=UDim2.fromOffset(105+math.cos(a)*inner.radius,105+math.sin(a)*inner.radius)
+                    info.obj.Rotation=math.deg(a)+90
+                end
+                core.BackgroundTransparency=.08+pulse*.15; coreDot.Size=UDim2.fromOffset(16+pulse*6,16+pulse*6)
+                for _,info in ipairs(filaments) do local p=(math.sin((elapsed+info.phase)*math.pi*2/1.4)+1)*.5; info.obj.BackgroundTransparency=.18+p*.70; info.obj.Size=UDim2.fromOffset(2,14+p*7) end
+                for _,info in ipairs(bolts) do local p=(math.sin((elapsed+info.phase)*math.pi*2/2.4)+1)*.5; info.a.BackgroundTransparency=.10+p*.78; info.b.BackgroundTransparency=.10+p*.78 end
+                for _,info in ipairs(sparks) do local p=(math.sin((elapsed+info.phase)*math.pi*2/1.3)+1)*.5; info.obj.BackgroundTransparency=.10+p*.82; info.obj.Size=UDim2.fromOffset(2+p*2,2+p*2) end
+                fill.Size=UDim2.new(progress,0,1,0); percent.Text=string.format("%d%%",math.floor(progress*100+.5))
+                local labels={{0,"CHARGING..."},{.28,"BUILDING STORM..."},{.54,"SYNCHRONIZING GRID..."},{.78,"IGNITING PLASMA..."},{.92,"CIRCUIT STORM ONLINE"}}
+                label.Text=labels[1][2]; for i=#labels,1,-1 do if progress>=labels[i][1] then label.Text=labels[i][2]; break end end
+                if progress>=1 then
+                    conn:Disconnect(); label.Text="CIRCUIT STORM ONLINE"; task.wait(.10); if not State.alive then return end
+                    TweenService:Create(stage,TweenInfo.new(.25,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{Size=UDim2.fromOffset(186,186)}):Play()
+                    TweenService:Create(loadingLayer,TweenInfo.new(.32,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{BackgroundTransparency=1}):Play()
+                    task.delay(.36,function()
+                        if not State.alive then return end; if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled=false end; if loadingLayer and loadingLayer.Parent then loadingLayer:Destroy() end
+                        holder.Visible=true; root.Enabled=true; if System.theme=="Circuit Storm" and CS.ensureVisuals then CS.ensureVisuals() end
+                        local bootStroke=panel:FindFirstChildOfClass("UIStroke"); if bootStroke then bootStroke.Transparency=1; TweenService:Create(bootStroke,TweenInfo.new(.55,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Transparency=.20}):Play() end
+                        if loaderRoot and loaderRoot.Parent then loaderRoot:Destroy() end
+                    end)
+                end
+            end)
+        elseif startupTheme == "Pandemonium" then
             loadingLayer.BackgroundColor3=Color3.fromRGB(3,0,0); loadingLayer.BackgroundTransparency=.02
             local loadCard=frame(loadingLayer,"LoadingCard",0,0,326,402,Color3.fromRGB(16,4,4),18); loadCard.AnchorPoint=Vector2.new(.5,.5); loadCard.Position=UDim2.fromScale(.5,.5); loadCard.BackgroundTransparency=.08; loadCard.ZIndex=101; stroke(loadCard,Color3.fromRGB(200,40,40),.30,1)
             local loadScale=make("UIScale",loadCard,{Scale=.88}); TweenService:Create(loadScale,TweenInfo.new(.62,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Scale=1}):Play()
@@ -8758,6 +10156,7 @@ end
 -- analytics, theme persistence, layout sizing, visibility, or movement logic.
 -- It is safe to sleep whenever EMPYREAN is not active.
 do
+    local celestialPulse
     local egg = EMP._easterEggs
     if not egg then
         egg = {lastInput=time(), lastBosses=0, lastKills=0, lastTargets=0, lastIdlePulse=0, lastDoubleClick=0}
@@ -8790,7 +10189,7 @@ do
         clicker.Active = true
         EMP.easterClicker = clicker
 
-        local function celestialPulse(strong)
+        celestialPulse = function(strong)
             if not State.alive or System.theme ~= "Empyrean" or State.minimized or not EMP.hero.Visible then return end
             local centerY = 78
             local startSize = strong and 78 or 70
@@ -8852,7 +10251,7 @@ do
         -- Small gold underline on navigation hover. It does not resize or
         -- recolor the actual navigation button.
         EMP.easterHoverLines = {}
-        for key, tab in pairs(navButtons) do
+        for key, tab in pairs(nav.buttons) do
             if tab then
                 local line = frame(tab, "CelestialHover", 0, math.max(0, tab.Size.Y.Offset - 2), tab.Size.X.Offset, 2, Color3.fromRGB(217,169,78), 1)
                 line.BackgroundTransparency = 1
@@ -8871,6 +10270,8 @@ do
             end
         end
     end
+
+    celestialPulse = celestialPulse or EMP.celestialPulse or function() end
 
     -- User activity resets the celestial idle timer. This listener is visual-only.
     connect(Input.InputBegan, function()
@@ -8917,11 +10318,1382 @@ do
 end
 -- END EMPYREAN CELESTIAL EASTER EGGS ----------------------------------------
 
+
+
+-- ============================================================================
+-- ============================================================================
+-- COMPILE-SAFE ABSURD UNIQUE THEME EFFECT ENGINE v4
+-- The complete effect engine is compiled in its own Luau chunk.  This avoids
+-- the 200-local/register limit of the already-large main automation chunk.
+do
+    local __fxEnv = (type(getgenv) == "function" and getgenv()) or _G
+    __fxEnv.__VA_FX_CONTEXT = {
+        State = State,
+        System = System,
+        RunService = RunService,
+        frame = frame,
+        stroke = stroke,
+        connect = connect,
+        voidFX = voidFX,
+        BH = BH,
+        EMP = EMP,
+        PND = PND,
+        CS = CS,
+        W = W,
+        H = H,
+        MIN_WINDOW_WIDTH = MIN_WINDOW_WIDTH,
+        getWindowWidth = function() return windowWidth end,
+        getCustomTheme = function() return controller.CustomTheme end,
+    }
+
+    local __fxSource = [=[
+local __ctx = ((type(getgenv) == "function" and getgenv()) or _G).__VA_FX_CONTEXT
+if type(__ctx) ~= "table" then return end
+local State = __ctx.State
+local System = __ctx.System
+local RunService = __ctx.RunService
+local frame = __ctx.frame
+local stroke = __ctx.stroke
+local connect = __ctx.connect
+local voidFX = __ctx.voidFX
+local BH = __ctx.BH
+local EMP = __ctx.EMP
+local PND = __ctx.PND
+local CS = __ctx.CS
+local W = __ctx.W
+local H = __ctx.H
+local MIN_WINDOW_WIDTH = __ctx.MIN_WINDOW_WIDTH
+local getWindowWidth = __ctx.getWindowWidth
+
+-- ABSURD UNIQUE THEME EFFECT ENGINE v4
+-- ============================================================================
+-- Every theme owns a completely different visual language, geometry system,
+-- motion model, particle behaviour and energy signature.  No theme borrows
+-- another theme's effect stack or animation routine.
+--
+-- IMPORTANT:
+--   * Visual-only. Does not touch farming, loot, movement, health, ESP,
+--     analytics, profiles or webhook logic.
+--   * Only the currently active theme animates.
+--   * Hidden theme layers are disabled and therefore do not render.
+--   * All effects are rebuilt idempotently if a theme layer is ever destroyed.
+--   * Width comes from logical windowWidth, not AbsoluteSize, avoiding the
+--     UIScale/resize race that previously caused some theme effects to drift.
+-- ============================================================================
+do
+    local FX = {themes={}, active=nil, lastTheme=nil, connection=nil, booted=false}
+    local function c(r,g,b) return Color3.fromRGB(r,g,b) end
+    local function mkCircle(parent,name,size,color,z,transparency)
+        local f=frame(parent,name,0,0,size,size,color,math.floor(size*.5))
+        f.AnchorPoint=Vector2.new(.5,.5); f.BackgroundTransparency=transparency or 1; f.ZIndex=z or 1
+        local s=stroke(f,color,.65,1); s.Transparency=transparency or 1
+        return {o=f,s=s,size=size,color=color}
+    end
+    local function mkBar(parent,name,w,h,color,z,transparency)
+        local f=frame(parent,name,0,0,w,h,color,math.max(1,math.floor(h*.5)))
+        f.AnchorPoint=Vector2.new(.5,.5); f.BackgroundTransparency=transparency or 0; f.ZIndex=z or 1
+        return f
+    end
+    local function mkLayer(hero,name,z,h)
+        local g=frame(hero,name,0,0,W,h,Color3.new(1,1,1),0)
+        g.BackgroundTransparency=1; g.ZIndex=z; g.Active=false; g.ClipsDescendants=false
+        return g
+    end
+    local function hide(t)
+        if t and t.layer then t.layer.Visible=false end
+    end
+    local function show(t)
+        if not t or not t.layer then return end
+        t.layer.Visible=not State.minimized and t.hero and t.hero.Visible==true
+    end
+    local function ringSegments(parent,prefix,count,radiusX,radiusY,color,z,thickness)
+        local out={}
+        for i=1,count do
+            local seg=mkBar(parent,prefix..i,math.max(4,radiusX*0.16),thickness,color,z,1)
+            out[i]={o=seg,a=((i-1)/count)*math.pi*2,rx=radiusX,ry=radiusY,base=math.max(4,radiusX*0.16)}
+        end
+        return out
+    end
+    local function pointSet(parent,prefix,count,color,z,size)
+        local out={}
+        for i=1,count do
+            local q=(i-1)/(count-1)
+            local d=mkBar(parent,prefix..i,size+(i%7==0 and 2 or 0),size+(i%7==0 and 2 or 0),color,z,1)
+            out[i]={o=d,phase=q*math.pi*2,index=i}
+        end
+        return out
+    end
+    local function placeRing(r,cx,cy,rotation,sx,sy)
+        sx=sx or 1; sy=sy or 1
+        local maxN=#r
+        for i=1,maxN do
+            local q=r[i]
+            local a=q.a+rotation
+            local x=cx+math.cos(a)*q.rx*sx
+            local y=cy+math.sin(a)*q.ry*sy
+            local tangent=math.deg(a+math.pi*.5)
+            q.o.Position=UDim2.fromOffset(math.floor(x),math.floor(y))
+            q.o.Rotation=tangent
+            local baseLen=q.base or q.o.Size.X.Offset
+            q.o.Size=UDim2.fromOffset(math.max(2,math.floor(baseLen*sx)),q.o.Size.Y.Offset)
+        end
+    end
+    local function invalidate(t)
+        t.generation=(t.generation or 0)+1
+    end
+
+    -- ------------------------------------------------------------------------
+    -- VOID NEXUS: gravitational lens / spiral singularity.
+    -- ------------------------------------------------------------------------
+    local function buildNexus()
+        local hero=voidFX
+        if not hero or not hero.Parent then return nil end
+        local t={name="Default",hero=hero,height=H,centerY=H*.49}
+        t.layer=mkLayer(hero,"AbsurdVoidNexusFX",5,H)
+        t.lens=ringSegments(t.layer,"GravityArc_",30,48,25,c(167,93,255),12,2)
+        t.innerLens=ringSegments(t.layer,"PhotonArc_",24,27,15,c(239,79,208),13,2)
+        t.orbits=ringSegments(t.layer,"QuantumOrbit_",18,93,38,c(47,184,255),9,1)
+        t.stars=pointSet(t.layer,"Graviton_",52,c(235,231,250),10,2)
+        t.warp=pointSet(t.layer,"WarpNode_",18,c(168,85,247),7,2)
+        t.beams={}
+        for i=1,14 do
+            local b=mkBar(t.layer,"VoidRay"..i,34+(i%4)*12,1,c(122,63,242),8,1)
+            t.beams[i]={o=b,a=(i/14)*math.pi*2,phase=i*.71,len=34+(i%4)*12}
+        end
+        t.pulse=mkCircle(t.layer,"NexusPulse",80,c(201,182,255),15,1)
+        t.singularity=mkCircle(t.layer,"SingularityBloom",70,c(76,20,140),16,1)
+        t.event=mkCircle(t.layer,"EventHorizonOverdrive",44,c(0,0,0),17,.02)
+        t.singularity.s.Transparency=.8; t.pulse.s.Transparency=.92
+        return t
+    end
+    local function animateNexus(t,now,w)
+        local cx,cy=w*.5,t.centerY
+        local slow=now*.38; local fast=-now*1.17
+        placeRing(t.lens,cx,cy,slow)
+        placeRing(t.innerLens,cx,cy,fast)
+        placeRing(t.orbits,cx,cy,now*.16)
+        for i,p in ipairs(t.stars) do
+            local a=p.phase+now*(.12+(i%9)*.018)
+            local radial=62+((i*17)%110)
+            local well=1+math.sin(now*.9+i*.7)*.11
+            local x=cx+math.cos(a)*radial*well
+            local y=cy+math.sin(a)*radial*.42*well
+            p.o.Position=UDim2.fromOffset(math.floor(x),math.floor(y))
+            local q=(math.sin(now*(1.8+(i%5)*.24)+i)+1)*.5
+            p.o.BackgroundTransparency=.92-q*.84
+            local s=2+(i%6==0 and q*2 or q)
+            p.o.Size=UDim2.fromOffset(s,s)
+        end
+        for i,p in ipairs(t.warp) do
+            local a=p.phase-now*(.42+(i%4)*.07)
+            local rr=42+((i*13)%74)
+            p.o.Position=UDim2.fromOffset(math.floor(cx+math.cos(a)*rr),math.floor(cy+math.sin(a)*rr*.5))
+            local q=(math.sin(now*2.6+i*.5)+1)*.5
+            p.o.BackgroundTransparency=.96-q*.82
+        end
+        for _,b in ipairs(t.beams) do
+            b.o.Position=UDim2.fromOffset(cx,cy); b.o.Rotation=math.deg(b.a+math.sin(now*.7+b.phase)*.22)
+            local q=(math.sin(now*2.1+b.phase)+1)*.5
+            b.o.BackgroundTransparency=.98-q*.86; b.o.Size=UDim2.fromOffset(math.floor(b.len*(.75+q*.5)),1)
+        end
+        local pulse=(math.sin(now*1.45)+1)*.5
+        t.pulse.o.Position=UDim2.fromOffset(cx,cy); t.pulse.o.Size=UDim2.fromOffset(82+pulse*76,82+pulse*76); t.pulse.s.Transparency=.95-pulse*.72
+        t.singularity.o.Position=UDim2.fromOffset(cx,cy); t.singularity.o.Size=UDim2.fromOffset(58+pulse*30,58+pulse*30); t.singularity.o.BackgroundTransparency=.94-pulse*.22
+        t.event.o.Position=UDim2.fromOffset(cx+math.sin(now*.4)*2,cy+math.cos(now*.5)*2)
+        t.event.o.Size=UDim2.fromOffset(42+pulse*8,42+pulse*8)
+    end
+
+    -- ------------------------------------------------------------------------
+    -- BLACKHOLE: Keplerian accretion disk / photon capture.
+    -- ------------------------------------------------------------------------
+    local function buildBlackhole()
+        local hero=BH.hero
+        if not hero or not hero.Parent then return nil end
+        local t={name="Blackhole",hero=hero,height=152,centerY=76}
+        t.layer=mkLayer(hero,"AbsurdBlackholeFX",11,152)
+        t.diskA=ringSegments(t.layer,"AccretionA_",36,72,23,c(238,241,251),15,2)
+        t.diskB=ringSegments(t.layer,"AccretionB_",30,95,31,c(122,63,242),14,2)
+        t.diskC=ringSegments(t.layer,"PhotonShear_",24,48,13,c(196,176,240),16,1)
+        t.fragments=pointSet(t.layer,"MatterFragment_",58,c(205,195,235),17,2)
+        t.spokes={}
+        for i=1,20 do
+            local b=mkBar(t.layer,"GravitySpoke"..i,38+(i%5)*10,1,i%3==0 and c(122,63,242) or c(238,241,251),12,1)
+            t.spokes[i]={o=b,a=i/20*math.pi*2,phase=i*.37}
+        end
+        t.lens1=mkCircle(t.layer,"PhotonLens",112,c(238,241,251),13,1)
+        t.lens2=mkCircle(t.layer,"PhotonLensPurple",86,c(122,63,242),14,1)
+        t.wakes=ringSegments(t.layer,"PhotonWake_",28,62,10,c(196,176,240),17,1)
+        t.capture=ringSegments(t.layer,"CaptureArc_",22,38,7,c(238,241,251),18,1)
+        t.hole=mkCircle(t.layer,"AbsorbtionCore",58,c(0,0,0),20,.01)
+        t.flash=mkCircle(t.layer,"SingularityFlash",38,c(238,241,251),21,1)
+        -- Hide the old Blackhole effect stack while preserving its background.
+        -- The dedicated layer below is now the only moving effect system.
+        local legacy={BH.stars,BH.backA,BH.backB,BH.front,BH.coreGlow,BH.core,BH.horizonSilver,
+            BH.horizonPurple,BH.scan}
+        for _,obj in ipairs(legacy) do
+            if type(obj)=="table" then
+                for _,entry in ipairs(obj) do
+                    if type(entry)=="table" and entry.object then pcall(function() entry.object.Visible=false end) end
+                end
+            elseif obj and obj.Parent then
+                obj.Visible=false
+            end
+        end
+        return t
+    end
+    local function animateBlackhole(t,now,w)
+        local cx,cy=w*.5,76
+        local sx=math.max(1,math.min(w/420,1.9))
+        local sy=math.min(sx,1.12)
+        placeRing(t.diskA,cx,cy,now*1.12,sx,sy)
+        placeRing(t.diskB,cx,cy,-now*.63,sx,sy)
+        placeRing(t.diskC,cx,cy,now*1.74,sx,sy)
+        placeRing(t.wakes,cx,cy,-now*1.46,sx,sy)
+        placeRing(t.capture,cx,cy,now*2.15,sx,sy)
+        for i,p in ipairs(t.fragments) do
+            local r=(38+((i*19)%74))*math.max(1.0,math.min(sx*1.08,1.85))
+            local a=p.phase+now*(1.05+((i%7)*.08))
+            local squish=0.32+((i%5)*.025)
+            p.o.Position=UDim2.fromOffset(math.floor(cx+math.cos(a)*r),math.floor(cy+math.sin(a)*r*squish*sy))
+            local q=(math.sin(now*3.2+i*.73)+1)*.5
+            p.o.BackgroundTransparency=.94-q*.88
+            p.o.Rotation=math.deg(a+math.pi*.5)
+            local s=2+(i%9==0 and q*2 or 0)
+            p.o.Size=UDim2.fromOffset(s,s)
+        end
+        for i,s in ipairs(t.spokes) do
+            local a=s.a+math.sin(now*.8+s.phase)*.10
+            s.o.Position=UDim2.fromOffset(cx,cy); s.o.Rotation=math.deg(a)
+            local q=(math.sin(now*2.8+s.phase)+1)*.5
+            s.o.BackgroundTransparency=.985-q*.85
+            s.o.Size=UDim2.fromOffset(34+q*46+(i%4)*9,1)
+        end
+        local inhale=(math.sin(now*1.35)+1)*.5
+        local lensScale=math.min(sx,1.42)
+        t.lens1.o.Position=UDim2.fromOffset(cx,cy); t.lens1.o.Size=UDim2.fromOffset((102+inhale*18)*lensScale,(102+inhale*18)*lensScale); t.lens1.s.Transparency=.92-inhale*.65
+        t.lens2.o.Position=UDim2.fromOffset(cx,cy); t.lens2.o.Size=UDim2.fromOffset((78+inhale*15)*lensScale,(78+inhale*15)*lensScale); t.lens2.s.Transparency=.86-inhale*.56
+        t.hole.o.Position=UDim2.fromOffset(cx,cy)
+        t.hole.o.Size=UDim2.fromOffset((54-inhale*5)*lensScale,(54-inhale*5)*lensScale)
+        local wakePulse=(math.sin(now*3.7)+1)*.5
+        for _,r in ipairs(t.wakes) do r.o.BackgroundTransparency=.88-wakePulse*.42 end
+        for _,r in ipairs(t.capture) do r.o.BackgroundTransparency=.92-((math.sin(now*6.1+r.a*3)+1)*.5)*.58 end
+        -- Suppress the separate white beating flash; the accretion/photon field is
+        -- the only bright focal system around the black hole.
+        t.flash.o.Visible=false
+        t.flash.s.Transparency=1
+    end
+
+    -- ------------------------------------------------------------------------
+    -- EMPYREAN: celestial choir / radiant heaven.
+    -- ------------------------------------------------------------------------
+    local function buildEmpyrean()
+        local hero=EMP.hero
+        if not hero or not hero.Parent then return nil end
+        local t={name="Empyrean",hero=hero,height=160,centerY=78}
+        t.layer=mkLayer(hero,"AbsurdEmpyreanFX",12,160)
+        t.halo=ringSegments(t.layer,"SanctifiedHalo_",34,85,26,c(217,169,78),16,2)
+        t.innerHalo=ringSegments(t.layer,"GraceHalo_",28,54,17,c(255,243,200),17,2)
+        t.motes=pointSet(t.layer,"CelestialMote_",60,c(255,243,200),15,2)
+        t.rays={}
+        for i=1,22 do
+            local b=mkBar(t.layer,"GodRay"..i,50+(i%6)*10,2,c(255,243,200),13,1)
+            t.rays[i]={o=b,a=(i/22)*math.pi*2,phase=i*.53,len=50+(i%6)*10}
+        end
+        t.left={}; t.right={}
+        for i=1,9 do
+            local f1=mkBar(t.layer,"LeftFeather"..i,40+(i%4)*10,1.5,c(255,253,247),18,.25)
+            local f2=mkBar(t.layer,"RightFeather"..i,40+(i%4)*10,1.5,c(217,169,78),18,.25)
+            t.left[i]={o=f1,slot=i}; t.right[i]={o=f2,slot=i}
+        end
+        t.aura=mkCircle(t.layer,"DivineAura",96,c(255,224,150),19,1)
+        t.sun=mkCircle(t.layer,"CelestialSun",54,c(255,243,200),20,.40)
+        t.spark=mkCircle(t.layer,"AscensionPulse",62,c(255,253,247),21,1)
+        return t
+    end
+    local function animateEmpyrean(t,now,w)
+        local cx,cy=w*.5,78
+        placeRing(t.halo,cx,cy,now*.22); placeRing(t.innerHalo,cx,cy,-now*.11)
+        for i,p in ipairs(t.motes) do
+            local a=p.phase+now*(.14+(i%8)*.025)
+            local rr=32+((i*23)%96)
+            local lift=math.sin(now*.45+i*.31)*8
+            p.o.Position=UDim2.fromOffset(math.floor(cx+math.cos(a)*rr),math.floor(cy+math.sin(a)*rr*.38+lift))
+            local q=(math.sin(now*1.6+i*.47)+1)*.5
+            p.o.BackgroundTransparency=.95-q*.86
+            p.o.Size=UDim2.fromOffset(2+q*(i%5==0 and 3 or 1),2+q*(i%5==0 and 3 or 1))
+        end
+        for _,r in ipairs(t.rays) do
+            r.o.Position=UDim2.fromOffset(cx,cy); r.o.Rotation=math.deg(r.a+now*.07+math.sin(now*.9+r.phase)*.08)
+            local q=(math.sin(now*1.4+r.phase)+1)*.5
+            r.o.BackgroundTransparency=.97-q*.64
+            r.o.Size=UDim2.fromOffset(r.len*(.8+q*.35),2)
+        end
+        local wingBeat=math.sin(now*1.05)
+        for i,f in ipairs(t.left) do
+            local a=math.rad(-18-i*4)+wingBeat*.055
+            f.o.Position=UDim2.fromOffset(cx-16-i*5,cy+10+i*2+math.sin(now*.7+i)*2); f.o.Rotation=math.deg(a); f.o.BackgroundTransparency=.22+((i%3)*.08)+((1-wingBeat)*.07)
+        end
+        for i,f in ipairs(t.right) do
+            local a=math.rad(18+i*4)-wingBeat*.055
+            f.o.Position=UDim2.fromOffset(cx+16+i*5,cy+10+i*2+math.sin(now*.7+i+.5)*2); f.o.Rotation=math.deg(a); f.o.BackgroundTransparency=.22+((i%3)*.08)+((1-wingBeat)*.07)
+        end
+        local breath=(math.sin(now*1.2)+1)*.5
+        t.aura.o.Position=UDim2.fromOffset(cx,cy); t.aura.o.Size=UDim2.fromOffset(100+breath*45,100+breath*45); t.aura.s.Transparency=.93-breath*.56
+        t.sun.o.Position=UDim2.fromOffset(cx,cy); t.sun.o.Size=UDim2.fromOffset(52+breath*12,52+breath*12); t.sun.o.BackgroundTransparency=.55-breath*.24
+        local pulse=(math.sin(now*2.4)+1)*.5
+        t.spark.o.Position=UDim2.fromOffset(cx,cy); t.spark.o.Size=UDim2.fromOffset(54+pulse*60,54+pulse*60); t.spark.s.Transparency=.96-pulse*.70
+    end
+
+    -- ------------------------------------------------------------------------
+    -- PANDEMONIUM: rift reactor / fracture storm.
+    -- ------------------------------------------------------------------------
+    local function buildPandemonium()
+        local hero=PND.hero
+        if not hero or not hero.Parent then return nil end
+        local t={name="Pandemonium",hero=hero,height=152,centerY=76}
+        t.layer=mkLayer(hero,"AbsurdPandemoniumFX",12,152)
+        t.riftA=ringSegments(t.layer,"RiftRingA_",26,42,16,c(200,30,44),15,2)
+        t.riftB=ringSegments(t.layer,"RiftRingB_",22,78,28,c(255,111,54),14,2)
+        t.riftC=ringSegments(t.layer,"HellRing_",18,108,36,c(92,12,20),13,2)
+        t.shards={}; t.embers=pointSet(t.layer,"Ember_",56,c(255,166,82),17,2)
+        for i=1,18 do
+            local sh=mkBar(t.layer,"RiftShard"..i,18+(i%5)*7,2,c(200,30,44),18,1)
+            t.shards[i]={o=sh,a=i/18*math.pi*2,phase=i*.61,len=18+(i%5)*7}
+        end
+        t.cracks={}
+        for i=1,12 do
+            local cr=mkBar(t.layer,"FractureRay"..i,54+(i%4)*14,1,c(255,111,54),12,1)
+            t.cracks[i]={o=cr,a=i/12*math.pi*2,phase=i*.35,len=54+(i%4)*14}
+        end
+        t.shock1=mkCircle(t.layer,"RiftShockA",72,c(200,30,44),19,1)
+        t.shock2=mkCircle(t.layer,"RiftShockB",54,c(255,111,54),20,1)
+        t.core=mkCircle(t.layer,"RiftHeart",46,c(3,0,0),21,.05)
+        t.eye=mkCircle(t.layer,"InfernalEye",22,c(255,242,192),22,.12)
+        return t
+    end
+    local function animatePandemonium(t,now,w)
+        local cx,cy=w*.5,76
+        placeRing(t.riftA,cx,cy,now*.91); placeRing(t.riftB,cx,cy,-now*.57); placeRing(t.riftC,cx,cy,now*.31)
+        for i,p in ipairs(t.embers) do
+            local seed=i*.77
+            local a=p.phase+now*(.25+(i%6)*.08)
+            local rr=34+((i*17)%93)
+            local jet=math.sin(now*1.1+seed)*7
+            p.o.Position=UDim2.fromOffset(math.floor(cx+math.cos(a)*rr+jet),math.floor(cy+math.sin(a)*rr*.45))
+            local q=(math.sin(now*(2.4+(i%4)*.3)+seed)+1)*.5
+            p.o.BackgroundTransparency=.96-q*.88
+            p.o.Size=UDim2.fromOffset(2+q*(i%8==0 and 3 or 1),2+q*(i%8==0 and 3 or 1))
+        end
+        for i,s in ipairs(t.shards) do
+            local a=s.a+math.sin(now*1.4+s.phase)*.14+now*.15
+            local rr=34+((i*9)%70)
+            s.o.Position=UDim2.fromOffset(math.floor(cx+math.cos(a)*rr),math.floor(cy+math.sin(a)*rr*.48)); s.o.Rotation=math.deg(a+math.pi*.5)
+            local q=(math.sin(now*3.4+s.phase)+1)*.5
+            s.o.BackgroundTransparency=.97-q*.86; s.o.Size=UDim2.fromOffset(s.len*(.72+q*.5),2)
+        end
+        for _,r in ipairs(t.cracks) do
+            r.o.Position=UDim2.fromOffset(cx,cy); r.o.Rotation=math.deg(r.a+math.sin(now*.9+r.phase)*.32)
+            local q=(math.sin(now*4.1+r.phase)+1)*.5
+            r.o.BackgroundTransparency=.985-q*.94; r.o.Size=UDim2.fromOffset(r.len*(.65+q*.6),1)
+        end
+        local surge=(math.sin(now*1.8)+1)*.5
+        t.shock1.o.Position=UDim2.fromOffset(cx,cy); t.shock1.o.Size=UDim2.fromOffset(66+surge*92,66+surge*92); t.shock1.s.Transparency=.98-surge*.78
+        local surge2=(math.sin(now*3.7+1.1)+1)*.5
+        t.shock2.o.Position=UDim2.fromOffset(cx,cy); t.shock2.o.Size=UDim2.fromOffset(42+surge2*74,42+surge2*74); t.shock2.s.Transparency=.97-surge2*.76
+        t.core.o.Position=UDim2.fromOffset(cx+math.sin(now*1.9)*2,cy+math.cos(now*2.1)*2); t.core.o.Size=UDim2.fromOffset(44+surge*8,44+surge*8)
+        local blink=(math.sin(now*6.8)+1)*.5
+        t.eye.o.Position=UDim2.fromOffset(cx,cy); t.eye.o.Size=UDim2.fromOffset(18+blink*8,18+blink*8); t.eye.o.BackgroundTransparency=.16-blink*.08
+    end
+
+    -- ------------------------------------------------------------------------
+    -- CIRCUIT STORM: electrical lattice / live current routing.
+    -- ------------------------------------------------------------------------
+    local function buildCircuit()
+        local hero=CS.hero
+        if not hero or not hero.Parent then return nil end
+        local t={name="Circuit Storm",hero=hero,height=152,centerY=76}
+        t.layer=mkLayer(hero,"AbsurdCircuitStormFX",14,152)
+        t.ringA=ringSegments(t.layer,"VoltageLoopA_",30,58,23,c(47,184,255),16,2)
+        t.ringB=ringSegments(t.layer,"VoltageLoopB_",24,90,32,c(234,246,255),15,1)
+        t.ringC=ringSegments(t.layer,"VoltageLoopC_",18,112,40,c(21,74,138),14,1)
+        t.nodes={}; t.pulses={}; t.traces={}; t.bolts={}
+        for i=1,22 do
+            local n=mkBar(t.layer,"CircuitNode"..i,(i%6==0) and 5 or 3,(i%6==0) and 5 or 3,i%2==0 and c(234,246,255) or c(47,184,255),19,1)
+            t.nodes[i]={o=n,a=i/22*math.pi*2,phase=i*.41,rr=48+(i%5)*15}
+        end
+        for i=1,18 do
+            local p=mkBar(t.layer,"CurrentPulse"..i,3,3,c(234,246,255),20,1)
+            t.pulses[i]={o=p,line=i%6,phase=i*.37}
+        end
+        for i=1,12 do
+            local baseX=((i-1)%6)*42+12; local baseY=20+math.floor((i-1)/6)*38
+            local h=mkBar(t.layer,"TraceH"..i,62,1,c(21,74,138),12,.35)
+            local v=mkBar(t.layer,"TraceV"..i,1,38,c(47,184,255),12,.35)
+            h.Position=UDim2.fromOffset(baseX+31,baseY); v.Position=UDim2.fromOffset(baseX,baseY+19)
+            t.traces[#t.traces+1]={h=h,v=v,bx=baseX,by=baseY,phase=i*.53}
+        end
+        local boltPatterns={{-1,-.5},{1,-.42},{-1,.12},{1,.35},{-1,.68},{1,.82},{-1,.97}}
+        for i,p in ipairs(boltPatterns) do
+            local b1=mkBar(t.layer,"StormBoltA"..i,28,2,c(47,184,255),18,1)
+            local b2=mkBar(t.layer,"StormBoltB"..i,20,1,c(234,246,255),19,1)
+            t.bolts[i]={a=i*.8,phase=p[2],dir=p[1],b1=b1,b2=b2}
+        end
+        t.surge=mkCircle(t.layer,"VoltageSurge",70,c(234,246,255),21,1)
+        t.relay=ringSegments(t.layer,"RelayArc_",26,72,18,c(47,184,255),22,1)
+        t.breaker=ringSegments(t.layer,"BreakerArc_",18,44,11,c(234,246,255),23,1)
+        t.core=mkCircle(t.layer,"OverchargedCore",48,c(47,184,255),24,.15)
+        t.arc=mkCircle(t.layer,"ArcShield",84,c(234,246,255),25,1)
+        return t
+    end
+    local function animateCircuit(t,now,w)
+        local cx,cy=w*.5,76
+        -- The entire Circuit Storm field scales from logical width. Every ring,
+        -- particle, circuit trace and voltage bolt uses this same transform.
+        local sx=math.max(1,math.min(w/420,2.15))
+        local sy=math.max(1,math.min(sx,1.08))
+        placeRing(t.ringA,cx,cy,now*.73,sx,sy); placeRing(t.ringB,cx,cy,-now*1.04,sx,sy); placeRing(t.ringC,cx,cy,now*.21,sx,sy)
+        placeRing(t.relay,cx,cy,-now*1.38,sx,sy); placeRing(t.breaker,cx,cy,now*2.05,sx,sy)
+        for i,n in ipairs(t.nodes) do
+            local a=n.a+now*(.10+((i%4)*.022)); local rr=(n.rr+math.sin(now*1.6+n.phase)*3)*sx
+            n.o.Position=UDim2.fromOffset(math.floor(cx+math.cos(a)*rr),math.floor(cy+math.sin(a)*rr*.45*sy))
+            local q=(math.sin(now*4.2+n.phase)+1)*.5
+            local ns=((i%6==0) and (5+q*2) or (2+q*2))*math.min(sx,1.55)
+            n.o.BackgroundTransparency=.94-q*.88; n.o.Size=UDim2.fromOffset(ns,ns)
+        end
+        for i,p in ipairs(t.pulses) do
+            local lane=i%6; local phase=(now*1.6+p.phase)%1
+            local x=(((lane)*58+20)-210)*sx+cx; local y=cy+((19+math.floor((i-1)/6)*20)-76)*sy
+            if i%2==0 then p.o.Position=UDim2.fromOffset(math.floor(x),math.floor(y)) else p.o.Position=UDim2.fromOffset(math.floor(cx+((20+lane*58)-210)*sx),math.floor(cy+((19+phase*34)-76)*sy)) end
+            local q=(math.sin(now*5+p.phase)+1)*.5
+            local ps=3*math.min(sx,1.45)
+            p.o.Size=UDim2.fromOffset(ps,ps)
+            p.o.BackgroundTransparency=.98-q*.9
+        end
+        for _,r in ipairs(t.traces) do
+            local q=(math.sin(now*2.5+r.phase)+1)*.5
+            r.h.BackgroundTransparency=.55-q*.25; r.v.BackgroundTransparency=.55-q*.25
+            local shift=math.sin(now*.6+r.phase)*3
+            local hx=cx+((r.bx+31)-210)*sx+shift*sx
+            local vy=cy+(r.by-76)*sy
+            local vx=cx+(r.bx-210)*sx
+            local hy=cy+(r.by+19-76)*sy+shift*sy
+            r.h.Position=UDim2.fromOffset(math.floor(hx),math.floor(vy)); r.v.Position=UDim2.fromOffset(math.floor(vx),math.floor(hy))
+            r.h.Size=UDim2.fromOffset(math.floor(62*sx),1); r.v.Size=UDim2.fromOffset(1,math.floor(38*sy))
+        end
+        for _,b in ipairs(t.bolts) do
+            local q=(math.sin(now*4.7+b.phase)+1)*.5
+            b.b1.Position=UDim2.fromOffset(math.floor(cx+b.dir*(34+math.sin(now*1.3+b.phase)*8)*sx),math.floor(cy+math.sin(now*.9+b.phase)*28*sy))
+            b.b1.Rotation=math.deg(b.a+math.sin(now*8+b.phase)*.25); b.b1.Size=UDim2.fromOffset(math.floor(28*sx),2); b.b1.BackgroundTransparency=.98-q*.93
+            b.b2.Position=UDim2.fromOffset(math.floor(cx+b.dir*(28+math.cos(now*1.8+b.phase)*12)*sx),math.floor(cy+math.cos(now*1.1+b.phase)*31*sy)); b.b2.Rotation=math.deg(b.a-.18)
+            b.b2.Size=UDim2.fromOffset(math.floor(20*sx),1); b.b2.BackgroundTransparency=.98-q*.96
+        end
+        local surge=(math.sin(now*2.2)+1)*.5
+        local radialScale=math.min(sx,1.55)
+        t.surge.o.Position=UDim2.fromOffset(cx,cy); t.surge.o.Size=UDim2.fromOffset((70+surge*85)*radialScale,(70+surge*85)*radialScale); t.surge.s.Transparency=.96-surge*.76
+        t.core.o.Position=UDim2.fromOffset(cx+math.sin(now*3.1)*2*radialScale,cy+math.cos(now*2.7)*2*sy); t.core.o.Size=UDim2.fromOffset((42+surge*10)*radialScale,(42+surge*10)*radialScale); t.core.o.BackgroundTransparency=.22-surge*.12
+        t.arc.o.Position=UDim2.fromOffset(cx,cy); t.arc.o.Size=UDim2.fromOffset((76+surge*18)*radialScale,(76+surge*18)*radialScale); t.arc.o.Rotation=now*31; t.arc.s.Transparency=.92-surge*.58
+        for _,r in ipairs(t.relay) do r.o.BackgroundTransparency=.91-((math.sin(now*5.3+r.a*2)+1)*.5)*.54 end
+        for _,r in ipairs(t.breaker) do r.o.BackgroundTransparency=.94-((math.sin(now*7.1+r.a*3)+1)*.5)*.62 end
+    end
+
+    FX.themes.Default={build=buildNexus,animate=animateNexus}
+    FX.themes.Blackhole={build=buildBlackhole,animate=animateBlackhole}
+    FX.themes.Empyrean={build=buildEmpyrean,animate=animateEmpyrean}
+    FX.themes.Pandemonium={build=buildPandemonium,animate=animatePandemonium}
+    FX.themes["Circuit Storm"]={build=buildCircuit,animate=animateCircuit}
+
+    local function ensureTheme(name)
+        local desc=FX.themes[name] or FX.themes.Default
+        local current=desc.runtime
+        if not current or not current.layer or not current.layer.Parent then
+            current=desc.build()
+            desc.runtime=current
+        end
+        return current
+    end
+    local function hardHideOthers(activeName)
+        for name,desc in pairs(FX.themes) do
+            if name~=activeName and desc.runtime then hide(desc.runtime) end
+        end
+    end
+    local function activateBaseHero(name)
+        if State.minimized then return end
+        -- The theme-specific hero is deliberately reasserted here after the
+        -- older visual restylers have finished. This closes the switch race
+        -- where a previous theme could leave the new hero hidden.
+        pcall(function()
+            if name=="Default" then
+                voidFX.Visible=true
+            elseif name=="Blackhole" then
+                BH.hero.Visible=true
+                local legacy={BH.stars,BH.backA,BH.backB,BH.front,BH.coreGlow,BH.core,BH.horizonSilver,BH.horizonPurple,BH.scan}
+                for _,obj in ipairs(legacy) do
+                    if type(obj)=="table" then
+                        for _,entry in ipairs(obj) do
+                            if type(entry)=="table" and entry.object then pcall(function() entry.object.Visible=false end) end
+                        end
+                    elseif obj and obj.Parent then
+                        obj.Visible=false
+                    end
+                end
+            elseif name=="Empyrean" then
+                EMP.hero.Visible=true
+                if EMP.ensureVisuals then task.defer(function() if State.alive and System.theme=="Empyrean" then pcall(EMP.ensureVisuals) end end) end
+            elseif name=="Pandemonium" then
+                PND.hero.Visible=true
+                if PND.ensureVisuals then task.defer(function() if State.alive and System.theme=="Pandemonium" then pcall(PND.ensureVisuals) end end) end
+            elseif name=="Circuit Storm" then
+                CS.hero.Visible=true
+                if CS.setFXEngineMode then pcall(function() CS.setFXEngineMode(true) end) end
+                if CS.ensureVisuals then task.defer(function() if State.alive and System.theme=="Circuit Storm" then pcall(CS.ensureVisuals) end end) end
+            end
+        end)
+    end
+    local function animateActive(name,now,w)
+        local desc=FX.themes[name] or FX.themes.Default
+        local t=ensureTheme(name)
+        if not t then return end
+        activateBaseHero(name)
+        show(t); hardHideOthers(desc.name or name)
+        if not t.layer.Visible then return end
+        pcall(function() desc.animate(t,now,w) end)
+        local custom = __ctx.getCustomTheme and __ctx.getCustomTheme()
+        if custom and custom.active then
+            pcall(function() custom.decorateFX(t,now,w) end)
+        end
+    end
+
+    FX.connection=connect(RunService.RenderStepped,function()
+        if not State.alive then return end
+        local name=System.theme
+        if not FX.themes[name] then name="Default" end
+        local switched=FX.lastTheme~=name
+        if switched then
+            FX.lastTheme=name
+            local t=ensureTheme(name)
+            if t and t.layer then t.layer.Visible=not State.minimized end
+            activateBaseHero(name)
+            -- Two-frame rebind catches theme systems that schedule their own
+            -- visibility changes after Theme.apply returns.
+            task.defer(function()
+                if State.alive and System.theme==name and not State.minimized then
+                    activateBaseHero(name)
+                    local tt=ensureTheme(name)
+                    if tt and tt.layer then tt.layer.Visible=true end
+                end
+            end)
+        end
+        local __ww = (getWindowWidth and getWindowWidth()) or W
+        local w=math.max(MIN_WINDOW_WIDTH or W,math.floor((__ww or W)+.5))
+        local now = os.clock()
+        local custom = __ctx.getCustomTheme and __ctx.getCustomTheme()
+        if custom and custom.active then now = custom.clock(now) end
+        animateActive(name,now,w)
+    end)
+    FX.booted=true
+end
+
+
+]=]
+
+    local __fxChunk, __fxErr = loadstring(__fxSource)
+    if not __fxChunk then
+        warn("[Void Automation] theme effect engine compile failed: " .. tostring(__fxErr))
+    else
+        local __fxOK, __fxRuntimeErr = pcall(__fxChunk)
+        if not __fxOK then
+            warn("[Void Automation] theme effect engine runtime failed: " .. tostring(__fxRuntimeErr))
+        end
+    end
+end
+
+-- Custom Theme Studio owns its own compiler chunk and cosmetic state.
+-- Construction failures leave the native UI, themes and automation available.
+do
+    local __studioSource = [==[
+-- Custom Theme Studio: cosmetic-only, independently compiled and optional.
+return function(ctx)
+    local State, System, Theme, UI = ctx.State, ctx.System, ctx.Theme, ctx.UI
+    local env, input, http = ctx.environment, ctx.Input, ctx.HttpService
+    local CT = {active=false, editing=false, stopped=false, switching=false, revision=0,
+        presets={}, records={}, effects={}, generation=0, pending=false}
+    local BASES = {"Default", "Blackhole", "Empyrean", "Pandemonium", "Circuit Storm"}
+    local STYLES = {"Original", "None", "Embers", "Stars", "Lightning"}
+    local COLOR_KEYS = {"background", "surface", "buttons", "text", "accent", "secondary"}
+    local FILE, SESSION = "AutoSkills_CustomThemes_v1.json", "__VoidCustomThemes_v1"
+    local PREFIX, MAX_PRESETS = "VOIDTHEME1:", 32
+    local copy
+    copy = function(v)
+        if type(v) ~= "table" then return v end
+        local result = {}
+        for k, value in pairs(v) do result[k] = copy(value) end
+        return result
+    end
+    local function trim(s) return s:match("^%s*(.-)%s*$") end
+    local function validName(s)
+        return type(s)=="string" and #s>=1 and #s<=32 and trim(s)==s
+            and s:match("^[%w _%-]+$")~=nil
+    end
+    local function hex(c)
+        return string.format("#%02X%02X%02X", math.floor(c.R*255+.5), math.floor(c.G*255+.5), math.floor(c.B*255+.5))
+    end
+    local function color(s)
+        return Color3.fromRGB(tonumber(s:sub(2,3),16), tonumber(s:sub(4,5),16), tonumber(s:sub(6,7),16))
+    end
+    local function defaults(base)
+        base = table.find(BASES,base) and base or "Default"
+        local p = Theme[base]
+        return {schema=1, name="My Theme", enabled=false, base=base, glow=1, opacity=1,
+            speed=1, density=1, particles="Original", colors={background=hex(p.panel),
+                surface=hex(p.panel2), buttons=hex(p.surface), text=hex(p.ink),
+                accent=hex(p.accent), secondary=hex(p.cyan)}}
+    end
+    local function validate(value)
+        if type(value)~="table" or value.schema~=1 then return nil,"Unsupported theme format." end
+        if not validName(value.name) then return nil,"Use a name of 1-32 letters, numbers, spaces, - or _." end
+        if not table.find(BASES,value.base) then return nil,"Unknown base theme." end
+        if not table.find(STYLES,value.particles) then return nil,"Unknown particle style." end
+        if value.enabled~=nil and type(value.enabled)~="boolean" then return nil,"Invalid enabled flag." end
+        if type(value.colors)~="table" then return nil,"Missing colors." end
+        local result = {schema=1,name=value.name,base=value.base,particles=value.particles,
+            enabled=value.enabled==true, colors={}}
+        for _, key in ipairs(COLOR_KEYS) do
+            local v = value.colors[key]
+            if type(v)~="string" or not v:match("^#%x%x%x%x%x%x$") then return nil,"Invalid "..key.." color." end
+            result.colors[key] = v:upper()
+        end
+        for key, bounds in pairs({glow={0,2},opacity={.35,1},speed={0,3},density={0,1}}) do
+            local v = value[key]
+            if type(v)~="number" or v~=v or math.abs(v)==math.huge or v<bounds[1] or v>bounds[2] then
+                return nil,"Invalid "..key.." value."
+            end
+            result[key]=v
+        end
+        return result
+    end
+    local function validateStore(value)
+        if type(value)~="table" or value.schema~=1 or type(value.presets)~="table" then return nil end
+        local current = validate(value.current)
+        if not current then return nil end
+        local result, count = {schema=1,current=current,presets={}}, 0
+        for name, entry in pairs(value.presets) do
+            count+=1
+            if count>MAX_PRESETS or not validName(name) then return nil end
+            local preset = validate(entry)
+            if not preset or preset.name~=name then return nil end
+            result.presets[name]=preset
+        end
+        return result
+    end
+    CT.config = defaults(System.theme)
+    CT.storage = "Session only: file saving is unavailable."
+    local store = validateStore(env[SESSION])
+    if not store and type(System.reader)=="function" then
+        local ok, raw = pcall(System.reader,FILE)
+        if ok and type(raw)=="string" then
+            if #raw<=200000 then
+                local decoded, data = pcall(function() return http:JSONDecode(raw) end)
+                if decoded then store=validateStore(data) end
+            end
+            if not store then
+                CT.blockDisk=true
+                CT.storage="Invalid saved file preserved; changes stay in this session."
+            end
+        elseif not ok and type(System.exists)=="function" then
+            local checked,exists=pcall(System.exists,FILE)
+            if checked and exists then
+                CT.blockDisk=true
+                CT.storage="Saved file could not be read; changes stay in this session."
+            end
+        end
+    end
+    if store then CT.config, CT.presets=store.current,store.presets end
+    if not CT.blockDisk and type(System.writer)=="function" then CT.storage="Changes save automatically." end
+    local statusLabel, nameBox, codeBox, toggleButton, baseButton, particleButton, presetButton
+    local colorButtons, sliderViews = {}, {}
+    local editor, card, cardScale, preview, previewText, previewButton, previewAccent
+    local hueStrip, hexBox
+    -- Selection and HSV are editor-local; preset data contains only primitive values.
+    local selection="accent"
+    local hsv={0,0,1}
+    local drag, selectedPreset
+    local function say(message)
+        CT.message=message
+        if statusLabel then statusLabel.Text=message.."\n"..CT.storage end
+    end
+    local function snapshot()
+        return {schema=1,current=copy(CT.config),presets=copy(CT.presets)}
+    end
+    local function writeSnapshot()
+        CT.pending=false
+        if CT.blockDisk or type(System.writer)~="function" then return false end
+        local ok, raw = pcall(function() return http:JSONEncode(snapshot()) end)
+        if not ok then CT.storage="Session saved; theme encoding failed."; return false end
+        local written, result = pcall(System.writer,FILE,raw)
+        if not written or result==false then CT.storage="Session saved; file write failed."; return false end
+        if type(System.reader)=="function" then
+            local readOK, stored = pcall(System.reader,FILE)
+            if not readOK or stored~=raw then CT.storage="Session saved; file backup could not be verified."; return false end
+        end
+        CT.storage="Saved to file and this session."
+        return true
+    end
+    function CT.persist(immediate)
+        if CT.stopped then return end
+        CT.sessionSnapshot=snapshot()
+        env[SESSION]=CT.sessionSnapshot
+        CT.pending=true; CT.generation+=1
+        local generation=CT.generation
+        if immediate then
+            writeSnapshot()
+        else
+            task.delay(.5,function()
+                if CT.stopped or not State.alive or generation~=CT.generation or env[SESSION]~=CT.sessionSnapshot then return end
+                writeSnapshot(); say(CT.message or "Theme updated.")
+            end)
+        end
+    end
+    local function palette()
+        local p={}
+        for _,key in ipairs(COLOR_KEYS) do p[key]=color(CT.config.colors[key]) end
+        p.muted=p.text:Lerp(p.surface,.35); p.faint=p.text:Lerp(p.surface,.55)
+        p.line=p.accent:Lerp(p.surface,.45); p.off=p.buttons:Lerp(p.background,.4)
+        p.deep=p.background:Lerp(p.surface,.35)
+        return p
+    end
+    local semantic={}
+    for _,key in ipairs({"badge","statusDot","espStatusDot","healthFill","refRunDot",
+        "webhookStatusDot","moveStatusDot","systemStatusDot"}) do
+        if UI[key] then semantic[UI[key]]=true end
+    end
+    if ctx.statusDot then semantic[ctx.statusDot]=true end
+    if ctx.CoreUI then
+        for _,key in ipairs({"safetyLabel","miniStatus","miniDot"}) do
+            if ctx.CoreUI[key] then semantic[ctx.CoreUI[key]]=true end
+        end
+    end
+    local heroSet={}
+    for _,hero in pairs(ctx.heroes) do heroSet[hero]=true end
+    local function excluded(o)
+        local n=o
+        while n and n~=ctx.root do
+            if heroSet[n] or n:GetAttribute("VoidCustomOwned") then return true end
+            n=n.Parent
+        end
+        return false
+    end
+    local function distance(a,b) return (a.R-b.R)^2+(a.G-b.G)^2+(a.B-b.B)^2 end
+    local function semanticColor(c)
+        return distance(c,ctx.C.green)<.00001 or distance(c,ctx.C.red)<.00001 or distance(c,ctx.C.amber)<.00001
+    end
+    local aliases={black="background",panel="background",deep="deep",voidDeep="deep",panel2="surface",surface="surface",
+        text="text",ink="text",dim="muted",muted="muted",faint="faint",cyan="secondary",bright="secondary",
+        accent="accent",violet2="accent",violet="line",magenta="secondary",line="line",toggleOn="accent",toggleOff="off"}
+    local function role(c,property)
+        local best, bestDistance = property=="TextColor3" and "text" or "surface", math.huge
+        for _,key in ipairs({"accent","violet2","cyan","bright","ink","text","panel","panel2","surface",
+            "black","deep","voidDeep","dim","muted","faint","violet","magenta","line","toggleOn","toggleOff"}) do
+            local target=aliases[key]
+            local base=Theme[CT.config.base][key]
+            if base then
+                local d=distance(c,base)
+                if d<bestDistance then best,bestDistance=target,d end
+            end
+        end
+        return best
+    end
+    local function addRecord(o,prop,value,target)
+        CT.records[#CT.records+1]={o=o,prop=prop,original=value,role=target}
+    end
+    function CT.capture()
+        CT.records={}
+        for _,o in ipairs(ctx.root:GetDescendants()) do
+            if not excluded(o) then
+                if o:IsA("GuiObject") then
+                    if not semantic[o] and not semanticColor(o.BackgroundColor3) then
+                        local r=(o:IsA("TextButton") or o:IsA("TextBox")) and "buttons" or role(o.BackgroundColor3,"BackgroundColor3")
+                        addRecord(o,"BackgroundColor3",o.BackgroundColor3,r)
+                        if o.BackgroundTransparency<1 and (o==ctx.panel or o==ctx.header or o==ctx.content
+                            or o:IsA("TextButton") or o:IsA("TextBox") or o.Size.Y.Offset>=40) then
+                            addRecord(o,"BackgroundTransparency",o.BackgroundTransparency,"opacity")
+                        end
+                    end
+                    if o:IsA("TextLabel") or o:IsA("TextButton") or o:IsA("TextBox") then
+                        if not semantic[o] and not semanticColor(o.TextColor3) then
+                            addRecord(o,"TextColor3",o.TextColor3,role(o.TextColor3,"TextColor3"))
+                        end
+                    elseif o:IsA("ImageLabel") or o:IsA("ImageButton") then
+                        addRecord(o,"ImageColor3",o.ImageColor3,"text")
+                    end
+                    if o:IsA("ScrollingFrame") then addRecord(o,"ScrollBarImageColor3",o.ScrollBarImageColor3,"accent") end
+                elseif o:IsA("UIStroke") then
+                    addRecord(o,"Color",o.Color,"line")
+                elseif o:IsA("UIGradient") then
+                    local roles={}
+                    for _,keypoint in ipairs(o.Color.Keypoints) do roles[#roles+1]={time=keypoint.Time,role=role(keypoint.Value,"Color")} end
+                    addRecord(o,"Color",o.Color,roles)
+                end
+            end
+        end
+    end
+    local function retarget()
+        CT.palette=palette()
+        for _,r in ipairs(CT.records) do
+            if r.role=="opacity" then r.target=1-(1-r.original)*CT.config.opacity
+            elseif type(r.role)=="table" then
+                local keys={}
+                for _,key in ipairs(r.role) do keys[#keys+1]=ColorSequenceKeypoint.new(key.time,CT.palette[key.role]) end
+                r.target=ColorSequence.new(keys)
+            else r.target=CT.palette[r.role] end
+        end
+        CT.revision+=1
+    end
+    local function restore()
+        for _,r in ipairs(CT.records) do if r.o.Parent then pcall(function() r.o[r.prop]=r.original end) end end
+        CT.records={}
+        for _,e in pairs(CT.effects) do
+            if e.overlay then e.overlay:Destroy() end
+            if e.hero and e.hero.Parent then
+                e.hero.BackgroundColor3=e.heroColor; e.hero.BackgroundTransparency=e.heroTransparency
+            end
+            for _,r in ipairs(e.records) do
+                if r.o.Parent then
+                    r.o[r.prop]=r.original
+                    if r.transparency then r.o.Transparency=r.transparency end
+                    if r.particle then r.o.Visible=r.visible end
+                end
+            end
+            for o,v in pairs(e.legacy) do if o.Parent then o.Visible=v end end
+        end
+        CT.effects={}
+    end
+    function CT.applyControls()
+        if not CT.active or CT.stopped or System.theme~=CT.config.base then return end
+        for _,r in ipairs(CT.records) do
+            if r.o.Parent and r.target~=nil and r.o[r.prop]~=r.target then r.o[r.prop]=r.target end
+        end
+        local p=CT.palette
+        for _,v in ipairs(ctx.toggleViews) do
+            v.track.BackgroundColor3=v.getter() and p.accent or p.off
+            v.knob.BackgroundColor3=v.getter() and p.secondary or p.faint
+        end
+        for _,v in ipairs(ctx.sliders) do v.fill.BackgroundColor3=p.accent; v.knob.BackgroundColor3=p.secondary end
+        for key,b in pairs(ctx.nav.buttons) do
+            b.BackgroundColor3=State.tab==key and p.accent:Lerp(p.buttons,.65) or p.buttons
+            b.TextColor3=State.tab==key and p.text or p.muted
+            if UI.navBars[key] then UI.navBars[key].BackgroundColor3=p.accent end
+        end
+        if ctx.ThemeUI.activeLabel then ctx.ThemeUI.activeLabel.Text="CUSTOM / "..CT.config.name:sub(1,18) end
+        if State.tab=="Theme" and UI.badge then UI.badge.Text="CUSTOM" end
+    end
+    local originalSetter=UI.setTheme
+    local function setBase(base)
+        CT.switching=true
+        local ok,err=pcall(originalSetter,base)
+        CT.switching=false
+        if not ok then warn("[Void Automation] custom base theme: "..tostring(err)) end
+        return ok
+    end
+    function CT.activate(enabled)
+        if CT.stopped or not State.alive then return false end
+        CT.active=false; restore()
+        if not enabled then
+            CT.config.enabled=false
+            setBase(System.theme)
+        else
+            if not setBase(CT.config.base) then CT.config.enabled=false; return false end
+            CT.capture(); retarget()
+            CT.config.enabled=true; CT.active=true
+            CT.lastTime=os.clock(); CT.visualTime=CT.lastTime
+            CT.applyControls()
+        end
+        return true
+    end
+    function CT.clock(now)
+        if not CT.active then return now end
+        local dt=math.clamp(now-(CT.lastTime or now),0,.1)
+        CT.lastTime=now; CT.visualTime=(CT.visualTime or now)+dt*CT.config.speed
+        return CT.visualTime
+    end
+    local function owned(class,parent,props)
+        local o=Instance.new(class)
+        o:SetAttribute("VoidCustomOwned",true)
+        for k,v in pairs(props or {}) do o[k]=v end
+        o.Parent=parent
+        return o
+    end
+    local function rounded(o,r) owned("UICorner",o,{CornerRadius=UDim.new(0,r or 8)}) end
+    local function effectData(t)
+        local e={records={},legacy={},particles={},overlay=nil,revision=-1,hero=t.hero,
+            heroColor=t.hero.BackgroundColor3,heroTransparency=t.hero.BackgroundTransparency}
+        for _,o in ipairs(t.layer:GetDescendants()) do
+            if not o:GetAttribute("VoidCustomOwned") then
+                if o:IsA("GuiObject") then
+                    local particle=o.Name:match("^Graviton_") or o.Name:match("^WarpNode_") or o.Name:match("^MatterFragment_")
+                        or o.Name:match("^CelestialMote_") or o.Name:match("^Ember_") or o.Name:match("^CircuitNode") or o.Name:match("^CurrentPulse")
+                    local c=o.BackgroundColor3
+                    local r={o=o,prop="BackgroundColor3",original=c,role=role(c,"Color"),particle=particle~=nil,visible=o.Visible}
+                    e.records[#e.records+1]=r
+                    if particle then e.particles[#e.particles+1]=r end
+                elseif o:IsA("UIStroke") then
+                    e.records[#e.records+1]={o=o,prop="Color",original=o.Color,role="accent",transparency=o.Transparency}
+                end
+            end
+        end
+        e.overlay=owned("Frame",t.layer,{Name="CustomParticles",Size=UDim2.fromScale(1,1),BackgroundTransparency=1,
+            BorderSizePixel=0,ZIndex=28,ClipsDescendants=true,Active=false})
+        e.pool={}
+        for i=1,24 do
+            local dot=owned("Frame",e.overlay,{Name="Particle"..i,AnchorPoint=Vector2.new(.5,.5),Size=UDim2.fromOffset(3,3),
+                BackgroundTransparency=1,BorderSizePixel=0,ZIndex=29,Active=false})
+            rounded(dot,3)
+            local tail=owned("Frame",e.overlay,{Name="Tail"..i,AnchorPoint=Vector2.new(.5,.5),Size=UDim2.fromOffset(1,8),
+                BackgroundTransparency=1,BorderSizePixel=0,ZIndex=29,Active=false})
+            e.pool[i]={dot=dot,tail=tail}
+        end
+        CT.effects[t.layer]=e
+        return e
+    end
+    function CT.decorateFX(t,now,w)
+        if not CT.active or CT.stopped or t.name~=CT.config.base then return end
+        local e=CT.effects[t.layer] or effectData(t)
+        local p=CT.palette
+        t.hero.BackgroundColor3=p.background
+        t.hero.BackgroundTransparency=1-(1-e.heroTransparency)*CT.config.opacity
+        -- In custom mode the independently timed v4 layer owns the hero motion.
+        -- The native stacks are restored when the custom theme is turned off.
+        for _,o in ipairs(t.hero:GetChildren()) do
+            if o:IsA("GuiObject") and o~=t.layer and o.Name~="CelestialEasterEgg" and o.Name~="EasterPulse" then
+                if e.legacy[o]==nil then e.legacy[o]=o.Visible end
+                o.Visible=false
+            end
+        end
+        if e.revision~=CT.revision then
+            for _,r in ipairs(e.records) do r.o[r.prop]=p[r.role] or p.accent end
+            e.revision=CT.revision
+        end
+        for _,r in ipairs(e.records) do
+            if r.transparency then
+                local native=r.o.Transparency
+                if native==r.lastApplied then native=r.lastNative or native end
+                r.lastNative=native
+                r.lastApplied=math.clamp(1-(1-native)*CT.config.glow,0,1)
+                r.o.Transparency=r.lastApplied
+            end
+        end
+        local original=CT.config.particles=="Original"
+        local limit=math.floor(#e.particles*CT.config.density+.5)
+        for i,r in ipairs(e.particles) do r.o.Visible=original and r.visible and i<=limit end
+        local style=CT.config.particles
+        e.overlay.Visible=style~="Original" and style~="None"
+        if not e.overlay.Visible then return end
+        local h=math.max(1,t.height or 152)
+        local count=math.floor(#e.pool*CT.config.density+.5)
+        for i,q in ipairs(e.pool) do
+            q.dot.Visible=i<=count; q.tail.Visible=i<=count
+            if i<=count then
+                local seed=(i*.61803398875)%1
+                local pulse=(math.sin(now*(1.4+i%3)+i)+1)*.5
+                q.dot.BackgroundColor3=i%3==0 and p.secondary or p.accent
+                q.tail.BackgroundColor3=p.secondary
+                if style=="Embers" then
+                    local age=(now*(.12+i%4*.018)+seed)%1
+                    local x=(.08+seed*.84)*w+math.sin(now*.6+i)*7
+                    local y=(1-age)*h
+                    q.dot.Position=UDim2.fromOffset(x,y); q.dot.Size=UDim2.fromOffset(2+pulse*2,2+pulse*2)
+                    q.dot.BackgroundTransparency=math.clamp(.2+math.abs(age-.5)*1.3,0,1)
+                    q.tail.Position=UDim2.fromOffset(x,y+5); q.tail.Size=UDim2.fromOffset(1,7); q.tail.Rotation=0
+                    q.tail.BackgroundTransparency=.72
+                elseif style=="Stars" then
+                    local x=(.04+seed*.92)*w; local y=((i*.381966)%1)*h
+                    q.dot.Position=UDim2.fromOffset(x,y); q.dot.Size=UDim2.fromOffset(2+pulse*3,2+pulse*3)
+                    q.dot.BackgroundTransparency=.92-pulse*.8
+                    q.tail.Position=UDim2.fromOffset(x,y); q.tail.Size=UDim2.fromOffset(9,1); q.tail.Rotation=0
+                    q.tail.BackgroundTransparency=.98-pulse*.5
+                else
+                    local x=(.05+seed*.9)*w; local y=((i*.381966)%1)*h
+                    local flash=math.max(0,math.sin(now*2.6+i*1.8))^6
+                    q.dot.Position=UDim2.fromOffset(x,y); q.dot.Size=UDim2.fromOffset(2,13); q.dot.Rotation=25+math.sin(now+i)*15
+                    q.tail.Position=UDim2.fromOffset(x+3,y+10); q.tail.Size=UDim2.fromOffset(2,11); q.tail.Rotation=-24
+                    q.dot.BackgroundTransparency=1-flash*.88; q.tail.BackgroundTransparency=1-flash*.75
+                end
+            end
+        end
+    end
+    local N={bg=Color3.fromRGB(13,16,25),surface=Color3.fromRGB(23,28,41),text=Color3.fromRGB(237,242,255),
+        muted=Color3.fromRGB(161,174,199),accent=Color3.fromRGB(110,171,255)}
+    local function rect(parent,name,x,y,w,h,bg,z)
+        return owned("Frame",parent,{Name=name,Position=UDim2.fromOffset(x,y),Size=UDim2.fromOffset(w,h),
+            BackgroundColor3=bg or N.surface,BorderSizePixel=0,ZIndex=z or 303})
+    end
+    local function text(parent,name,value,x,y,w,h,size,tint)
+        return owned("TextLabel",parent,{Name=name,Text=value,Position=UDim2.fromOffset(x,y),Size=UDim2.fromOffset(w,h),
+            BackgroundTransparency=1,TextColor3=tint or N.text,TextSize=size or 11,Font=Enum.Font.GothamMedium,
+            TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Center,ZIndex=305})
+    end
+    local function btn(parent,name,value,x,y,w,h)
+        local o=owned("TextButton",parent,{Name=name,Text=value,Position=UDim2.fromOffset(x,y),Size=UDim2.fromOffset(w,h),
+            BackgroundColor3=N.surface,BorderSizePixel=0,TextColor3=N.text,TextSize=10,Font=Enum.Font.GothamBold,
+            AutoButtonColor=false,ZIndex=305})
+        rounded(o,7); return o
+    end
+    local function box(parent,name,value,x,y,w,h,multiline)
+        local o=owned("TextBox",parent,{Name=name,Text=value,Position=UDim2.fromOffset(x,y),Size=UDim2.fromOffset(w,h),
+            BackgroundColor3=N.surface,BorderSizePixel=0,TextColor3=N.text,TextSize=11,Font=Enum.Font.Code,
+            ClearTextOnFocus=false,MultiLine=multiline==true,TextWrapped=multiline==true,
+            TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=multiline and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center,ZIndex=305})
+        rounded(o,6); owned("UIPadding",o,{PaddingLeft=UDim.new(0,8),PaddingRight=UDim.new(0,8),PaddingTop=UDim.new(0,5),PaddingBottom=UDim.new(0,5)})
+        return o
+    end
+    local function fit()
+        if not editor or not cardScale then return end
+        local size=editor.AbsoluteSize
+        if size.X>0 and size.Y>0 then cardScale.Scale=math.min(1,math.max(.1,(size.X-20)/400),math.max(.1,(size.Y-20)/540)) end
+    end
+    local function sortedNames()
+        local names={}
+        for name in pairs(CT.presets) do names[#names+1]=name end
+        table.sort(names); return names
+    end
+    local function selectColor(key)
+        selection=key
+        local h,s,v=color(CT.config.colors[key]):ToHSV()
+        hsv={h,s,v}
+        if hexBox then hexBox.Text=CT.config.colors[key] end
+    end
+    function CT.refresh()
+        local p=palette()
+        if toggleButton then
+            toggleButton.Text=CT.active and "CUSTOM THEME: ON" or "CUSTOM THEME: OFF"
+            toggleButton.BackgroundColor3=CT.active and N.accent:Lerp(N.surface,.65) or N.surface
+            baseButton.Text="BASE: "..CT.config.base:upper()
+            particleButton.Text="PARTICLES: "..CT.config.particles:upper()
+            presetButton.Text=selectedPreset and ("PRESET: "..selectedPreset) or "SELECT A SAVED PRESET"
+            preview.BackgroundColor3=p.background; previewText.TextColor3=p.text
+            previewButton.BackgroundColor3=p.buttons; previewButton.TextColor3=p.text
+            previewAccent.BackgroundColor3=p.accent; previewAccent.TextColor3=p.text
+            previewText.Text=CT.config.name.."  /  LIVE PREVIEW"
+            for key,b in pairs(colorButtons) do
+                b.BackgroundColor3=color(CT.config.colors[key])
+                local c=b.BackgroundColor3
+                b.TextColor3=(c.R*.299+c.G*.587+c.B*.114)>.6 and Color3.new(0,0,0) or Color3.new(1,1,1)
+                b.Text=(selection==key and "> " or "")..key:upper()
+            end
+            for _,v in ipairs(sliderViews) do
+                local value=v.get()
+                local fraction=math.clamp((value-v.min)/(v.max-v.min),0,1)
+                v.fill.Size=UDim2.fromScale(fraction,1)
+                v.label.Text=string.format(v.format,value)
+            end
+            hueStrip.BackgroundColor3=Color3.fromHSV(hsv[1],1,1)
+        end
+        if CT.entryStatus then CT.entryStatus.Text=CT.active and ("ACTIVE: "..CT.config.name) or "Six colors / motion / particles / saved presets" end
+        say(CT.message or "Choose colors, then enable your custom theme.")
+    end
+    local function changed(message)
+        retarget(); CT.applyControls(); CT.persist(false); CT.refresh()
+        if message then say(message) end
+    end
+    function CT.close()
+        CT.editing=false; drag=nil
+        if editor then editor.Visible=false end
+        local focused=input:GetFocusedTextBox()
+        if focused and editor and focused:IsDescendantOf(editor) then focused:ReleaseFocus() end
+        if ctx.repaint then ctx.repaint() end
+    end
+    function CT.open()
+        if CT.stopped or not State.alive or State.minimized or State.miniMode then return end
+        editor.Visible=true; CT.editing=true; fit(); CT.refresh()
+        if ctx.pauseInput then ctx.pauseInput() end
+    end
+    function CT.savePreset(name)
+        name=type(name)=="string" and trim(name) or ""
+        if not validName(name) then say("Use 1-32 letters, numbers, spaces, - or _."); return false end
+        if not CT.presets[name] and #sortedNames()>=MAX_PRESETS then say("32 presets maximum. Delete one first."); return false end
+        CT.config.name=name
+        CT.presets[name]=copy(CT.config); selectedPreset=name
+        CT.persist(true); CT.refresh(); say("Preset saved: "..name); CT.applyControls(); return true
+    end
+    function CT.loadPreset(name)
+        local value=CT.presets[name]
+        if not value then say("Select a saved preset first."); return false end
+        local validated,err=validate(value)
+        if not validated then say(err); return false end
+        CT.config=validated; selectColor(selection)
+        CT.activate(true); CT.persist(true)
+        if nameBox then nameBox.Text=CT.config.name end
+        selectedPreset=name; CT.refresh(); say("Preset loaded: "..name); return true
+    end
+    function CT.exportCode()
+        local value=copy(CT.config); value.enabled=nil
+        local ok,raw=pcall(function() return http:JSONEncode(value) end)
+        if not ok then say("Could not encode theme."); return nil end
+        return PREFIX..raw
+    end
+    function CT.importCode(raw)
+        if type(raw)~="string" or #raw>16000 then say("Theme code is missing or too large."); return false end
+        raw=trim(raw)
+        if raw:sub(1,#PREFIX)~=PREFIX then say("Theme codes start with "..PREFIX); return false end
+        local ok,data=pcall(function() return http:JSONDecode(raw:sub(#PREFIX+1)) end)
+        local value,err
+        if ok then value,err=validate(data) end
+        if not value then say(err or "Invalid theme JSON. Nothing changed."); return false end
+        CT.config=value; selectedPreset=nil; selectColor(selection)
+        CT.activate(true); CT.persist(true)
+        if nameBox then nameBox.Text=value.name end
+        CT.refresh(); say("Theme imported. Save it as a named preset to keep a copy."); return true
+    end
+    function CT.stop()
+        if CT.stopped then return end
+        CT.close()
+        if CT.pending and env[SESSION]==CT.sessionSnapshot then writeSnapshot() end
+        CT.stopped=true; CT.active=false; CT.generation+=1
+    end
+    -- Entry uses scale widths so existing window resizing cannot clip it.
+    local entry=owned("Frame",ctx.ThemeUI.page,{Name="CustomThemeStudioEntry",Position=UDim2.fromOffset(16,506),
+        Size=UDim2.new(1,-32,0,96),BackgroundColor3=N.surface,BorderSizePixel=0,ZIndex=6})
+    rounded(entry,10)
+    local entryTitle=text(entry,"StudioTitle","CUSTOM THEME STUDIO",12,10,350,18,12)
+    entryTitle.Size=UDim2.new(1,-24,0,18); entryTitle.ZIndex=7
+    CT.entryStatus=text(entry,"StudioStatus","",12,30,350,16,9,N.muted)
+    CT.entryStatus.Size=UDim2.new(1,-24,0,16); CT.entryStatus.ZIndex=7
+    local openButton=btn(entry,"OpenEditor","OPEN EDITOR",12,55,136,28); openButton.ZIndex=8
+    ctx.connect(openButton.Activated,CT.open)
+    editor=owned("Frame",ctx.root,{Name="CustomThemeStudio",Size=UDim2.fromScale(1,1),BackgroundColor3=Color3.new(0,0,0),
+        BackgroundTransparency=.35,BorderSizePixel=0,Visible=false,Active=true,ZIndex=300})
+    -- An empty full-screen button absorbs clicks behind the modal.
+    owned("TextButton",editor,{Name="InputShield",Size=UDim2.fromScale(1,1),BackgroundTransparency=1,
+        Text="",AutoButtonColor=false,ZIndex=300})
+    card=rect(editor,"Studio",0,0,400,540,N.bg,301)
+    card.AnchorPoint=Vector2.new(.5,.5); card.Position=UDim2.fromScale(.5,.5); card.Active=true; rounded(card,12)
+    cardScale=owned("UIScale",card,{Scale=1})
+    text(card,"Title","CUSTOM THEME STUDIO",12,10,320,22,15)
+    local closeButton=btn(card,"Close","X",364,8,24,26)
+    ctx.connect(closeButton.Activated,CT.close)
+    toggleButton=btn(card,"Enabled","CUSTOM THEME: OFF",12,42,184,30)
+    baseButton=btn(card,"Base","BASE",204,42,184,30)
+    local scroller=owned("ScrollingFrame",card,{Name="EditorFields",Position=UDim2.fromOffset(12,84),
+        Size=UDim2.new(1,-24,1,-144),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=4,
+        ScrollBarImageColor3=N.accent,CanvasSize=UDim2.fromOffset(0,1138),ScrollingDirection=Enum.ScrollingDirection.Y,ZIndex=303})
+    statusLabel=text(card,"Status","",12,484,376,44,10,N.muted); statusLabel.TextWrapped=true
+    statusLabel.TextYAlignment=Enum.TextYAlignment.Top
+    preview=rect(scroller,"Preview",0,0,368,88,N.surface); rounded(preview,9)
+    previewText=text(preview,"PreviewTitle","LIVE PREVIEW",12,8,344,22,11)
+    previewButton=btn(preview,"SampleButton","BUTTON COLOR",12,40,163,32)
+    previewAccent=btn(preview,"SampleAccent","ACCENT COLOR",187,40,169,32)
+    text(scroller,"ColorHeading","COLORS  /  SELECT A SWATCH",0,100,360,20,11,N.muted)
+    for i,key in ipairs(COLOR_KEYS) do
+        local b=btn(scroller,"Color_"..key,key:upper(),((i-1)%3)*124,128+math.floor((i-1)/3)*36,116,30)
+        colorButtons[key]=b
+        ctx.connect(b.Activated,function() selectColor(key); CT.refresh() end)
+    end
+    hexBox=box(scroller,"Hex",CT.config.colors[selection],0,208,116,32,false)
+    hueStrip=rect(scroller,"ColorSample",124,208,244,32,N.accent); rounded(hueStrip,7)
+    local function commitHSV()
+        CT.config.colors[selection]=hex(Color3.fromHSV(hsv[1],hsv[2],hsv[3]))
+        hexBox.Text=CT.config.colors[selection]; changed()
+    end
+    local function slider(name,title,y,minimum,maximum,get,set,format,tint)
+        text(scroller,name.."Title",title,0,y,240,18,11,N.muted)
+        local value=text(scroller,name.."Value","",260,y,108,18,10,N.text); value.TextXAlignment=Enum.TextXAlignment.Right
+        local hit=owned("TextButton",scroller,{Name=name,Position=UDim2.fromOffset(0,y+20),Size=UDim2.fromOffset(368,24),
+            Text="",BackgroundTransparency=1,AutoButtonColor=false,ZIndex=305})
+        local rail=rect(hit,"Rail",0,10,368,4,N.surface,305); rounded(rail,2)
+        local fill=rect(rail,"Fill",0,0,0,4,tint or N.accent,306); rounded(fill,2)
+        local v={get=get,set=set,min=minimum,max=maximum,hit=hit,fill=fill,label=value,format=format or "%.2f"}
+        sliderViews[#sliderViews+1]=v
+        local function update(x)
+            if hit.AbsoluteSize.X<=0 then return end
+            local fraction=math.clamp((x-hit.AbsolutePosition.X)/hit.AbsoluteSize.X,0,1)
+            set(minimum+(maximum-minimum)*fraction)
+        end
+        ctx.connect(hit.InputBegan,function(event)
+            if event.UserInputType==Enum.UserInputType.MouseButton1 or event.UserInputType==Enum.UserInputType.Touch then
+                drag={event=event,update=update}; update(event.Position.X)
+            end
+        end)
+        return v
+    end
+    slider("Hue","Hue",254,0,1,function() return hsv[1] end,function(v) hsv[1]=v; commitHSV() end,"%.2f")
+    slider("Saturation","Saturation",302,0,1,function() return hsv[2] end,function(v) hsv[2]=v; commitHSV() end,"%.2f")
+    slider("Value","Brightness",350,0,1,function() return hsv[3] end,function(v) hsv[3]=v; commitHSV() end,"%.2f")
+    ctx.connect(hexBox.FocusLost,function()
+        local v=trim(hexBox.Text):upper()
+        if v:sub(1,1)~="#" then v="#"..v end
+        if not v:match("^#%x%x%x%x%x%x$") then hexBox.Text=CT.config.colors[selection]; say("Enter a six-digit hex color, such as #6EABFF."); return end
+        CT.config.colors[selection]=v; selectColor(selection); changed("Color updated.")
+    end)
+    text(scroller,"EffectsHeading","EFFECTS",0,406,360,20,11,N.muted)
+    local options={{"Glow","Glow strength",436,0,2,"glow","%.2fx"},
+        {"Opacity","Surface opacity",486,.35,1,"opacity","%.2f"},
+        {"Speed","Motion speed (0 freezes)",536,0,3,"speed","%.2fx"},
+        {"Density","Particle density",586,0,1,"density","%.2f"}}
+    for _,v in ipairs(options) do
+        local key=v[6]
+        slider(v[1],v[2],v[3],v[4],v[5],function() return CT.config[key] end,function(n) CT.config[key]=n; changed() end,v[7])
+    end
+    particleButton=btn(scroller,"ParticleStyle","PARTICLES",0,644,244,30)
+    local resetButton=btn(scroller,"Reset","RESET TO BASE",252,644,116,30)
+    text(scroller,"PresetsHeading","NAMED PRESETS",0,692,360,20,11,N.muted)
+    nameBox=box(scroller,"PresetName",CT.config.name,0,720,244,32,false)
+    local saveButton=btn(scroller,"SavePreset","SAVE",252,720,116,32)
+    presetButton=btn(scroller,"SelectPreset","SELECT A SAVED PRESET",0,760,244,32)
+    local loadButton=btn(scroller,"LoadPreset","LOAD",252,760,56,32)
+    local deleteButton=btn(scroller,"DeletePreset","DELETE",316,760,52,32)
+    text(scroller,"ShareHeading","SHARE CODE  /  JSON DATA ONLY",0,810,360,20,11,N.muted)
+    codeBox=box(scroller,"ShareCode","",0,838,368,150,true); codeBox.PlaceholderText="Paste a VOIDTHEME1: code here"
+    codeBox.TextSize=10
+    local exportButton=btn(scroller,"Export","EXPORT",0,998,116,32)
+    local copyButton=btn(scroller,"Copy","COPY",124,998,116,32)
+    local importButton=btn(scroller,"Import","IMPORT",248,998,120,32)
+    local hint=text(scroller,"Hint","Editing pauses automation key presses. Close the editor to resume.\nPreset names use letters, numbers, spaces, - or _. Up to 32 presets.",0,1046,368,56,10,N.muted)
+    hint.TextWrapped=true
+    ctx.connect(toggleButton.Activated,function()
+        local enabled=not CT.active
+        CT.activate(enabled); CT.persist(true); CT.refresh(); say(enabled and "Custom theme enabled." or "Built-in theme restored.")
+    end)
+    ctx.connect(baseButton.Activated,function()
+        local i=table.find(BASES,CT.config.base) or 1
+        CT.config.base=BASES[i%#BASES+1]
+        if CT.active then CT.activate(true) end
+        changed("Base layout: "..CT.config.base)
+    end)
+    ctx.connect(particleButton.Activated,function()
+        local i=table.find(STYLES,CT.config.particles) or 1
+        CT.config.particles=STYLES[i%#STYLES+1]; changed("Particle style updated.")
+    end)
+    ctx.connect(resetButton.Activated,function()
+        local wasActive,name=CT.active,CT.config.name
+        CT.config=defaults(CT.config.base); CT.config.name=name
+        selectColor(selection)
+        if wasActive then CT.activate(true) end
+        changed("Colors and effects reset to the selected base.")
+    end)
+    ctx.connect(nameBox.FocusLost,function()
+        local name=trim(nameBox.Text)
+        if not validName(name) then nameBox.Text=CT.config.name; say("Use a name of 1-32 letters, numbers, spaces, - or _."); return end
+        CT.config.name=name; changed("Theme renamed.")
+    end)
+    ctx.connect(saveButton.Activated,function() CT.savePreset(nameBox.Text) end)
+    ctx.connect(presetButton.Activated,function()
+        local names=sortedNames()
+        if #names==0 then say("No saved presets yet. Give your theme a name and press SAVE."); return end
+        selectedPreset=names[(table.find(names,selectedPreset) or 0)%#names+1]
+        CT.refresh()
+    end)
+    ctx.connect(loadButton.Activated,function() CT.loadPreset(selectedPreset) end)
+    ctx.connect(deleteButton.Activated,function()
+        if not selectedPreset or not CT.presets[selectedPreset] then say("Select a saved preset first."); return end
+        local name=selectedPreset; CT.presets[name]=nil; selectedPreset=nil
+        CT.persist(true); CT.refresh(); say("Preset deleted: "..name)
+    end)
+    ctx.connect(exportButton.Activated,function()
+        local raw=CT.exportCode(); if raw then codeBox.Text=raw; say("Exported. Copy this code to share your theme.") end
+    end)
+    ctx.connect(copyButton.Activated,function()
+        local raw=CT.exportCode(); if not raw then return end
+        codeBox.Text=raw
+        local clipboard=ctx.clipboard
+        if type(clipboard)=="function" then
+            local ok,result=pcall(clipboard,raw)
+            if ok and result~=false then say("Theme code copied."); return end
+        end
+        codeBox:CaptureFocus(); codeBox.CursorPosition=#raw+1; codeBox.SelectionStart=1
+        say("Code selected. Use your device's copy action.")
+    end)
+    ctx.connect(importButton.Activated,function() CT.importCode(codeBox.Text) end)
+    ctx.connect(input.InputChanged,function(event)
+        if not CT.editing or not drag then return end
+        if event==drag.event or (drag.event.UserInputType==Enum.UserInputType.MouseButton1 and event.UserInputType==Enum.UserInputType.MouseMovement) then
+            drag.update(event.Position.X)
+        end
+    end)
+    ctx.connect(input.InputEnded,function(event)
+        if drag and (event==drag.event or (event.UserInputType==Enum.UserInputType.MouseButton1 and drag.event.UserInputType==Enum.UserInputType.MouseButton1)) then drag=nil end
+    end)
+    ctx.connect(input.WindowFocusReleased,function() drag=nil end)
+    ctx.connect(editor:GetPropertyChangedSignal("AbsoluteSize"),fit)
+    ctx.connect(ctx.root:GetPropertyChangedSignal("Enabled"),function() if not ctx.root.Enabled then CT.close() end end)
+    ctx.connect(ctx.RunService.RenderStepped,function()
+        if CT.stopped or not State.alive then return end
+        if CT.editing and (State.minimized or State.miniMode or not ctx.root.Enabled) then CT.close() end
+    end)
+    selectColor(selection); fit(); CT.refresh()
+    if CT.config.enabled then CT.activate(true); CT.refresh() end
+    -- Install only after successful construction so an optional editor failure
+    -- cannot intercept the existing theme selector.
+    UI.setTheme=function(base)
+        if not CT.switching then
+            CT.active=false; CT.config.enabled=false; restore()
+            if table.find(BASES,base) then CT.config.base=base end
+        end
+        originalSetter(base)
+        if not CT.switching then CT.persist(false); CT.refresh() end
+    end
+    local originalCanonicalize=Theme.canonicalizeControls
+    Theme.canonicalizeControls=function(...)
+        originalCanonicalize(...)
+        if CT.active then CT.applyControls() end
+    end
+    return CT
+end
+]==]
+    local __studioChunk, __studioError = loadstring(__studioSource)
+    if not __studioChunk then
+        warn("[Void Automation] Custom Theme Studio compile failed: "..tostring(__studioError))
+    else
+        local __studioOK, __studioResult = pcall(function()
+            local factory = __studioChunk()
+            return factory({State=State, System=System, Theme=Theme, UI=UI, CoreUI=CoreUI,
+                environment=environment, Input=Input, HttpService=HttpService, RunService=RunService,
+                root=root, panel=panel, header=header, content=content, ThemeUI=ThemeUI, C=C,
+                heroes={Default=voidFX, Blackhole=BH.hero, Empyrean=EMP.hero, Pandemonium=PND.hero, ["Circuit Storm"]=CS.hero},
+                connect=connect, toggleViews=toggleViews, sliders=sliders, nav=nav, statusDot=statusDot,
+                clipboard=(type(setclipboard)=="function" and setclipboard) or environment.setclipboard,
+                repaint=function() render() end,
+                pauseInput=function()
+                    State.gesture=nil
+                    releaseKey()
+                    if Farm and Farm.stopM1 then pcall(Farm.stopM1) end
+                    render()
+                end,
+            })
+        end)
+        if __studioOK then
+            controller.CustomTheme = __studioResult
+        else
+            warn("[Void Automation] Custom Theme Studio unavailable: "..tostring(__studioResult))
+            -- Remove only objects created by the optional editor.
+            for _, parent in ipairs({root, ThemeUI.page}) do
+                for _, child in ipairs(parent:GetChildren()) do
+                    if child:GetAttribute("VoidCustomOwned") then child:Destroy() end
+                end
+            end
+        end
+    end
+end
+
 connect(Input.InputBegan, function(input, gameProcessed)
     if not State.alive then return end
+    -- Preserve unload, emergency stop and visibility keys while editing.
+    -- Gameplay toggles must not react to text entered in a theme field.
+    if controller.CustomTheme and controller.CustomTheme.editing
+        and input.KeyCode~=Settings.StopKey and input.KeyCode~=System.keybinds.EmergencyStop
+        and input.KeyCode~=Settings.VisibilityKey and input.KeyCode~=Enum.KeyCode.F10 then return end
 
     if input.KeyCode == Settings.StopKey then
         controller.Stop()
+        return
+    elseif input.KeyCode == Settings.ESPToggleKey then
+        setESPEnabled(not Settings.ESPEnabled)
+        render()
+        return
+    elseif input.KeyCode == Settings.HealthToggleKey then
+        Guard.setEnabled(not Settings.HealthEscapeEnabled)
+        render()
+        return
+    elseif input.KeyCode == System.keybinds.EmergencyStop then
+        System.emergencyStop()
         return
     elseif input.KeyCode == Enum.KeyCode.F10 then
         if MiniMode and MiniMode.toggle then MiniMode.toggle() end
@@ -8969,7 +11741,10 @@ connect(Input.InputBegan, function(input, gameProcessed)
                 State.visibilityTween = tween
                 tween:Play()
 
-                if System.theme == "Pandemonium" and PND.recoverAfterShow then
+                if System.theme == "Circuit Storm" and CS.ensureVisuals then
+                    pcall(function() CS.ensureVisuals() end)
+                    pcall(function() if CS.recoverAfterShow then CS.recoverAfterShow() end end)
+                elseif System.theme == "Pandemonium" and PND.recoverAfterShow then
                     PND.recoverAfterShow()
                 elseif System.theme == "Empyrean" and EMP.recoverAfterShow then
                     EMP.recoverAfterShow()
@@ -8990,7 +11765,10 @@ connect(GuiService.MenuOpened, function() render() end)
 connect(Input.WindowFocusReleased, function()
     State.focused = false
     State.gesture = nil
-    if Settings.PauseWhenUnfocused then releaseOrPause() end
+    if Settings.PauseWhenUnfocused then
+        releaseOrPause()
+        if Farm and Farm.stopM1 then pcall(Farm.stopM1) end
+    end
 end)
 connect(Input.WindowFocused, function() State.focused = true; render() end)
 connect(Player.CharacterRemoving, function()
@@ -9029,6 +11807,11 @@ connect(Player.CharacterRemoving, function()
 end)
 
 connect(Player.CharacterAdded, function(character)
+    if System.spawnSeen then
+        Webhook.queueEvent("death","CHARACTER RESPAWNED","Character respawned; automation resume logic is evaluating the saved route.")
+    else
+        System.spawnSeen = true
+    end
     if not Settings.AutoBoss then return end
 
     Settings.AutoBoss = true
@@ -9061,6 +11844,31 @@ local function waitResponsive(duration, isHolding)
 end
 pcall(render)
 pcall(function() fitWindow(true) end)
+pcall(function() if root then root.Enabled=true end; if holder then holder.Visible=true end end)
+
+task.defer(function()
+    if not State.alive then return end
+    if Settings.ESPEnabled then pcall(setESPEnabled, true) end
+    if Settings.HealthEscapeEnabled then pcall(Guard.setEnabled, true) end
+    if Settings.FlyEnabled then
+        pcall(Movement.setFly, true)
+    elseif Settings.SpeedEnabled then
+        pcall(Movement.setSpeed, true)
+    elseif Settings.NoClip then
+        pcall(Movement.setNoClip, true)
+    end
+    if Settings.AutoBoss then
+        pcall(Farm.setAutoBoss, true)
+    elseif Settings.FarmEnabled then
+        pcall(Farm.setEnabled, true)
+    end
+    if Settings.BossFirstDiscovery and Farm.bootDiscovery then
+        pcall(Farm.bootDiscovery)
+    end
+    if State.enabled then pcall(setEnabled, true) end
+    pcall(render)
+end)
+task.delay(5,function() if State.alive then pcall(function() if root then root.Enabled=true end; if holder then holder.Visible=true end; if loaderRoot and loaderRoot.Parent then loaderRoot.Enabled=false; loaderRoot:Destroy(); loaderRoot=nil end; fitWindow(false); render() end) end end)
 local skillWorkerAlive = false
 local function runAutoCastCycle(chosen)
     if not chosen or not State.alive then return end
@@ -9071,6 +11879,7 @@ local function runAutoCastCycle(chosen)
     if blocked and type(Farm.inventorySkillPulse) == "function" then
         State.heldKey = nil
         local pressed = Farm.inventorySkillPulse(chosen.key)
+        if controller.CustomTheme and controller.CustomTheme.editing then return end
 
         if pressed then
             State.lastKey = chosen.name .. " (inventory pulse)"
@@ -9177,7 +11986,9 @@ if type(BUILT_IN_BOSS_SEED_CODE) == "string"
     end
 end
 
-Farm.scan(true)
+task.defer(function()
+    if State.alive then pcall(function() Farm.scan(true); render() end) end
+end)
 
 if Settings.StaticMapScan then
     task.delay(0.8, function()
@@ -9198,17 +12009,38 @@ task.delay(1.5, function()
     end
 end)
 
-notify("Void UI ready | boss seeds + static scan + original stable loot active")
+notify("Void UI ready | boss seeds + static scan + enhanced automation active")
+pcall(function()
+    local writer = type(writefile) == "function" and writefile or environment.writefile
+    local source = environment.__AUTOSKILLS_SOURCE
+    if type(writer) == "function" and type(source) == "string" then
+        local ok, err = pcall(writer, System.bodyPath, source)
+        if not ok then warn("AutoSkills source persistence: " .. tostring(err)) end
+    end
+end)
 
 ]====]
 
 local __env = (type(getgenv) == "function" and getgenv()) or _G
+local __bootGui,__bootStatus
+pcall(function()
+    local plr=game:GetService("Players").LocalPlayer; local pg=plr and plr:WaitForChild("PlayerGui",8); if not pg then return end
+    local old=pg:FindFirstChild("VoidAutomationBootstrap"); if old then old:Destroy() end
+    __bootGui=Instance.new("ScreenGui"); __bootGui.Name="VoidAutomationBootstrap"; __bootGui.ResetOnSpawn=false; __bootGui.IgnoreGuiInset=true; __bootGui.DisplayOrder=5000
+    local card=Instance.new("Frame"); card.Size=UDim2.fromOffset(330,86); card.Position=UDim2.fromScale(.5,.08); card.AnchorPoint=Vector2.new(.5,0); card.BackgroundColor3=Color3.fromRGB(9,5,16); card.BorderSizePixel=0; card.Parent=__bootGui; Instance.new("UICorner",card).CornerRadius=UDim.new(0,10)
+    local title=Instance.new("TextLabel"); title.Size=UDim2.new(1,-24,0,22); title.Position=UDim2.fromOffset(12,8); title.BackgroundTransparency=1; title.Text="VOID AUTOMATION"; title.TextColor3=Color3.fromRGB(240,232,255); title.Font=Enum.Font.GothamBold; title.TextSize=14; title.TextXAlignment=Enum.TextXAlignment.Left; title.Parent=card
+    __bootStatus=Instance.new("TextLabel"); __bootStatus.Size=UDim2.new(1,-24,0,42); __bootStatus.Position=UDim2.fromOffset(12,32); __bootStatus.BackgroundTransparency=1; __bootStatus.Text="BOOTSTRAP: starting..."; __bootStatus.TextColor3=Color3.fromRGB(155,143,184); __bootStatus.Font=Enum.Font.Code; __bootStatus.TextSize=10; __bootStatus.TextWrapped=true; __bootStatus.TextXAlignment=Enum.TextXAlignment.Left; __bootStatus.Parent=card
+    __bootGui.Parent=pg
+end)
+local function __bootSet(v) pcall(function() if __bootStatus then __bootStatus.Text=tostring(v) end end) end
+local function __bootCleanup() task.delay(.75,function() pcall(function() if __bootGui then __bootGui:Destroy(); __bootGui=nil end end) end) end
+__bootSet("BOOTSTRAP: resolving theme...")
 -- Resolve the startup theme BEFORE the generated body is executed. This prevents
 -- an old body/JSON preference from ever selecting the Blackhole loader first.
 local function __normalizeStartupTheme(v)
     if type(v) ~= "string" then return nil end
     v = v:gsub("^%s+", ""):gsub("%s+$", "")
-    if v == "Default" or v == "Blackhole" or v == "Empyrean" or v == "Pandemonium" then return v end
+    if v == "Default" or v == "Blackhole" or v == "Empyrean" or v == "Pandemonium" or v == "Circuit Storm" then return v end
     return nil
 end
 local __startupTheme
@@ -9246,23 +12078,29 @@ __startupTheme = __startupTheme or "Pandemonium"
 -- Blackhole disk value would become a new "authoritative" session value and
 -- permanently win on every re-execution.
 __env.__AutoSkills_StartupTheme = __startupTheme
-__env.__AutoSkills_LastTheme = __startupTheme
+-- LastTheme records an actual selection; do not promote a disk fallback here.
 __env.__AUTOSKILLS_SOURCE = __AUTOSKILLS_SOURCE
-pcall(function()
-    local wf = type(writefile) == "function" and writefile or __env.writefile
-    if wf then
-        wf("AutoSkills_Void_AutoRun.lua", __AUTOSKILLS_SOURCE)
-    end
-end)
+-- Body persistence is deferred until the automation body has completed its UI bootstrap.
+__bootSet("BOOTSTRAP: compiling automation body...")
 local __fn, __err = loadstring(__AUTOSKILLS_SOURCE)
 if not __fn then
+    __bootSet("COMPILE ERROR: "..tostring(__err))
     warn("AutoSkills compile error: " .. tostring(__err))
     return
 end
+__bootSet("BOOTSTRAP: starting automation body...")
 local __ok, __runtimeErr = xpcall(__fn, function(err)
     return debug and debug.traceback and debug.traceback(tostring(err), 2) or tostring(err)
 end)
 if not __ok then
+    pcall(function()
+        local active = __env.__AutoSkills_ZXCVB
+        if type(active) == "table" and type(active.Stop) == "function" then active.Stop() end
+    end)
+    __bootSet("RUNTIME ERROR: "..tostring(__runtimeErr))
     warn("AutoSkills runtime error: " .. tostring(__runtimeErr))
+else
+    __bootSet("BOOTSTRAP: UI started")
+    __bootCleanup()
 end
 ]=====])()
